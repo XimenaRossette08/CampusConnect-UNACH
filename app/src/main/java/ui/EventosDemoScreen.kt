@@ -58,6 +58,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.campusconnect.ui.theme.CampusConnectTheme
+import androidx.core.net.toUri
+import android.content.ActivityNotFoundException
 
 /**
  * Colores institucionales de referencia (verde y dorado, tradicionales del
@@ -200,6 +202,7 @@ fun EventosDemoScreen() {
     }
 }
 
+@Suppress("SameParameterValue")
 @Composable
 private fun CalendarioStrip(
     fechas: List<FechaCalendario>,
@@ -379,16 +382,15 @@ private fun DetalleEventoSheet(evento: EventoDemo, onDismiss: () -> Unit) {
 
             Button(
                 onClick = {
-                    val geoUri = Uri.parse(
-                        "geo:${evento.latitud},${evento.longitud}?q=${evento.latitud},${evento.longitud}(${Uri.encode(evento.lugar)})"
-                    )
+                    val geoUri = "geo:${evento.latitud},${evento.longitud}?q=${evento.latitud},${evento.longitud}(${Uri.encode(evento.lugar)})".toUri()
                     val intent = Intent(Intent.ACTION_VIEW, geoUri)
-                    if (intent.resolveActivity(context.packageManager) != null) {
+
+                    try {
+                        // Intenta abrir una aplicación de mapas instalada
                         context.startActivity(intent)
-                    } else {
-                        val webUri = Uri.parse(
-                            "https://www.google.com/maps/search/?api=1&query=${evento.latitud},${evento.longitud}"
-                        )
+                    } catch (e: ActivityNotFoundException) {
+                        // Si falla (no hay app de mapas), abre Google Maps en el navegador web
+                        val webUri = "https://www.google.com/maps/search/?api=1&query=${evento.latitud},${evento.longitud}".toUri()
                         context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
                     }
                 },

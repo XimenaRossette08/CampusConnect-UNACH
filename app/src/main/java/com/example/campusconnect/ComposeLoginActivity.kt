@@ -20,6 +20,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.campusconnect.ui.theme.CampusConnectTheme
+import kotlinx.coroutines.launch
+import com.example.campusconnect.model.LoginRequest
+import com.example.campusconnect.network.RetrofitClient
 
 class ComposeLoginActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,10 +34,7 @@ class ComposeLoginActivity : ComponentActivity() {
                     LoginScreen(
                         onNavigateToAlumno = {
                             startActivity(Intent(this@ComposeLoginActivity, AlumnoFeedActivity::class.java))
-                            finish()
-                        },
-                        onNavigateToAdmin = {
-                            startActivity(Intent(this@ComposeLoginActivity, AdminFeedActivity::class.java))
+                            // finish() evita que el usuario regrese al login si presiona el botón de "Atrás" en su celular
                             finish()
                         }
                     )
@@ -45,9 +45,13 @@ class ComposeLoginActivity : ComponentActivity() {
 }
 
 @Composable
-fun LoginScreen(onNavigateToAlumno: () -> Unit, onNavigateToAdmin: () -> Unit) {
+fun LoginScreen(onNavigateToAlumno: () -> Unit) {
+    val scope = rememberCoroutineScope()
     var correo by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+
+    // Novedad: Controla si se muestra la ruedita de carga
+    var isLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     Column(
@@ -90,7 +94,8 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit, onNavigateToAdmin: () -> Unit) {
                     value = correo,
                     onValueChange = { correo = it },
                     label = { Text("Correo institucional") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading // Bloquea el campo mientras carga
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -100,28 +105,59 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit, onNavigateToAdmin: () -> Unit) {
                     onValueChange = { password = it },
                     label = { Text("Contraseña") },
                     visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
                     onClick = {
-                        val regexAlumno = "^[a-zA-Z]+\\.[a-zA-Z]+[0-9]{2}@unach\\.mx$".toRegex()
-                        if (correo.isEmpty() || password.isEmpty()) {
-                            Toast.makeText(context, "Completa todos los campos", Toast.LENGTH_SHORT).show()
-                        } else if (correo == "admin@unach.mx" && password == "unach123") {
-                            onNavigateToAdmin()
-                        } else if (correo.matches(regexAlumno)) {
-                            onNavigateToAlumno()
-                        } else {
-                            Toast.makeText(context, "Formato incorrecto", Toast.LENGTH_SHORT).show()
+                        // Validación rápida antes de ir a internet
+                        if (correo.isBlank() || password.isBlank()) {
+                            Toast.makeText(context, "Llena todos los campos", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        isLoading = true // Encendemos la animación
+
+                        scope.launch {
+                            try {
+                                val peticion = LoginRequest(correo, password)
+                                val respuesta = RetrofitClient.apiService.loginUser(peticion)
+
+                                if (respuesta.isSuccessful) {
+                                    val token = respuesta.body()?.token
+                                    val rol = respuesta.body()?.rol
+
+                                    if (rol == "alumno" && token != null) {
+                                        // 1. Guardamos el token encriptado
+                                        TokenManager.guardarToken(context, token)
+                                        // 2. Mensaje de éxito
+                                        Toast.makeText(context, "¡Sesión iniciada!", Toast.LENGTH_SHORT).show()
+                                        // 3. Cambiamos de pantalla
+                                        onNavigateToAlumno()
+                                    } else {
+                                        Toast.makeText(context, "Cuenta de administrador. Accede desde el portal web.", Toast.LENGTH_LONG).show()
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Credenciales incorrectas", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error de red. Intenta más tarde.", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isLoading = false // Apagamos la animación sin importar qué pase
+                            }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC99700)),
-                    modifier = Modifier.fillMaxWidth().height(55.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading
                 ) {
-                    Text("Iniciar Sesión", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    if (isLoading) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                    } else {
+                        Text("Ingresar")
+                    }
                 }
             }
         }

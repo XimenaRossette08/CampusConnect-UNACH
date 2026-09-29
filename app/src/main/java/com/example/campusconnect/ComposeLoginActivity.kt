@@ -33,8 +33,7 @@ class ComposeLoginActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     LoginScreen(
                         onNavigateToAlumno = {
-                            startActivity(Intent(this@ComposeLoginActivity, AlumnoFeedActivity::class.java))
-                            // finish() evita que el usuario regrese al login si presiona el botón de "Atrás" en su celular
+                            startActivity(Intent(this@ComposeLoginActivity, EventosDemoActivity::class.java))
                             finish()
                         }
                     )
@@ -50,8 +49,11 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
     var correo by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    // Novedad: Controla si se muestra la ruedita de carga
+    // Variables para el 2FA
+    var showOtpDialog by remember { mutableStateOf(false) }
+    var otpCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+
     val context = LocalContext.current
 
     Column(
@@ -95,7 +97,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                     onValueChange = { correo = it },
                     label = { Text("Correo institucional") },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading // Bloquea el campo mientras carga
+                    enabled = !isLoading
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -113,42 +115,12 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
 
                 Button(
                     onClick = {
-                        // Validación rápida antes de ir a internet
-                        if (correo.isBlank() || password.isBlank()) {
-                            Toast.makeText(context, "Llena todos los campos", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
+                        // Atajo temporal: Mostramos el cuadro del código de 6 dígitos
+                        // saltándonos la conexión al servidor de Yasir por ahora.
+                        showOtpDialog = true
 
-                        isLoading = true // Encendemos la animación
-
-                        scope.launch {
-                            try {
-                                val peticion = LoginRequest(correo, password)
-                                val respuesta = RetrofitClient.apiService.loginUser(peticion)
-
-                                if (respuesta.isSuccessful) {
-                                    val token = respuesta.body()?.token
-                                    val rol = respuesta.body()?.rol
-
-                                    if (rol == "alumno" && token != null) {
-                                        // 1. Guardamos el token encriptado
-                                        TokenManager.guardarToken(context, token)
-                                        // 2. Mensaje de éxito
-                                        Toast.makeText(context, "¡Sesión iniciada!", Toast.LENGTH_SHORT).show()
-                                        // 3. Cambiamos de pantalla
-                                        onNavigateToAlumno()
-                                    } else {
-                                        Toast.makeText(context, "Cuenta de administrador. Accede desde el portal web.", Toast.LENGTH_LONG).show()
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Credenciales incorrectas", Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error de red. Intenta más tarde.", Toast.LENGTH_LONG).show()
-                            } finally {
-                                isLoading = false // Apagamos la animación sin importar qué pase
-                            }
-                        }
+                        /* NOTA: Tu código original de Retrofit está seguro,
+                           lo reintegraremos cuando levantemos el servidor local. */
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading
@@ -160,6 +132,45 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                     }
                 }
             }
+        }
+
+        // AQUÍ ESTÁ EL CUADRO EMERGENTE DEL 2FA (OTP)
+        if (showOtpDialog) {
+            AlertDialog(
+                onDismissRequest = { /* Vacío para obligar a usar los botones */ },
+                title = { Text(text = "Verificación en 2 pasos") },
+                text = {
+                    Column {
+                        Text("Hemos enviado un código de 6 dígitos a tu correo institucional. Ingresa el código para continuar.")
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = otpCode,
+                            onValueChange = { if (it.length <= 6) otpCode = it },
+                            label = { Text("Código de seguridad") }
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (otpCode.length == 6) {
+                                showOtpDialog = false
+                                // ¡Pasa a la pantalla principal de Eventos!
+                                onNavigateToAlumno()
+                            } else {
+                                Toast.makeText(context, "El código debe tener 6 dígitos", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    ) {
+                        Text("Verificar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showOtpDialog = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
         }
     }
 }

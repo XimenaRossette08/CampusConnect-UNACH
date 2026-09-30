@@ -57,10 +57,13 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     // Retrofit para peticiones HTTP
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    // Convertidor Gson para leer el JSON que envíe Yasir
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    // Security Crypto para encriptar el Token JWT
-    implementation("androidx.security:security-crypto:1.0.0")
 
+    // Convertidor Gson para leer el JSON que envíe Yasir
+
+    // Security Crypto para encriptar el Token JWT
+
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

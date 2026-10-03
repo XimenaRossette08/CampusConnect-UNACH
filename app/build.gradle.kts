@@ -62,5 +62,6 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     // Security Crypto para encriptar el Token JWT
     implementation("androidx.security:security-crypto:1.0.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
 }

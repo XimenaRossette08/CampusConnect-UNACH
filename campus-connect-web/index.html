@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Connect - UNACH</title>
+    <!-- Tailwind CSS CDN para estilos y diseño responsivo -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 min-h-screen flex flex-col">
+
+    <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
+    <nav id="navbar" class="bg-[#0C2340] text-white shadow-md hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-3">
+                    <i class="fa-solid fa-graduation-cap text-2xl text-amber-400"></i>
+                    <span class="font-bold text-xl tracking-wide">Campus Connect UNACH</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="user-badge" class="bg-blue-900 text-blue-200 text-xs px-3 py-1 rounded-full font-semibold border border-blue-700">
+                        <!-- Rol del usuario -->
+                    </span>
+                    <span id="user-email" class="text-sm font-medium text-slate-200"></span>
+                    <button onclick="abrirModalCambiarPassword()" class="text-slate-300 hover:text-white text-sm bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 transition">
+                        <i class="fa-solid fa-key mr-1"></i> Contraseña
+                    </button>
+                    <button onclick="cerrarSesion()" class="bg-red-600 hover:bg-red-700 text-white text-sm px-3 py-1.5 rounded-lg transition font-medium">
+                        <i class="fa-solid fa-right-from-bracket mr-1"></i> Salir
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- VISTA 1: FORMULARIO DE INICIO DE SESIÓN Y REGISTRO -->
+    <div id="view-auth" class="flex-1 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-md w-full">
+            <div class="bg-[#0C2340] p-6 text-center text-white">
+                <i class="fa-solid fa-university text-4xl text-amber-400 mb-2"></i>
+                <h2 class="text-2xl font-bold">Campus Connect</h2>
+                <p class="text-xs text-slate-300 mt-1">“Por la conciencia de la necesidad de servir”</p>
+            </div>
+
+            <div class="p-6">
+                <div id="auth-alert" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+                <!-- Formulario de Login -->
+                <form id="form-login" onsubmit="procesarLogin(event)" class="space-y-4">
+                    <h3 class="text-lg font-semibold text-slate-700 border-b pb-2">Iniciar Sesión</h3>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Correo Institucional</label>
+                        <input type="email" id="login-email" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Contraseña</label>
+                        <input type="password" id="login-password" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <button type="submit" id="btn-login" class="w-full bg-[#0C2340] text-white py-2.5 rounded-lg font-semibold hover:bg-blue-950 transition">
+                        Ingresar
+                    </button>
+                    <div class="flex justify-between text-xs text-blue-900 pt-2">
+                        <a href="#" onclick="toggleAuthForm('registro')" class="hover:underline font-semibold">Crear una cuenta</a>
+                        <a href="#" onclick="toggleAuthForm('recuperar')" class="hover:underline">¿Olvidaste tu contraseña?</a>
+                    </div>
+                </form>
+
+                <!-- Formulario de Registro -->
+                <form id="form-registro" onsubmit="procesarRegistro(event)" class="space-y-4 hidden">
+                    <h3 class="text-lg font-semibold text-slate-700 border-b pb-2">Registro de Estudiante</h3>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Nombre Completo</label>
+                        <input type="text" id="reg-nombre" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Correo Institucional</label>
+                        <input type="email" id="reg-email" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Contraseña</label>
+                        <input type="password" id="reg-password" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <button type="submit" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-semibold hover:bg-emerald-700 transition">
+                        Registrarse
+                    </button>
+                    <div class="text-center text-xs text-blue-900 pt-2">
+                        <a href="#" onclick="toggleAuthForm('login')" class="hover:underline font-semibold">¿Ya tienes cuenta? Inicia sesión</a>
+                    </div>
+                </form>
+
+                <!-- Formulario de Solicitud de Recuperación -->
+                <form id="form-recuperar" onsubmit="procesarRecuperacion(event)" class="space-y-4 hidden">
+                    <h3 class="text-lg font-semibold text-slate-700 border-b pb-2">Recuperar Contraseña</h3>
+                    <p class="text-xs text-slate-500">Ingresa tu correo para recibir las instrucciones de restablecimiento.</p>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Correo Institucional</label>
+                        <input type="email" id="rec-email" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <button type="submit" class="w-full bg-amber-600 text-white py-2.5 rounded-lg font-semibold hover:bg-amber-700 transition">
+                        Enviar Enlace
+                    </button>
+                    <div class="text-center text-xs text-blue-900 pt-2">
+                        <a href="#" onclick="toggleAuthForm('login')" class="hover:underline font-semibold">Volver al inicio de sesión</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- VISTA 2: PANEL PRINCIPAL (DASHBOARD) -->
+    <div id="view-dashboard" class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 hidden">
+        
+        <!-- Pestañas de Navegación del Dashboard -->
+        <div class="flex border-b border-slate-300 mb-6 space-x-4">
+            <button onclick="cambiarPestaña('eventos')" id="tab-btn-eventos" class="py-2.5 px-4 font-semibold text-sm border-b-2 border-blue-900 text-blue-900">
+                <i class="fa-solid fa-newspaper mr-2"></i> Eventos y Noticias
+            </button>
+            <button onclick="cambiarPestaña('usuarios')" id="tab-btn-usuarios" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
+                <i class="fa-solid fa-users mr-2"></i> Usuarios y Roles
+            </button>
+            <button onclick="cambiarPestaña('auditoria')" id="tab-btn-auditoria" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
+                <i class="fa-solid fa-shield-halved mr-2"></i> Auditoría del Sistema
+            </button>
+        </div>
+
+        <!-- CONTENIDO PESTAÑA 1: EVENTOS -->
+        <div id="tab-eventos" class="space-y-6">
+            <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800">Cartelera Unificada</h2>
+                    <p class="text-xs text-slate-500">Eventos de la comunidad académica UNACH</p>
+                </div>
+                <!-- Botón visible solo para Administrador y Editor -->
+                <button id="btn-crear-evento" onclick="abrirModalCrearEvento()" class="hidden bg-blue-900 hover:bg-blue-950 text-white text-sm px-4 py-2 rounded-lg font-medium transition">
+                    <i class="fa-solid fa-plus mr-1"></i> Publicar Evento
+                </button>
+            </div>
+
+            <div id="eventos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Se cargan dinámicamente con JavaScript -->
+            </div>
+        </div>
+
+        <!-- CONTENIDO PESTAÑA 2: GESTIÓN DE USUARIOS -->
+        <div id="tab-usuarios" class="hidden space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border">
+                <h2 class="text-xl font-bold text-slate-800 mb-4">Usuarios Registrados y Asignación de Roles</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600 border-b">
+                                <th class="p-3">ID</th>
+                                <th class="p-3">Nombre</th>
+                                <th class="p-3">Correo</th>
+                                <th class="p-3">Rol Actual</th>
+                                <th class="p-3">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-usuarios-body">
+                            <!-- Filas dinámicas -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONTENIDO PESTAÑA 3: AUDITORÍA -->
+        <div id="tab-auditoria" class="hidden space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border">
+                <h2 class="text-xl font-bold text-slate-800 mb-1">Historial de Accesos y Acciones</h2>
+                <p class="text-xs text-slate-500 mb-4">Registro inmutable de trazabilidad y seguridad computacional.</p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600 border-b">
+                                <th class="p-3">Fecha / Hora</th>
+                                <th class="p-3">Usuario</th>
+                                <th class="p-3">Dirección IP</th>
+                                <th class="p-3">Acción</th>
+                                <th class="p-3">Resultado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-auditoria-body">
+                            <!-- Filas dinámicas -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 1: VERIFICACIÓN 2FA -->
+    <div id="modal-2fa" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl border">
+            <div class="text-center mb-4">
+                <i class="fa-solid fa-lock-keyhole text-3xl text-blue-900 mb-2"></i>
+                <h3 class="text-lg font-bold">Verificación en 2 pasos</h3>
+                <p class="text-xs text-slate-500">Ingresa el código de 6 dígitos enviado a tu correo institucional.</p>
+            </div>
+            <div id="modal-2fa-error" class="hidden mb-3 p-2 bg-red-100 text-red-700 text-xs rounded text-center"></div>
+            <input type="text" id="otp-code" maxlength="6" placeholder="123456" class="w-full text-center text-2xl tracking-widest font-mono py-2 border rounded-lg mb-4 focus:ring-2 focus:ring-blue-900 outline-none">
+            <div class="flex space-x-2">
+                <button onclick="cerrarModal2FA()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
+                <button onclick="validarCodigo2FA()" class="w-1/2 bg-[#0C2340] text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Verificar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: CAMBIAR CONTRASEÑA -->
+    <div id="modal-password" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl border">
+            <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Cambiar Contraseña</h3>
+            <form onsubmit="procesarCambioPassword(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Contraseña Actual</label>
+                    <input type="password" id="pass-actual" required class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Nueva Contraseña</label>
+                    <input type="password" id="pass-nueva" required class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                </div>
+                <div class="flex space-x-2 pt-2">
+                    <button type="button" onclick="cerrarModalPassword()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold">Cancelar</button>
+                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 3: CREAR EVENTO CON IMAGEN / FLAYER -->
+    <div id="modal-crear-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Publicar Nuevo Evento</h3>
+            <form onsubmit="procesarCrearEvento(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Título del Evento</label>
+                    <input type="text" id="ev-titulo" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Categoría</label>
+                    <input type="text" id="ev-categoria" placeholder="Académico, Cultural, Deportivo..." class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">URL del Flayer / Imagen</label>
+                    <input type="url" id="ev-imagen-url" placeholder="https://ejemplo.com/flyer.jpg" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Descripción</label>
+                    <textarea id="ev-descripcion" rows="3" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600">Fecha y Hora</label>
+                        <input type="datetime-local" id="ev-fecha-hora" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600">Lugar</label>
+                        <input type="text" id="ev-lugar" placeholder="Auditorio, Sala..." required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                </div>
+                <div class="flex space-x-2 pt-2">
+                    <button type="button" onclick="cerrarModalCrearEvento()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
+                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Publicar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 4: EDITAR EVENTO -->
+    <div id="modal-editar-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Editar Evento</h3>
+            <form onsubmit="procesarEditarEvento(event)" class="space-y-3">
+                <input type="hidden" id="edit-ev-id">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Título del Evento</label>
+                    <input type="text" id="edit-ev-titulo" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Categoría</label>
+                    <input type="text" id="edit-ev-categoria" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">URL del Flayer / Imagen</label>
+                    <input type="url" id="edit-ev-imagen-url" placeholder="https://ejemplo.com/flyer.jpg" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600">Descripción</label>
+                    <textarea id="edit-ev-descripcion" rows="3" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600">Fecha y Hora</label>
+                        <input type="datetime-local" id="edit-ev-fecha-hora" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600">Lugar</label>
+                        <input type="text" id="edit-ev-lugar" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    </div>
+                </div>
+                <div class="flex space-x-2 pt-2">
+                    <button type="button" onclick="cerrarModalEditarEvento()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
+                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 5: TABLA DE ASISTENCIA / ALUMNOS REGISTRADOS -->
+    <div id="modal-asistentes" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl border max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800" id="modal-asistentes-titulo">Lista de Asistentes</h3>
+                    <p class="text-xs text-slate-500">Alumnos inscritos a este evento</p>
+                </div>
+                <button onclick="cerrarModalAsistentes()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="overflow-y-auto flex-1 border rounded-lg">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-600 border-b">
+                            <th class="p-3">#</th>
+                            <th class="p-3">Nombre Completo</th>
+                            <th class="p-3">Correo Institucional</th>
+                            <th class="p-3">Fecha de Registro</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-asistentes-body">
+                        <!-- Filas dinámicas -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pt-4 text-right border-t mt-4">
+                <button onclick="cerrarModalAsistentes()" class="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-slate-900">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPT DE LÓGICA Y CONEXIÓN CON LA API REST -->
+    <script>
+        const API_BASE_URL = "http://127.0.0.1:8000";
+        let userState = {
+            token: localStorage.getItem("access_token") || null,
+            email: localStorage.getItem("user_email") || null,
+            role: localStorage.getItem("user_role") || null,
+            temp2FAEmail: null
+        };
+
+        // Inicialización al cargar la ventana
+        window.addEventListener("DOMContentLoaded", () => {
+            if (userState.token) {
+                cargarPerfilYSistema();
+            } else {
+                mostrarVista("auth");
+            }
+        });
+
+        // Alternar vistas principales
+        function mostrarVista(vista) {
+            document.getElementById("view-auth").classList.toggle("hidden", vista !== "auth");
+            document.getElementById("view-dashboard").classList.toggle("hidden", vista !== "dashboard");
+            document.getElementById("navbar").classList.toggle("hidden", vista !== "dashboard");
+        }
+
+        // Alternar formularios dentro de autenticación
+        function toggleAuthForm(form) {
+            document.getElementById("form-login").classList.toggle("hidden", form !== "login");
+            document.getElementById("form-registro").classList.toggle("hidden", form !== "registro");
+            document.getElementById("form-recuperar").classList.toggle("hidden", form !== "recuperar");
+            ocultarAlertaAuth();
+        }
+
+        function mostrarAlertaAuth(mensaje, esError = true) {
+            const el = document.getElementById("auth-alert");
+            el.className = `mb-4 p-3 rounded-lg text-sm font-medium ${esError ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`;
+            el.innerText = mensaje;
+            el.classList.remove("hidden");
+        }
+
+        function ocultarAlertaAuth() {
+            document.getElementById("auth-alert").classList.add("hidden");
+        }
+
+        // 1. AUTENTICACIÓN: LOGIN + 2FA
+        async function procesarLogin(e) {
+            e.preventDefault();
+            ocultarAlertaAuth();
+            const email = document.getElementById("login-email").value.trim();
+            const password = document.getElementById("login-password").value.trim();
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Credenciales incorrectas.");
+
+                if (data.requiere_2fa) {
+                    userState.temp2FAEmail = email;
+                    document.getElementById("modal-2fa").classList.remove("hidden");
+                }
+            } catch (err) {
+                mostrarAlertaAuth(err.message, true);
+            }
+        }
+
+        async function validarCodigo2FA() {
+            const codigo = document.getElementById("otp-code").value.trim();
+            const errDiv = document.getElementById("modal-2fa-error");
+            errDiv.classList.add("hidden");
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/auth/verificar-2fa`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: userState.temp2FAEmail, codigo })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Código incorrecto o expirado.");
+
+                userState.token = data.access_token;
+                userState.role = data.role;
+                userState.email = userState.temp2FAEmail;
+
+                localStorage.setItem("access_token", data.access_token);
+                localStorage.setItem("user_email", userState.email);
+                localStorage.setItem("user_role", data.role);
+
+                cerrarModal2FA();
+                cargarPerfilYSistema();
+            } catch (err) {
+                errDiv.innerText = err.message;
+                errDiv.classList.remove("hidden");
+            }
+        }
+
+        function cerrarModal2FA() {
+            document.getElementById("modal-2fa").classList.add("hidden");
+            document.getElementById("otp-code").value = "";
+        }
+
+        // 2. REGISTRO DE USUARIO
+        async function procesarRegistro(e) {
+            e.preventDefault();
+            const nombre = document.getElementById("reg-nombre").value.trim();
+            const email = document.getElementById("reg-email").value.trim();
+            const password = document.getElementById("reg-password").value.trim();
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/auth/registro`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ nombre, email, password })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error al completar el registro.");
+
+                mostrarAlertaAuth("¡Registro exitoso! Ya puedes iniciar sesión.", false);
+                toggleAuthForm("login");
+            } catch (err) {
+                mostrarAlertaAuth(err.message, true);
+            }
+        }
+
+        // 3. RECUPERACIÓN DE CONTRASEÑA
+        async function procesarRecuperacion(e) {
+            e.preventDefault();
+            const email = document.getElementById("rec-email").value.trim();
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/auth/recuperar-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email })
+                });
+                const data = await res.json();
+                mostrarAlertaAuth(data.mensaje, false);
+                toggleAuthForm("login");
+            } catch (err) {
+                mostrarAlertaAuth("No se pudo procesar la solicitud.", true);
+            }
+        }
+
+        // 4. CARGA DE DASHBOARD Y ROLES
+        function cargarPerfilYSistema() {
+            document.getElementById("user-email").innerText = userState.email;
+            document.getElementById("user-badge").innerText = userState.role || "Usuario Regular";
+
+            mostrarVista("dashboard");
+            configurarPermisosPorRol();
+            cargarEventos();
+        }
+
+        function configurarPermisosPorRol() {
+            const esAdmin = userState.role === "Administrador";
+            const esEditor = userState.role === "Editor";
+
+            document.getElementById("tab-btn-usuarios").classList.toggle("hidden", !esAdmin);
+            document.getElementById("tab-btn-auditoria").classList.toggle("hidden", !esAdmin);
+            document.getElementById("btn-crear-evento").classList.toggle("hidden", !(esAdmin || esEditor));
+        }
+
+        function cambiarPestaña(tab) {
+            ["eventos", "usuarios", "auditoria"].forEach(t => {
+                const btn = document.getElementById(`tab-btn-${t}`);
+                const container = document.getElementById(`tab-${t}`);
+                if (btn && container) {
+                    const active = t === tab;
+                    container.classList.toggle("hidden", !active);
+                    btn.className = `py-2.5 px-4 font-semibold text-sm border-b-2 ${active ? 'border-blue-900 text-blue-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`;
+                }
+            });
+
+            if (tab === "usuarios") cargarUsuariosAdmin();
+            if (tab === "auditoria") cargarAuditoriaAdmin();
+        }
+
+        // 5. CARGA Y CRUD COMPLETO DE EVENTOS
+        async function cargarEventos() {
+            const container = document.getElementById("eventos-container");
+            container.innerHTML = `<p class="col-span-full text-center text-slate-400 py-8"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando cartelera...</p>`;
+
+            const esAdmin = userState.role === "Administrador";
+            const esEditor = userState.role === "Editor";
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/eventos/feed`, {
+                    headers: { "Authorization": `Bearer ${userState.token}` }
+                });
+                if (!res.ok) throw new Error("Error al obtener eventos.");
+
+                const eventos = await res.json();
+                if (eventos.length === 0) {
+                    container.innerHTML = `<p class="col-span-full text-center text-slate-500 py-8">No hay eventos disponibles actualmente.</p>`;
+                    return;
+                }
+
+                container.innerHTML = eventos.map(ev => {
+                    const fechaTexto = ev.fechaHora ? new Date(ev.fechaHora).toLocaleString() : 'Próximamente';
+                    const fechaInput = ev.fechaHora ? new Date(ev.fechaHora).toISOString().slice(0, 16) : '';
+                    const imagenFlayer = ev.imagenUrl || ev.imagen_url || '';
+
+                    return `
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition flex flex-col justify-between">
+                            <div>
+                                <!-- Encabezado / Flayer de Imagen -->
+                                ${imagenFlayer ? `
+                                    <div class="w-full h-44 overflow-hidden bg-slate-100 border-b">
+                                        <img src="${imagenFlayer}" alt="${ev.titulo}" class="w-full h-full object-cover">
+                                    </div>
+                                ` : `
+                                    <div class="w-full h-28 bg-gradient-to-r from-blue-900 to-indigo-800 flex items-center justify-center text-white/50">
+                                        <i class="fa-solid fa-image text-3xl"></i>
+                                    </div>
+                                `}
+
+                                <div class="p-5">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <span class="text-xs font-bold text-blue-900 uppercase tracking-wider">${ev.categoria || 'General'}</span>
+                                        ${(esAdmin || esEditor) ? `
+                                            <div class="flex space-x-1">
+                                                <button onclick="abrirModalEditarEvento('${ev.id}', \`${ev.titulo}\`, \`${ev.categoria || ''}\`, \`${ev.descripcion}\`, '${fechaInput}', \`${ev.lugar}\`, \`${imagenFlayer}\`)" class="text-xs text-slate-600 hover:text-blue-900 p-1.5 rounded border hover:bg-slate-50" title="Editar">
+                                                    <i class="fa-solid fa-pen-to-square"></i>
+                                                </button>
+                                                <button onclick="eliminarEvento('${ev.id}')" class="text-xs text-red-600 hover:text-red-800 p-1.5 rounded border border-red-200 hover:bg-red-50" title="Eliminar">
+                                                    <i class="fa-solid fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    <h3 class="text-lg font-bold text-slate-800">${ev.titulo}</h3>
+                                    <p class="text-xs text-slate-500 mt-2 line-clamp-3">${ev.descripcion}</p>
+                                </div>
+                            </div>
+
+                            <div class="px-5 py-3 bg-slate-50 border-t space-y-3">
+                                <div class="flex justify-between items-center text-xs text-slate-400">
+                                    <span><i class="fa-regular fa-calendar mr-1"></i> ${fechaTexto}</span>
+                                    <span><i class="fa-solid fa-location-dot mr-1"></i> ${ev.lugar || 'Campus'}</span>
+                                </div>
+
+                                <div class="flex space-x-2 pt-1">
+                                    <button onclick="registrarAsistenciaEvento('${ev.id}')" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold py-1.5 rounded transition text-center">
+                                        <i class="fa-solid fa-user-check mr-1"></i> Registrarme
+                                    </button>
+                                    ${(esAdmin || esEditor) ? `
+                                        <button onclick="verAsistentesEvento('${ev.id}', \`${ev.titulo}\`)" class="bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3 py-1.5 rounded transition">
+                                            <i class="fa-solid fa-users mr-1"></i> Asistentes
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+            } catch (err) {
+                container.innerHTML = `<p class="col-span-full text-center text-red-500 py-8">${err.message}</p>`;
+            }
+        }
+
+        // Modal Crear Evento
+        function abrirModalCrearEvento() {
+            document.getElementById("modal-crear-evento").classList.remove("hidden");
+        }
+
+        function cerrarModalCrearEvento() {
+            document.getElementById("modal-crear-evento").classList.add("hidden");
+            document.getElementById("ev-titulo").value = "";
+            document.getElementById("ev-categoria").value = "";
+            document.getElementById("ev-imagen-url").value = "";
+            document.getElementById("ev-descripcion").value = "";
+            document.getElementById("ev-fecha-hora").value = "";
+            document.getElementById("ev-lugar").value = "";
+        }
+
+        async function procesarCrearEvento(e) {
+            e.preventDefault();
+            const titulo = document.getElementById("ev-titulo").value.trim();
+            const categoria = document.getElementById("ev-categoria").value.trim();
+            const imagenUrl = document.getElementById("ev-imagen-url").value.trim();
+            const descripcion = document.getElementById("ev-descripcion").value.trim();
+            const fechaHoraInput = document.getElementById("ev-fecha-hora").value;
+            const lugar = document.getElementById("ev-lugar").value.trim();
+
+            const fechaHoraISO = new Date(fechaHoraInput).toISOString();
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/eventos/`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${userState.token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        titulo: titulo,
+                        descripcion: descripcion,
+                        fechaHora: fechaHoraISO,
+                        lugar: lugar,
+                        esGeneral: true,
+                        categoria: categoria || "General",
+                        imagenUrl: imagenUrl || null
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "No se pudo publicar el evento.");
+
+                alert("¡Evento publicado exitosamente con flayer!");
+                cerrarModalCrearEvento();
+                cargarEventos();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        // Modal Editar Evento
+        function abrirModalEditarEvento(id, titulo, categoria, descripcion, fechaHora, lugar, imagenUrl) {
+            document.getElementById("edit-ev-id").value = id;
+            document.getElementById("edit-ev-titulo").value = titulo;
+            document.getElementById("edit-ev-categoria").value = categoria;
+            document.getElementById("edit-ev-imagen-url").value = imagenUrl || "";
+            document.getElementById("edit-ev-descripcion").value = descripcion;
+            document.getElementById("edit-ev-fecha-hora").value = fechaHora;
+            document.getElementById("edit-ev-lugar").value = lugar;
+            document.getElementById("modal-editar-evento").classList.remove("hidden");
+        }
+
+        function cerrarModalEditarEvento() {
+            document.getElementById("modal-editar-evento").classList.add("hidden");
+        }
+
+        async function procesarEditarEvento(e) {
+            e.preventDefault();
+            const id = document.getElementById("edit-ev-id").value;
+            const titulo = document.getElementById("edit-ev-titulo").value.trim();
+            const categoria = document.getElementById("edit-ev-categoria").value.trim();
+            const imagenUrl = document.getElementById("edit-ev-imagen-url").value.trim();
+            const descripcion = document.getElementById("edit-ev-descripcion").value.trim();
+            const fechaHoraInput = document.getElementById("edit-ev-fecha-hora").value;
+            const lugar = document.getElementById("edit-ev-lugar").value.trim();
+
+            const fechaHoraISO = new Date(fechaHoraInput).toISOString();
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/eventos/${id}`, {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${userState.token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        titulo: titulo,
+                        descripcion: descripcion,
+                        fechaHora: fechaHoraISO,
+                        lugar: lugar,
+                        esGeneral: true,
+                        categoria: categoria || "General",
+                        imagenUrl: imagenUrl || null
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "No se pudo actualizar el evento.");
+
+                alert("¡Evento actualizado exitosamente!");
+                cerrarModalEditarEvento();
+                cargarEventos();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        // Eliminar Evento
+        async function eliminarEvento(id) {
+            if (!confirm("¿Estás seguro de que deseas eliminar permanentemente este evento?")) return;
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/eventos/${id}`, {
+                    method: "DELETE",
+                    headers: { "Authorization": `Bearer ${userState.token}` }
+                });
+
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || "Error al eliminar evento.");
+                }
+
+                alert("Evento eliminado correctamente.");
+                cargarEventos();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        // 6. REGISTRO Y TABLA DE ASISTENCIA
+        async function registrarAsistenciaEvento(eventoId) {
+            try {
+                const res = await fetch(`${API_BASE_URL}/eventos/${eventoId}/registro`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${userState.token}`,
+                        "Content-Type": "application/json"
+                    }
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Ya estás registrado o no se pudo completar el registro.");
+
+                alert("¡Te has inscrito correctamente al evento!");
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function verAsistentesEvento(eventoId, titulo) {
+            document.getElementById("modal-asistentes-titulo").innerText = `Asistentes: ${titulo}`;
+            const tbody = document.getElementById("tabla-asistentes-body");
+            tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando lista de inscritos...</td></tr>`;
+            document.getElementById("modal-asistentes").classList.remove("hidden");
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/eventos/${eventoId}/asistentes`, {
+                    headers: { "Authorization": `Bearer ${userState.token}` }
+                });
+
+                if (!res.ok) throw new Error("Error al consultar la lista de asistentes.");
+
+                const asistentes = await res.json();
+                if (asistentes.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = asistentes.map((a, index) => `
+                    <tr class="border-b hover:bg-slate-50">
+                        <td class="p-3 font-semibold text-slate-400">${index + 1}</td>
+                        <td class="p-3 font-medium text-slate-800">${a.nombre || a.usuario_nombre}</td>
+                        <td class="p-3 text-slate-500 font-mono">${a.email || a.usuario_email}</td>
+                        <td class="p-3 text-slate-400">${a.fecha_registro ? new Date(a.fecha_registro).toLocaleString() : 'Reciente'}</td>
+                    </tr>
+                `).join("");
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500">${err.message}</td></tr>`;
+            }
+        }
+
+        function cerrarModalAsistentes() {
+            document.getElementById("modal-asistentes").classList.add("hidden");
+        }
+
+        // 7. ADMINISTRACIÓN: USUARIOS Y AUDITORÍA
+        async function cargarUsuariosAdmin() {
+            const tbody = document.getElementById("tabla-usuarios-body");
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/usuarios`, {
+                    headers: { "Authorization": `Bearer ${userState.token}` }
+                });
+                const usuarios = await res.json();
+
+                tbody.innerHTML = usuarios.map(u => `
+                    <tr class="border-b hover:bg-slate-50">
+                        <td class="p-3 font-mono text-xs">${u.id}</td>
+                        <td class="p-3 font-medium">${u.nombre}</td>
+                        <td class="p-3 text-slate-500">${u.email}</td>
+                        <td class="p-3"><span class="px-2 py-1 bg-slate-200 rounded text-xs font-semibold">${u.rol}</span></td>
+                        <td class="p-3">
+                            <select onchange="cambiarRolUsuario(${u.id}, this.value)" class="text-xs border rounded px-2 py-1 bg-white">
+                                <option value="Usuario Regular" ${u.rol === 'Usuario Regular' ? 'selected' : ''}>Usuario Regular</option>
+                                <option value="Editor" ${u.rol === 'Editor' ? 'selected' : ''}>Editor</option>
+                                <option value="Administrador" ${u.rol === 'Administrador' ? 'selected' : ''}>Administrador</option>
+                            </select>
+                        </td>
+                    </tr>
+                `).join("");
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Error al obtener usuarios.</td></tr>`;
+            }
+        }
+
+        async function cambiarRolUsuario(userId, nuevoRol) {
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/usuarios/${userId}/rol`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${userState.token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ rol: nuevoRol })
+                });
+                if (!res.ok) alert("No se pudo actualizar el rol del usuario.");
+            } catch (err) {
+                alert("Error de conexión al cambiar el rol.");
+            }
+        }
+
+        async function cargarAuditoriaAdmin() {
+            const tbody = document.getElementById("tabla-auditoria-body");
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/auditoria`, {
+                    headers: { "Authorization": `Bearer ${userState.token}` }
+                });
+                const registros = await res.json();
+
+                tbody.innerHTML = registros.map(r => `
+                    <tr class="border-b hover:bg-slate-50">
+                        <td class="p-3 text-slate-400">${new Date(r.fecha_hora).toLocaleString()}</td>
+                        <td class="p-3 font-medium">${r.usuario_email || 'Anónimo'}</td>
+                        <td class="p-3 font-mono text-slate-500">${r.direccion_ip}</td>
+                        <td class="p-3 font-semibold">${r.accion}</td>
+                        <td class="p-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.exitoso ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">
+                                ${r.exitoso ? 'ÉXITO' : 'FALLO'}
+                            </span>
+                        </td>
+                    </tr>
+                `).join("");
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Error al cargar el registro de auditoría.</td></tr>`;
+            }
+        }
+
+        // 8. CAMBIO DE CONTRASEÑA Y CERRAR SESIÓN
+        function abrirModalCambiarPassword() {
+            document.getElementById("modal-password").classList.remove("hidden");
+        }
+
+        function cerrarModalPassword() {
+            document.getElementById("modal-password").classList.add("hidden");
+        }
+
+        async function procesarCambioPassword(e) {
+            e.preventDefault();
+            const password_actual = document.getElementById("pass-actual").value;
+            const password_nueva = document.getElementById("pass-nueva").value;
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/auth/cambiar-password`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${userState.token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ password_actual, password_nueva })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error al actualizar la contraseña.");
+
+                alert("Contraseña actualizada exitosamente.");
+                cerrarModalPassword();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        function cerrarSesion() {
+            localStorage.clear();
+            userState = { token: null, email: null, role: null, temp2FAEmail: null };
+            mostrarVista("auth");
+            toggleAuthForm("login");
+        }
+    </script>
+</body>
+</html>

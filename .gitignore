@@ -13,3 +13,16 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Entornos virtuales de Python
+venv/
+env/
+
+# Archivos de configuración sensible / llaves
+.env
+
+# Archivos de caché de Python
+**/__pycache__/
+*.pyc
+
+# Dependencias web (en caso de usar Node/React más adelante)
+node_modules/

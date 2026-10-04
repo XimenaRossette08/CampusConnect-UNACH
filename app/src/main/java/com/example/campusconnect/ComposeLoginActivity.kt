@@ -19,10 +19,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.campusconnect.model.LoginRequest
+import com.example.campusconnect.model.Verificar2FARequest
+import com.example.campusconnect.network.RetrofitClient
 import com.example.campusconnect.ui.theme.CampusConnectTheme
 import kotlinx.coroutines.launch
-import com.example.campusconnect.model.LoginRequest
-import com.example.campusconnect.network.RetrofitClient
+import retrofit2.HttpException
+import java.io.IOException
 
 class ComposeLoginActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,10 +52,10 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
     var correo by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    // Variables para el 2FA
     var showOtpDialog by remember { mutableStateOf(false) }
     var otpCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var isVerifyingOtp by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
@@ -66,7 +69,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                 .background(Color(0xFF0C2340))
         ) {
             Text(
-                text = "“La búsqueda del conocimiento transforma la sociedad”",
+                text = "\u201cLa búsqueda del conocimiento transforma la sociedad\u201d",
                 color = Color.White,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
@@ -96,6 +99,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                     value = correo,
                     onValueChange = { correo = it },
                     label = { Text("Correo institucional") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading
                 )
@@ -107,6 +111,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                     onValueChange = { password = it },
                     label = { Text("Contraseña") },
                     visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading
                 )
@@ -115,12 +120,39 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
 
                 Button(
                     onClick = {
-                        // Atajo temporal: Mostramos el cuadro del código de 6 dígitos
-                        // saltándonos la conexión al servidor de Yasir por ahora.
-                        showOtpDialog = true
+                        val correoLimpio = correo.trim()
+                        val passwordLimpia = password.trim()
 
-                        /* NOTA: Tu código original de Retrofit está seguro,
-                           lo reintegraremos cuando levantemos el servidor local. */
+                        if (correoLimpio.isBlank() || passwordLimpia.isBlank()) {
+                            Toast.makeText(context, "Completa todos los campos", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        isLoading = true
+                        scope.launch {
+                            try {
+                                // Se usan 'correo' y 'contrasena' según los parámetros de tu LoginRequest
+                                val respuesta = RetrofitClient.obtenerApi(context)
+                                    .loginUser(LoginRequest(correo = correoLimpio, contrasena = passwordLimpia))
+
+                                if (respuesta.isSuccessful) {
+                                    showOtpDialog = true
+                                } else {
+                                    Toast.makeText(context, "Correo o contraseña incorrectos", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: HttpException) {
+                                val mensaje = if (e.code() == 401) {
+                                    "Correo o contraseña incorrectos"
+                                } else {
+                                    "Error en el servidor (${e.code()})"
+                                }
+                                Toast.makeText(context, mensaje, Toast.LENGTH_SHORT).show()
+                            } catch (e: IOException) {
+                                Toast.makeText(context, "Error de red. Verifica tu conexión.", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isLoading = false
+                            }
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading
@@ -134,39 +166,82 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
             }
         }
 
-        // AQUÍ ESTÁ EL CUADRO EMERGENTE DEL 2FA (OTP)
         if (showOtpDialog) {
             AlertDialog(
-                onDismissRequest = { /* Vacío para obligar a usar los botones */ },
+                onDismissRequest = { /* Vacío para forzar uso de botones */ },
                 title = { Text(text = "Verificación en 2 pasos") },
                 text = {
                     Column {
-                        Text("Hemos enviado un código de 6 dígitos a tu correo institucional. Ingresa el código para continuar.")
+                        Text("Hemos enviado un código de 6 dígitos a tu correo. Ingresa el código para continuar.")
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedTextField(
                             value = otpCode,
                             onValueChange = { if (it.length <= 6) otpCode = it },
-                            label = { Text("Código de seguridad") }
+                            label = { Text("Código de seguridad") },
+                            singleLine = true,
+                            enabled = !isVerifyingOtp
                         )
                     }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
-                            if (otpCode.length == 6) {
-                                showOtpDialog = false
-                                // ¡Pasa a la pantalla principal de Eventos!
-                                onNavigateToAlumno()
-                            } else {
+                            val codigoLimpio = otpCode.trim()
+                            if (codigoLimpio.length != 6) {
                                 Toast.makeText(context, "El código debe tener 6 dígitos", Toast.LENGTH_SHORT).show()
+                                return@Button
                             }
-                        }
+
+                            isVerifyingOtp = true
+                            scope.launch {
+                                try {
+                                    val respuesta2FA = RetrofitClient.obtenerApi(context)
+                                        .verificar2FA(
+                                            Verificar2FARequest(
+                                                email = correo.trim(),
+                                                codigo = codigoLimpio
+                                            )
+                                        )
+
+                                    if (respuesta2FA.isSuccessful && respuesta2FA.body() != null) {
+                                        val tokenData = respuesta2FA.body()!!
+
+                                        TokenManager.guardarSesion(
+                                            context = context,
+                                            token = tokenData.accessToken,
+                                            refreshToken = tokenData.refreshToken,
+                                            rol = tokenData.role
+                                        )
+
+                                        showOtpDialog = false
+                                        onNavigateToAlumno()
+                                    } else {
+                                        Toast.makeText(context, "Código incorrecto o expirado", Toast.LENGTH_LONG).show()
+                                    }
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error al verificar el código", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isVerifyingOtp = false
+                                }
+                            }
+                        },
+                        enabled = !isVerifyingOtp
                     ) {
-                        Text("Verificar")
+                        if (isVerifyingOtp) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp))
+                        } else {
+                            Text("Verificar")
+                        }
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showOtpDialog = false }) {
+                    TextButton(
+                        onClick = {
+                            showOtpDialog = false
+                            otpCode = ""
+                        },
+                        enabled = !isVerifyingOtp
+                    ) {
                         Text("Cancelar")
                     }
                 }

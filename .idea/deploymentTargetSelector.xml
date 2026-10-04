@@ -17,15 +17,15 @@
         <option name="selectionMode" value="DROPDOWN" />
         <DialogSelection />
       </SelectionState>
-      <SelectionState runConfigName="AlumnoFeedActivity">
-        <option name="selectionMode" value="DROPDOWN" />
-        <DialogSelection />
-      </SelectionState>
       <SelectionState runConfigName="EventosDemoActivity (1)">
         <option name="selectionMode" value="DROPDOWN" />
         <DialogSelection />
       </SelectionState>
-      <SelectionState runConfigName="AlumnoFeedActivity (1)">
+      <SelectionState runConfigName="EventosDemoActivity (3)">
+        <option name="selectionMode" value="DROPDOWN" />
+        <DialogSelection />
+      </SelectionState>
+      <SelectionState runConfigName="All Tests">
         <option name="selectionMode" value="DROPDOWN" />
         <DialogSelection />
       </SelectionState>

@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -13,7 +14,15 @@
         android:theme="@style/Theme.CampusConnect"
         android:usesCleartextTraffic="true">
 
-
+        <!-- EL DIRECTOR DE TRÁFICO AHORA ES LA PANTALLA PRINCIPAL -->
+        <activity
+            android:name=".SplashActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".AdminFeedActivity"
@@ -27,17 +36,18 @@
 
         <activity
             android:name=".ComposeLoginActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/title_activity_compose_login"
             android:theme="@style/Theme.CampusConnect"
-            android:windowSoftInputMode="adjustResize">
-            <!-- Este intent-filter indica que esta es la primera pantalla al abrir la app -->
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-        <activity android:name=".EventosDemoActivity" android:exported="true" />
-    </application>
+            android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".EventosDemoActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".RenovarSesionActivity"
+            android:exported="false" />
+
+    </application>
 </manifest>

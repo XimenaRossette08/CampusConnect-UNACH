@@ -61,6 +61,11 @@ dependencies {
     // Convertidor Gson para leer el JSON que envíe Yasir
 
     // Security Crypto para encriptar el Token JWT
+feature/Ui-Eventos
+
+    implementation("androidx.security:security-crypto:1.0.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+master
 
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")

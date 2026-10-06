@@ -36,6 +36,8 @@ android {
 }
 
 dependencies {
+    // Carga de imágenes remotas desde URL
+    implementation("io.coil-kt:coil-compose:2.6.0")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.activity.ktx)
@@ -55,20 +57,15 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Iconos extendidos de Material
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
-    // Retrofit para peticiones HTTP
 
-    // Convertidor Gson para leer el JSON que envíe Yasir
-
-    // Security Crypto para encriptar el Token JWT
-feature/Ui-Eventos
-
-    implementation("androidx.security:security-crypto:1.0.0")
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
-master
-
+    // Retrofit y OkHttp para peticiones HTTP
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Security Crypto para encriptar el Token JWT
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

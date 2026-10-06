@@ -1,4 +1,3 @@
-
 package com.example.campusconnect.ui
 
 import android.content.Context
@@ -31,12 +30,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
 import com.example.campusconnect.ui.theme.CampusConnectTheme
@@ -53,6 +54,8 @@ private object ColorUnach {
 }
 
 // ---------- Modelos de apoyo ----------
+private data class FechaCalendario(val clave: String, val diaSemana: String, val diaNumero: String)
+
 private data class Recompensa(
     val id: Int,
     val titulo: String,
@@ -71,7 +74,14 @@ private data class PerfilDemo(
 private data class ParadaBus(val nombre: String, val latitud: Double, val longitud: Double)
 private data class RutaBus(val id: Int, val nombre: String, val paradas: List<ParadaBus>)
 
-// Función para abrir Google Maps con coordenadas exactas
+private val fechasDemo = listOf(
+    FechaCalendario("2026-10-05", "LUN", "05"),
+    FechaCalendario("2026-10-06", "MAR", "06"),
+    FechaCalendario("2026-10-07", "MIÉ", "07"),
+    FechaCalendario("2026-10-08", "JUE", "08"),
+    FechaCalendario("2026-10-09", "VIE", "09")
+)
+
 private fun abrirUbicacionEnMaps(context: Context, latitud: Double, longitud: Double, etiqueta: String) {
     val geoUri = Uri.parse("geo:$latitud,$longitud?q=$latitud,$longitud(${Uri.encode(etiqueta)})")
     val intent = Intent(Intent.ACTION_VIEW, geoUri)
@@ -139,6 +149,7 @@ private val rutasDeEjemplo = listOf(
 fun EventosDemoScreen() {
     val context = LocalContext.current
     var pestañaSeleccionada by remember { mutableIntStateOf(0) }
+    var fechaSeleccionada by remember { mutableStateOf<String?>(null) }
     var eventoSeleccionado by remember { mutableStateOf<Evento?>(null) }
     var mostrarFormularioReporte by remember { mutableStateOf(false) }
     var puntosUsuario by remember { mutableIntStateOf(120) }
@@ -233,6 +244,11 @@ fun EventosDemoScreen() {
             Crossfade(targetState = pestañaSeleccionada, label = "cambioPestaña") { pestaña ->
                 when (pestaña) {
                     0 -> EventosContenidoReal(
+                        fechas = fechasDemo,
+                        fechaSeleccionada = fechaSeleccionada,
+                        onSeleccionarFecha = { clave ->
+                            fechaSeleccionada = if (fechaSeleccionada == clave) null else clave
+                        },
                         cargando = cargandoEventos,
                         error = errorEventos,
                         eventos = listaEventosReal,
@@ -281,62 +297,111 @@ fun EventosDemoScreen() {
     }
 }
 
-// ---------- Componente de Lista para Eventos Reales ----------
+// ---------- Componente de Lista para Eventos Reales con Calendario ----------
 
 @Composable
 private fun EventosContenidoReal(
+    fechas: List<FechaCalendario>,
+    fechaSeleccionada: String?,
+    onSeleccionarFecha: (String) -> Unit,
     cargando: Boolean,
     error: String?,
     eventos: List<Evento>,
     onEventoClick: (Evento) -> Unit
 ) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        when {
-            cargando -> {
-                CircularProgressIndicator(color = ColorUnach.AzulProfundo)
-            }
-            error != null -> {
-                Text(text = error, color = Color.Red, fontSize = 14.sp)
-            }
-            eventos.isEmpty() -> {
-                Text(text = "No hay eventos disponibles actualmente.", color = ColorUnach.TextoSecundario)
-            }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(eventos) { evento ->
-                        Card(
-                            onClick = { onEventoClick(evento) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                            border = BorderStroke(1.dp, Color(0x14000000))
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = evento.titulo,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = evento.descripcion,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = ColorUnach.TextoSecundario
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "📍 ${evento.lugar}",
-                                    fontSize = 12.sp,
-                                    color = ColorUnach.AzulMedio
-                                )
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Tira de Calendario en la parte superior
+        CalendarioStrip(fechas = fechas, seleccionada = fechaSeleccionada, onSeleccionar = onSeleccionarFecha)
+
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            when {
+                cargando -> {
+                    CircularProgressIndicator(color = ColorUnach.AzulProfundo)
+                }
+                error != null -> {
+                    Text(text = error, color = Color.Red, fontSize = 14.sp)
+                }
+                eventos.isEmpty() -> {
+                    Text(text = "No hay eventos disponibles actualmente.", color = ColorUnach.TextoSecundario)
+                }
+                else -> {
+                    val eventosFiltrados = remember(fechaSeleccionada, eventos) {
+                        if (fechaSeleccionada == null) eventos
+                        else eventos.filter { it.fechaHora.startsWith(fechaSeleccionada) }
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(eventosFiltrados) { evento ->
+                            Card(
+                                onClick = { onEventoClick(evento) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                border = BorderStroke(1.dp, Color(0x14000000))
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        text = evento.titulo,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = evento.descripcion,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = ColorUnach.TextoSecundario
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "📍 ${evento.lugar}",
+                                        fontSize = 12.sp,
+                                        color = ColorUnach.AzulMedio
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarioStrip(
+    fechas: List<FechaCalendario>,
+    seleccionada: String?,
+    onSeleccionar: (String) -> Unit
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(fechas, key = { it.clave }) { fecha ->
+            val estaSeleccionada = fecha.clave == seleccionada
+            val fondo by animateColorAsState(
+                targetValue = if (estaSeleccionada) ColorUnach.AzulProfundo else Color.White,
+                label = "fondoChipFecha"
+            )
+            val textoColor by animateColorAsState(
+                targetValue = if (estaSeleccionada) Color.White else ColorUnach.AzulProfundo,
+                label = "textoChipFecha"
+            )
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(fondo)
+                    .border(1.dp, ColorUnach.AzulMedio.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                    .clickable { onSeleccionar(fecha.clave) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(fecha.diaSemana, fontSize = 12.sp, color = textoColor)
+                Text(fecha.diaNumero, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = textoColor)
             }
         }
     }
@@ -352,7 +417,6 @@ private fun DetalleEventoSheet(
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // Coordenadas fijas solicitadas para la sala en Tuxtla Gutiérrez
     val latitudSala = 16.755383187559016
     val longitudSala = -93.15690033270026
 
@@ -366,17 +430,27 @@ private fun DetalleEventoSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(140.dp)
+                    .height(160.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Brush.linearGradient(listOf(ColorUnach.AzulProfundo, ColorUnach.AzulMedio))),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Image,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(40.dp)
-                )
+                // Reemplaza la línea con error por esta:
+                if (!evento.imagenUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = evento.imagenUrl,
+                        contentDescription = evento.titulo,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Image,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -388,7 +462,6 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 1. BOTÓN REGISTRARSE
             Button(
                 onClick = {
                     onRegistrarse()
@@ -407,7 +480,6 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 2. BOTÓN ABRIR GOOGLE MAPS
             OutlinedButton(
                 onClick = {
                     abrirUbicacionEnMaps(
@@ -426,6 +498,10 @@ private fun DetalleEventoSheet(
             }
         }
     }
+}
+
+private fun String?.isNullOrBlank(): Boolean {
+    return this == null || this.trim().isEmpty()
 }
 
 // ---------- Pestaña: Rewards ----------
@@ -837,4 +913,3 @@ private fun EventosDemoScreenPreview() {
         EventosDemoScreen()
     }
 }
-

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -8,6 +9,15 @@ class UsuarioCreate(BaseModel):
     nombre: str
     email: EmailStr
     password: str = Field(min_length=8)
+
+    @field_validator("email")
+    @classmethod
+    def validar_estructura_correo(cls, valor: str) -> str:
+        # Patrón: letras . letras + 2 números @ unach.mx
+        patron = r"^[a-zA-Z]+\.[a-zA-Z]+[0-9]{2}@unach\.mx$"
+        if not re.match(patron, str(valor)):
+            raise ValueError("El correo debe tener la estructura: nombre.apellido##@unach.mx")
+        return valor
 
     @field_validator("password")
     @classmethod

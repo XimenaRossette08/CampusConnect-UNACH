@@ -8,13 +8,11 @@ class SplashActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val tokenManager = TokenManager(this)
-
         // Lógica del Director de Tráfico:
-        val intent = if (tokenManager.obtenerToken() == null) {
+        val intent = if (TokenManager.obtenerToken(this) == null) {
             // Luz Roja: Nunca ha iniciado sesión o la cerró. Va al Login completo.
             Intent(this, ComposeLoginActivity::class.java)
-        } else if (tokenManager.requiereRenovacion()) {
+        } else if (TokenManager.requiereRenovacion(this)) {
             // Luz Amarilla: Ya pasaron 30 días. Va a la pantalla nueva de Renovar.
             Intent(this, RenovarSesionActivity::class.java)
         } else {

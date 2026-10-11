@@ -131,7 +131,6 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                         isLoading = true
                         scope.launch {
                             try {
-                                // Se usan 'correo' y 'contrasena' según los parámetros de tu LoginRequest
                                 val respuesta = RetrofitClient.obtenerApi(context)
                                     .loginUser(LoginRequest(correo = correoLimpio, contrasena = passwordLimpia))
 
@@ -206,10 +205,12 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                                     if (respuesta2FA.isSuccessful && respuesta2FA.body() != null) {
                                         val tokenData = respuesta2FA.body()!!
 
+                                        // ¡Aquí está la corrección! Agregamos el email que pedía el TokenManager
                                         TokenManager.guardarSesion(
                                             context = context,
                                             token = tokenData.accessToken,
                                             refreshToken = tokenData.refreshToken,
+                                            email = correo.trim(),
                                             rol = tokenData.role
                                         )
 

@@ -5,88 +5,79 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
-class TokenManager(context: Context) {
+object TokenManager {
+    private const val PREFS_NAME = "campus_connect_secure_prefs"
+    private const val TOKEN_KEY = "access_token"
+    private const val REFRESH_KEY = "refresh_token"
+    private const val ROL_KEY = "user_role"
+    private const val EMAIL_KEY = "user_email"
+    private const val TIMESTAMP_KEY = "login_timestamp"
 
-    private val prefs: SharedPreferences = try {
+    // Mantenemos tu configuración de alta seguridad moderna (MasterKey)
+    private fun obtenerPreferencias(context: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
 
-        EncryptedSharedPreferences.create(
+        return EncryptedSharedPreferences.create(
             context,
-            "secret_shared_prefs",
+            PREFS_NAME,
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
-    } catch (e: Exception) {
-        context.getSharedPreferences("campus_connect_prefs", Context.MODE_PRIVATE)
     }
 
-    // --- MÉTODOS DE INSTANCIA ---
-    fun guardarSesion(accessToken: String, refreshToken: String? = null, role: String? = null) {
-        prefs.edit()
-            .putString("access_token", accessToken)
-            .putString("refresh_token", refreshToken)
-            .putString("user_role", role)
+    // Guardamos los datos MÁS la marca de tiempo exacta de hoy
+    fun guardarSesion(context: Context, token: String, refreshToken: String, email: String, rol: String) {
+        obtenerPreferencias(context).edit()
+            .putString(TOKEN_KEY, token)
+            .putString(REFRESH_KEY, refreshToken)
+            .putString(EMAIL_KEY, email)
+            .putString(ROL_KEY, rol)
+            .putLong(TIMESTAMP_KEY, System.currentTimeMillis())
             .apply()
     }
 
-    fun guardarToken(token: String) {
-        prefs.edit().putString("access_token", token).apply()
+    // Se conserva por si algo más del proyecto ya llamaba a esta función
+    fun guardarToken(context: Context, token: String) {
+        obtenerPreferencias(context).edit().putString(TOKEN_KEY, token).apply()
     }
 
-    fun obtenerToken(): String? {
-        return prefs.getString("access_token", null)
+    fun obtenerToken(context: Context): String? =
+        obtenerPreferencias(context).getString(TOKEN_KEY, null)
+
+    fun obtenerRefreshToken(context: Context): String? =
+        obtenerPreferencias(context).getString(REFRESH_KEY, null)
+
+    fun obtenerRol(context: Context): String? =
+        obtenerPreferencias(context).getString(ROL_KEY, null)
+
+    fun obtenerEmail(context: Context): String {
+        return obtenerPreferencias(context).getString(EMAIL_KEY, "alumno@unach.mx") ?: "alumno@unach.mx"
     }
 
-    fun obtenerRefreshToken(): String? {
-        return prefs.getString("refresh_token", null)
+    // El cerebro del tiempo: ¿Ya pasaron 30 días?
+    fun requiereRenovacion(context: Context): Boolean {
+        val loginTime = obtenerPreferencias(context).getLong(TIMESTAMP_KEY, 0L)
+        // Si es 0, significa que nunca ha iniciado sesión
+        if (loginTime == 0L) return true
+
+        val tiempoTranscurrido = System.currentTimeMillis() - loginTime
+
+        // Matemáticas: 30 días * 24 horas * 60 minutos * 60 segundos * 1000 milisegundos
+        val limite30Dias = 30L * 24L * 60L * 60L * 1000L
+
+        return tiempoTranscurrido > limite30Dias
     }
 
-    fun obtenerRole(): String? {
-        return prefs.getString("user_role", null)
+    // Luz verde para dejarlo pasar directo
+    fun haySesionActiva(context: Context): Boolean {
+        return obtenerToken(context) != null && !requiereRenovacion(context)
     }
 
-    fun requiereRenovacion(): Boolean {
-        val token = obtenerToken()
-        return token.isNullOrEmpty()
-    }
-
-    fun limpiarToken() {
-        prefs.edit().clear().apply()
-    }
-
-    // --- MÉTODOS ESTÁTICOS / COMPANION OBJECT ---
-    // Permite que RetrofitClient y ComposeLoginActivity llamen directamente a TokenManager.<metodo>(context)
-    companion object {
-        fun guardarSesion(
-            context: Context,
-            token: String,
-            refreshToken: String? = null,
-            rol: String? = null
-        ) {
-            TokenManager(context).guardarSesion(accessToken = token, refreshToken = refreshToken, role = rol)
-        }
-
-        fun obtenerToken(context: Context): String? {
-            return TokenManager(context).obtenerToken()
-        }
-
-        fun obtenerRefreshToken(context: Context): String? {
-            return TokenManager(context).obtenerRefreshToken()
-        }
-
-        fun obtenerRole(context: Context): String? {
-            return TokenManager(context).obtenerRole()
-        }
-
-        fun requiereRenovacion(context: Context): Boolean {
-            return TokenManager(context).requiereRenovacion()
-        }
-
-        fun limpiarToken(context: Context) {
-            TokenManager(context).limpiarToken()
-        }
+    // Botón de emergencia para borrar todo (Cerrar sesión)
+    fun cerrarSesion(context: Context) {
+        obtenerPreferencias(context).edit().clear().apply()
     }
 }

@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 from typing import List, Optional
+
 from pydantic import BaseModel, ConfigDict, Field
+
 
 class EventoBase(BaseModel):
     titulo: str
@@ -16,12 +18,18 @@ class EventoBase(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+
 class EventoCreate(EventoBase):
+    """Lo que el cliente envía al crear un evento (POST)."""
+
     pass
 
+
 class EventoOut(EventoBase):
+    """Lo que el servidor devuelve al cliente."""
+
     id: uuid.UUID
-    # Se vuelve Optional para admitir registros antiguos sin correo
-    organizador_email: Optional[str] = Field(default="contacto@unach.mx", alias="organizador")
+    # Se hace opcional para que los eventos creados previamente no crasheen el endpoint
+    organizador_email: Optional[str] = Field(default="admin@unach.mx", alias="organizador")
 
     model_config = ConfigDict(populate_by_name=True, from_attributes=True)

@@ -451,7 +451,7 @@
             document.getElementById("otp-code").value = "";
         }
 
-        // 2. REGISTRO DE USUARIO
+        // 2. REGISTRO DE USUARIO (Actualizado para limpiar el texto de error)
         async function procesarRegistro(e) {
             e.preventDefault();
             const nombre = document.getElementById("reg-nombre").value.trim();
@@ -466,11 +466,22 @@
                 });
 
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "Error al completar el registro.");
+                
+                if (!res.ok) {
+                    let mensajeError = "Error al completar el registro.";
+                    if (Array.isArray(data.detail)) {
+                        // Aquí limpiamos el texto técnico que agrega Python
+                        mensajeError = data.detail[0].msg.replace("Value error, ", "");
+                    } else if (data.detail) {
+                        mensajeError = data.detail;
+                    }
+                    throw new Error(mensajeError);
+                }
 
                 mostrarAlertaAuth("¡Registro exitoso! Ya puedes iniciar sesión.", false);
                 toggleAuthForm("login");
             } catch (err) {
+                // Se mostrará el mensaje limpio y directo
                 mostrarAlertaAuth(err.message, true);
             }
         }

@@ -3,36 +3,43 @@ package com.example.campusconnect
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
- feature/Ui-Eventos
-import androidx.security.crypto.MasterKeys
+import androidx.security.crypto.MasterKey
 
 object TokenManager {
-    private const val PREFS_NAME = "seguridad_campus_prefs"
-    private const val TOKEN_KEY = "jwt_token"
-    private const val REFRESH_KEY = "jwt_refresh_token"
-    private const val ROL_KEY = "usuario_rol"
+    private const val PREFS_NAME = "campus_connect_secure_prefs"
+    private const val TOKEN_KEY = "access_token"
+    private const val REFRESH_KEY = "refresh_token"
+    private const val ROL_KEY = "user_role"
+    private const val EMAIL_KEY = "user_email"
+    private const val TIMESTAMP_KEY = "login_timestamp"
 
+    // Mantenemos tu configuración de alta seguridad moderna (MasterKey)
     private fun obtenerPreferencias(context: Context): SharedPreferences {
-        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+
         return EncryptedSharedPreferences.create(
-            PREFS_NAME,
-            masterKeyAlias,
             context,
+            PREFS_NAME,
+            masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     }
 
-    /** Guarda todo lo que deja el login: token de acceso, de refresco y el rol. */
-    fun guardarSesion(context: Context, token: String, refreshToken: String, rol: String) {
+    // Guardamos los datos MÁS la marca de tiempo exacta de hoy
+    fun guardarSesion(context: Context, token: String, refreshToken: String, email: String, rol: String) {
         obtenerPreferencias(context).edit()
             .putString(TOKEN_KEY, token)
             .putString(REFRESH_KEY, refreshToken)
+            .putString(EMAIL_KEY, email)
             .putString(ROL_KEY, rol)
+            .putLong(TIMESTAMP_KEY, System.currentTimeMillis())
             .apply()
     }
 
-    // Se conserva por si algo más del proyecto ya llamaba a esta función.
+    // Se conserva por si algo más del proyecto ya llamaba a esta función
     fun guardarToken(context: Context, token: String) {
         obtenerPreferencias(context).edit().putString(TOKEN_KEY, token).apply()
     }
@@ -46,52 +53,13 @@ object TokenManager {
     fun obtenerRol(context: Context): String? =
         obtenerPreferencias(context).getString(ROL_KEY, null)
 
-    fun haySesionActiva(context: Context): Boolean = obtenerToken(context) != null
-
-    fun cerrarSesion(context: Context) {
-        obtenerPreferencias(context).edit().clear().apply()
-
-import androidx.security.crypto.MasterKey
-
-class TokenManager(context: Context) {
-
-    // 1. Mantenemos tu configuración de alta seguridad (Criptografía)
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val sharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        "campus_connect_secure_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
-
-    // 2. Guardamos los datos MÁS la marca de tiempo exacta de hoy
-    fun guardarSesion(token: String, refreshToken: String, email: String, role: String) {
-        val editor = sharedPreferences.edit()
-        editor.putString("access_token", token)
-        editor.putString("refresh_token", refreshToken)
-        editor.putString("user_email", email)
-        editor.putString("user_role", role)
-        // Guardamos el momento exacto en el que inició sesión
-        editor.putLong("login_timestamp", System.currentTimeMillis())
-        editor.apply()
+    fun obtenerEmail(context: Context): String {
+        return obtenerPreferencias(context).getString(EMAIL_KEY, "alumno@unach.mx") ?: "alumno@unach.mx"
     }
 
-    fun obtenerToken(): String? {
-        return sharedPreferences.getString("access_token", null)
-    }
-
-    fun obtenerEmail(): String {
-        // Si por alguna razón no lo encuentra, devuelve un correo por defecto
-        return sharedPreferences.getString("user_email", "alumno@unach.mx") ?: "alumno@unach.mx"
-    }
-
-    // 3. El cerebro del tiempo: ¿Ya pasaron 30 días?
-    fun requiereRenovacion(): Boolean {
-        val loginTime = sharedPreferences.getLong("login_timestamp", 0L)
+    // El cerebro del tiempo: ¿Ya pasaron 30 días?
+    fun requiereRenovacion(context: Context): Boolean {
+        val loginTime = obtenerPreferencias(context).getLong(TIMESTAMP_KEY, 0L)
         // Si es 0, significa que nunca ha iniciado sesión
         if (loginTime == 0L) return true
 
@@ -103,14 +71,13 @@ class TokenManager(context: Context) {
         return tiempoTranscurrido > limite30Dias
     }
 
-    // 4. Luz verde para dejarlo pasar directo
-    fun tieneSesionActiva(): Boolean {
-        return obtenerToken() != null && !requiereRenovacion()
+    // Luz verde para dejarlo pasar directo
+    fun haySesionActiva(context: Context): Boolean {
+        return obtenerToken(context) != null && !requiereRenovacion(context)
     }
 
-    // 5. Botón de emergencia para borrar todo (Cerrar sesión)
-    fun cerrarSesion() {
-        sharedPreferences.edit().clear().apply()
- master
+    // Botón de emergencia para borrar todo (Cerrar sesión)
+    fun cerrarSesion(context: Context) {
+        obtenerPreferencias(context).edit().clear().apply()
     }
 }

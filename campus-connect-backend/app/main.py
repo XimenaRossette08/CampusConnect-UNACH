@@ -6,6 +6,8 @@ load_dotenv()
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -14,9 +16,14 @@ from . import models  # noqa: F401 (necesario para detectar la tabla eventos)
 from . import models_auth  # noqa: F401 (necesario para detectar usuarios/roles/permisos)
 from .database import Base, SessionLocal, engine
 from .models_auth import Permiso, Rol
-from .routers import admin, auth, eventos
+from .routers import admin, auth, estadisticas, eventos, social
+from .storage import UPLOADS_DIR
 
 Base.metadata.create_all(bind=engine)
+
+# create_all crea tablas nuevas pero no agrega columnas a tablas que ya existen.
+with engine.begin() as _conn:
+    _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS categoria VARCHAR"))
 
 
 def sembrar_datos_iniciales() -> None:
@@ -33,10 +40,11 @@ def sembrar_datos_iniciales() -> None:
         "usuarios:gestionar": "Asignar o revocar roles a usuarios",
         "roles:gestionar": "Crear roles y asignarles permisos",
         "auditoria:leer": "Consultar el registro de auditoría",
+        "estadisticas:leer": "Ver las estadísticas de eventos",
     }
     roles_necesarios = {
         "Administrador": list(permisos_necesarios.keys()),
-        "Editor": ["eventos:leer", "eventos:escribir", "eventos:eliminar"],
+        "Editor": ["eventos:leer", "eventos:escribir", "eventos:eliminar", "estadisticas:leer"],
         "Usuario Regular": ["eventos:leer"],
     }
 
@@ -93,9 +101,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def cabeceras_seguras(request: Request, call_next):
+    respuesta = await call_next(request)
+    respuesta.headers["X-Content-Type-Options"] = "nosniff"
+    return respuesta
+
+
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(eventos.router)
+app.include_router(estadisticas.router)
+app.include_router(social.router)
+app.include_router(social.router_publico)
+
+# Flyers y evidencias subidos. Son públicos (los nombres son UUID aleatorios) para que la app móvil
+# y Facebook/Instagram puedan descargarlos sin token.
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
 @app.exception_handler(Exception)
@@ -109,4 +132,4 @@ async def manejador_errores_genericos(request: Request, exc: Exception):
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok"}

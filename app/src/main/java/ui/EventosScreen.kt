@@ -22,6 +22,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import com.example.campusconnect.model.ArchivoEvento
 import com.example.campusconnect.model.Evento
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -260,10 +269,20 @@ private fun DetalleEventoSheet(evento: Evento, onDismiss: () -> Unit, onRegistra
     var isInscrito by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color.White) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            // Flyer que el organizador subió desde el panel web
+            if (!evento.imagenUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = evento.imagenUrl,
+                    contentDescription = "Flyer de ${evento.titulo}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(12.dp))
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
             Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(ColorUnach.AzulMedio).padding(20.dp)) {
                 Column {
-                    Text("ACADÉMICO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text((evento.categoria ?: "EVENTO").uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(evento.titulo, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, lineHeight = 26.sp)
                 }
@@ -296,6 +315,7 @@ private fun DetalleEventoSheet(evento: Evento, onDismiss: () -> Unit, onRegistra
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(evento.descripcion, color = Color.DarkGray, fontSize = 14.sp)
             }
+            ArchivosDelEvento(evento.materiales)
             Spacer(modifier = Modifier.height(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF6200EA))) { Text("Al calendario") }
@@ -303,6 +323,52 @@ private fun DetalleEventoSheet(evento: Evento, onDismiss: () -> Unit, onRegistra
                     Text(if (isInscrito) "Inscrito" else "Inscribirme")
                 }
             }
+        }
+    }
+}
+
+/** Lista de archivos adjuntos (imágenes y PDFs) del evento; al tocar uno se abre en el visor del teléfono. */
+@Composable
+private fun ArchivosDelEvento(archivos: List<ArchivoEvento>) {
+    if (archivos.isEmpty()) return
+    val context = LocalContext.current
+    val abrir: (ArchivoEvento) -> Unit = { archivo ->
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(archivo.url)))
+        } catch (_: ActivityNotFoundException) {
+            // Sin app que abra este tipo de archivo; no hay nada más que hacer
+        }
+    }
+
+    Spacer(modifier = Modifier.height(20.dp))
+    Text("Archivos del evento", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+    Spacer(modifier = Modifier.height(8.dp))
+
+    val imagenes = archivos.filter { it.esImagen }
+    if (imagenes.isNotEmpty()) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(imagenes) { img ->
+                AsyncImage(
+                    model = img.url,
+                    contentDescription = img.nombre,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(110.dp).clip(RoundedCornerShape(10.dp)).clickable { abrir(img) }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    archivos.filter { !it.esImagen }.forEach { doc ->
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFFF5F7FA)).clickable { abrir(doc) }.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.PictureAsPdf, "", tint = Color(0xFFC62828), modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(doc.nombre, modifier = Modifier.weight(1f), maxLines = 1, fontSize = 14.sp)
+            Icon(Icons.Filled.ChevronRight, "", tint = Color.Gray)
         }
     }
 }

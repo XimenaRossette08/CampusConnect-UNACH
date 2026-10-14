@@ -7,6 +7,7 @@
     <!-- Tailwind CSS CDN para estilos y diseño responsivo -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body class="bg-slate-100 font-sans text-slate-800 min-h-screen flex flex-col">
 
@@ -116,6 +117,12 @@
             <button onclick="cambiarPestaña('eventos')" id="tab-btn-eventos" class="py-2.5 px-4 font-semibold text-sm border-b-2 border-blue-900 text-blue-900">
                 <i class="fa-solid fa-newspaper mr-2"></i> Eventos y Noticias
             </button>
+            <button onclick="cambiarPestaña('pasados')" id="tab-btn-pasados" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
+                <i class="fa-solid fa-clock-rotate-left mr-2"></i> Eventos Pasados
+            </button>
+            <button onclick="cambiarPestaña('estadisticas')" id="tab-btn-estadisticas" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
+                <i class="fa-solid fa-chart-column mr-2"></i> Estadísticas
+            </button>
             <button onclick="cambiarPestaña('usuarios')" id="tab-btn-usuarios" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
                 <i class="fa-solid fa-users mr-2"></i> Usuarios y Roles
             </button>
@@ -142,6 +149,32 @@
             </div>
         </div>
 
+        <!-- CONTENIDO PESTAÑA: EVENTOS PASADOS -->
+        <div id="tab-pasados" class="hidden space-y-6">
+            <div class="bg-white p-4 rounded-xl shadow-sm border">
+                <h2 class="text-xl font-bold text-slate-800">Eventos Finalizados</h2>
+                <p class="text-xs text-slate-500">Sube fotos de evidencia de cada evento y descarga su lista de asistencia.</p>
+            </div>
+            <div id="pasados-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+        </div>
+
+        <!-- CONTENIDO PESTAÑA: ESTADÍSTICAS -->
+        <div id="tab-estadisticas" class="hidden space-y-6">
+            <div class="bg-white p-4 rounded-xl shadow-sm border flex flex-wrap items-end justify-between gap-3">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800">Estadísticas de Eventos</h2>
+                    <p class="text-xs text-slate-500">Vista general o detalle de un evento específico.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Mostrar</label>
+                    <select id="stats-selector" onchange="cargarEstadisticas()" class="text-sm border rounded-lg px-3 py-1.5 bg-white min-w-[16rem]">
+                        <option value="general">Todos los eventos (general)</option>
+                    </select>
+                </div>
+            </div>
+            <div id="stats-contenido" class="space-y-6"></div>
+        </div>
+
         <!-- CONTENIDO PESTAÑA 2: GESTIÓN DE USUARIOS -->
         <div id="tab-usuarios" class="hidden space-y-6">
             <div class="bg-white p-6 rounded-xl shadow-sm border">
@@ -154,6 +187,7 @@
                                 <th class="p-3">Nombre</th>
                                 <th class="p-3">Correo</th>
                                 <th class="p-3">Rol Actual</th>
+                                <th class="p-3">Carrera / Grupo</th>
                                 <th class="p-3">Acciones</th>
                             </tr>
                         </thead>
@@ -228,26 +262,38 @@
         </div>
     </div>
 
-    <!-- MODAL 3: CREAR EVENTO CON IMAGEN / FLAYER -->
-    <div id="modal-crear-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border max-h-[90vh] overflow-y-auto">
-            <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Publicar Nuevo Evento</h3>
-            <form onsubmit="procesarCrearEvento(event)" class="space-y-3">
+    <!-- MODAL 3: CREAR / EDITAR EVENTO -->
+    <div id="modal-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
+            <h3 id="ev-modal-titulo" class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Publicar Nuevo Evento</h3>
+            <form onsubmit="guardarEvento(event)" class="space-y-3">
+                <input type="hidden" id="ev-id">
                 <div>
                     <label class="block text-xs font-semibold text-slate-600">Título del Evento</label>
-                    <input type="text" id="ev-titulo" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    <input type="text" id="ev-titulo" required maxlength="200" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-600">Categoría</label>
-                    <input type="text" id="ev-categoria" placeholder="Académico, Cultural, Deportivo..." class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    <input type="text" id="ev-categoria" maxlength="60" list="dl-categorias" placeholder="Académico, Cultural, Deportivo..." class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    <datalist id="dl-categorias"><option value="Académico"><option value="Cultural"><option value="Deportivo"></datalist>
                 </div>
+
+                <!-- Flyer / archivos: arrastrar o escoger -->
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600">URL del Flayer / Imagen</label>
-                    <input type="url" id="ev-imagen-url" placeholder="https://ejemplo.com/flyer.jpg" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Flyer y archivos del evento</label>
+                    <div id="ev-existentes" class="grid grid-cols-3 gap-2 mb-2"></div>
+                    <div id="ev-dropzone" class="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-900 hover:bg-blue-50 transition">
+                        <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400"></i>
+                        <p class="text-sm text-slate-600 mt-1">Arrastra aquí tus archivos o <span class="text-blue-900 font-semibold underline">elige desde tu equipo</span></p>
+                        <p class="text-[11px] text-slate-400">JPG, PNG, WEBP, GIF o PDF · máx. 10 MB c/u · los alumnos los verán en la app</p>
+                        <input type="file" id="ev-archivos" multiple accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="hidden">
+                    </div>
+                    <div id="ev-nuevos" class="grid grid-cols-3 gap-2 mt-2"></div>
                 </div>
+
                 <div>
                     <label class="block text-xs font-semibold text-slate-600">Descripción</label>
-                    <textarea id="ev-descripcion" rows="3" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none"></textarea>
+                    <textarea id="ev-descripcion" rows="3" required maxlength="5000" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none"></textarea>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                     <div>
@@ -256,52 +302,106 @@
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-600">Lugar</label>
-                        <input type="text" id="ev-lugar" placeholder="Auditorio, Sala..." required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                        <input type="text" id="ev-lugar" placeholder="Auditorio, Sala..." required maxlength="200" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
                     </div>
                 </div>
+
+                <!-- Audiencia: general o por carrera / grupo -->
+                <div class="border rounded-lg p-3 bg-slate-50 space-y-2">
+                    <label class="block text-xs font-semibold text-slate-600">¿A quién va dirigido?</label>
+                    <div class="flex gap-4 text-sm">
+                        <label class="flex items-center gap-1"><input type="radio" name="ev-audiencia" value="general" checked onchange="alternarAudiencia()"> Todos los alumnos</label>
+                        <label class="flex items-center gap-1"><input type="radio" name="ev-audiencia" value="segmentado" onchange="alternarAudiencia()"> Carrera / grupo</label>
+                    </div>
+                    <div id="ev-segmentacion" class="hidden space-y-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500">Facultad (opcional)</label>
+                                <input type="text" id="ev-facultad" list="dl-facultades" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500">Carrera</label>
+                                <input type="text" id="ev-carrera" list="dl-carreras" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-500">Grupo(s) — separa con coma o Enter</label>
+                            <div id="ev-grupos-chips" class="flex flex-wrap gap-1 mb-1"></div>
+                            <input type="text" id="ev-grupo-input" list="dl-grupos" maxlength="30" placeholder="Ej. 5A" class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                        </div>
+                        <p class="text-[11px] text-slate-400">Solo verán el evento los alumnos cuya carrera y grupo coincidan. Déjalo vacío lo que no quieras filtrar.</p>
+                        <datalist id="dl-facultades"></datalist><datalist id="dl-carreras"></datalist><datalist id="dl-grupos"></datalist>
+                    </div>
+                </div>
+
                 <div class="flex space-x-2 pt-2">
-                    <button type="button" onclick="cerrarModalCrearEvento()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
-                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Publicar</button>
+                    <button type="button" onclick="cerrarModalEvento()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
+                    <button type="submit" id="ev-btn-guardar" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Publicar</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- MODAL 4: EDITAR EVENTO -->
-    <div id="modal-editar-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border max-h-[90vh] overflow-y-auto">
-            <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Editar Evento</h3>
-            <form onsubmit="procesarEditarEvento(event)" class="space-y-3">
-                <input type="hidden" id="edit-ev-id">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600">Título del Evento</label>
-                    <input type="text" id="edit-ev-titulo" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600">Categoría</label>
-                    <input type="text" id="edit-ev-categoria" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600">URL del Flayer / Imagen</label>
-                    <input type="url" id="edit-ev-imagen-url" placeholder="https://ejemplo.com/flyer.jpg" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600">Descripción</label>
-                    <textarea id="edit-ev-descripcion" rows="3" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none"></textarea>
-                </div>
+    <!-- MODAL: COMPARTIR EN REDES SOCIALES -->
+    <div id="modal-social" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3 mb-3">
+                <h3 class="text-lg font-bold text-slate-800">Compartir en redes</h3>
+                <button onclick="cerrarModalSocial()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="social-aviso" class="hidden mb-3 p-2 rounded bg-amber-100 text-amber-800 text-xs"></div>
+            <img id="social-imagen" class="hidden w-full max-h-56 object-cover rounded-lg border mb-3" alt="Flyer del evento">
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Texto de la publicación (editable)</label>
+            <textarea id="social-texto" rows="9" class="w-full px-3 py-2 border rounded-lg text-sm font-sans"></textarea>
+            <div class="grid grid-cols-2 gap-2 mt-3">
+                <button onclick="compartirFacebook()" class="bg-[#1877F2] hover:bg-blue-700 text-white text-sm py-2 rounded-lg font-semibold"><i class="fa-brands fa-facebook mr-1"></i> Facebook</button>
+                <button onclick="compartirInstagram()" class="bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 text-white text-sm py-2 rounded-lg font-semibold"><i class="fa-brands fa-instagram mr-1"></i> Instagram</button>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">Facebook abre su ventana de publicación con el evento. Instagram no permite precargar publicaciones desde la web: se copia el texto, se descarga el flyer y se abre Instagram para que lo pegues.</p>
+            <div id="social-api" class="hidden mt-3 border-t pt-3">
+                <p class="text-xs font-semibold text-slate-600 mb-2">Publicar directo con la API (cuenta conectada)</p>
                 <div class="grid grid-cols-2 gap-2">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600">Fecha y Hora</label>
-                        <input type="datetime-local" id="edit-ev-fecha-hora" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600">Lugar</label>
-                        <input type="text" id="edit-ev-lugar" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
-                    </div>
+                    <button id="social-api-fb" onclick="publicarPorApi('facebook')" class="hidden border border-[#1877F2] text-[#1877F2] text-xs py-1.5 rounded-lg font-semibold hover:bg-blue-50">Publicar en Facebook</button>
+                    <button id="social-api-ig" onclick="publicarPorApi('instagram')" class="hidden border border-purple-600 text-purple-700 text-xs py-1.5 rounded-lg font-semibold hover:bg-purple-50">Publicar en Instagram</button>
                 </div>
-                <div class="flex space-x-2 pt-2">
-                    <button type="button" onclick="cerrarModalEditarEvento()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
-                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: EVIDENCIAS DE UN EVENTO FINALIZADO -->
+    <div id="modal-evidencias" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800" id="evid-titulo">Evidencias</h3>
+                    <p class="text-xs text-slate-500" id="evid-sub"></p>
+                </div>
+                <button onclick="cerrarModalEvidencias()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <input type="hidden" id="evid-evento-id">
+            <div id="evid-dropzone" class="border-2 border-dashed border-slate-300 rounded-lg p-5 text-center cursor-pointer hover:border-blue-900 hover:bg-blue-50 transition">
+                <i class="fa-solid fa-images text-2xl text-slate-400"></i>
+                <p class="text-sm text-slate-600 mt-1">Arrastra las fotos de evidencia o <span class="text-blue-900 font-semibold underline">elígelas desde tu equipo</span></p>
+                <p class="text-[11px] text-slate-400">JPG, PNG, WEBP, GIF o PDF · máx. 10 MB c/u</p>
+                <input type="file" id="evid-archivos" multiple accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="hidden">
+            </div>
+            <div id="evid-galeria" class="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: DATOS ACADÉMICOS DE UN USUARIO -->
+    <div id="modal-segmentacion-usuario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl border">
+            <h3 class="text-lg font-bold text-slate-800 mb-1">Datos académicos</h3>
+            <p id="segu-nombre" class="text-xs text-slate-500 mb-3"></p>
+            <form onsubmit="guardarSegmentacionUsuario(event)" class="space-y-3">
+                <input type="hidden" id="segu-id">
+                <div><label class="block text-xs font-semibold text-slate-600">Facultad</label><input type="text" id="segu-facultad" list="dl-facultades" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600">Carrera</label><input type="text" id="segu-carrera" list="dl-carreras" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600">Grupo(s), separados por coma</label><input type="text" id="segu-grupos" class="w-full px-3 py-1.5 border rounded-lg text-sm"></div>
+                <div class="flex space-x-2 pt-1">
+                    <button type="button" onclick="document.getElementById('modal-segmentacion-usuario').classList.add('hidden')" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold">Cancelar</button>
+                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold">Guardar</button>
                 </div>
             </form>
         </div>
@@ -327,7 +427,9 @@
                             <th class="p-3">#</th>
                             <th class="p-3">Nombre Completo</th>
                             <th class="p-3">Correo Institucional</th>
-                            <th class="p-3">Fecha de Registro</th>
+                            <th class="p-3">Carrera / Grupo</th>
+                            <th class="p-3">Registro</th>
+                            <th class="p-3 text-center">Asistió</th>
                         </tr>
                     </thead>
                     <tbody id="tabla-asistentes-body">
@@ -336,7 +438,10 @@
                 </table>
             </div>
 
-            <div class="pt-4 text-right border-t mt-4">
+            <div class="pt-4 flex justify-between items-center border-t mt-4">
+                <button id="btn-descargar-pdf" onclick="descargarAsistenciaPDF()" class="bg-red-600 hover:bg-red-700 text-white text-xs px-4 py-2 rounded-lg font-semibold">
+                    <i class="fa-solid fa-file-pdf mr-1"></i> Descargar PDF
+                </button>
                 <button onclick="cerrarModalAsistentes()" class="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-slate-900">
                     Cerrar
                 </button>
@@ -517,318 +622,657 @@
 
         function configurarPermisosPorRol() {
             const esAdmin = userState.role === "Administrador";
-            const esEditor = userState.role === "Editor";
+            const gestiona = esAdmin || userState.role === "Editor";
 
             document.getElementById("tab-btn-usuarios").classList.toggle("hidden", !esAdmin);
             document.getElementById("tab-btn-auditoria").classList.toggle("hidden", !esAdmin);
-            document.getElementById("btn-crear-evento").classList.toggle("hidden", !(esAdmin || esEditor));
+            document.getElementById("tab-btn-pasados").classList.toggle("hidden", !gestiona);
+            document.getElementById("tab-btn-estadisticas").classList.toggle("hidden", !gestiona);
+            document.getElementById("btn-crear-evento").classList.toggle("hidden", !gestiona);
         }
 
+        const puedeGestionar = () => ["Administrador", "Editor"].includes(userState.role);
+
+        // ---------- Utilidades compartidas ----------
+        // Escapa todo texto que viene del servidor antes de ponerlo en innerHTML (evita XSS almacenado).
+        const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+        function mensajeDeError(data, porDefecto) {
+            if (!data) return porDefecto;
+            if (Array.isArray(data.detail)) return (data.detail[0]?.msg || porDefecto).replace("Value error, ", "");
+            return data.detail || porDefecto;
+        }
+
+        async function api(ruta, opciones = {}) {
+            const headers = { "Authorization": `Bearer ${userState.token}`, ...(opciones.headers || {}) };
+            if (opciones.json !== undefined) {
+                headers["Content-Type"] = "application/json";
+                opciones.body = JSON.stringify(opciones.json);
+            }
+            const res = await fetch(`${API_BASE_URL}${ruta}`, { method: opciones.method || "GET", headers, body: opciones.body });
+            if (opciones.blob && res.ok) return res;
+            let data = null;
+            try { data = await res.json(); } catch (_) { /* sin cuerpo JSON */ }
+            if (!res.ok) throw new Error(mensajeDeError(data, "No se pudo completar la acción."));
+            return data;
+        }
+
+        function toast(mensaje) {
+            const el = document.createElement("div");
+            el.className = "fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-[60]";
+            el.textContent = mensaje;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 3500);
+        }
+
+        function aInputLocal(iso) {
+            const d = new Date(iso), p = (n) => String(n).padStart(2, "0");
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+        }
+
+        const formatoBytes = (b) => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+        const TIPOS_OK = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"];
+        const MAX_MB = 10;
+
+        function iconoArchivo(a) {
+            return a.esImagen
+                ? `<img src="${esc(a.url)}" alt="" class="w-full h-full object-cover">`
+                : `<div class="w-full h-full flex flex-col items-center justify-center text-red-600"><i class="fa-solid fa-file-pdf text-2xl"></i></div>`;
+        }
+
+        // Zona de arrastrar y soltar reutilizable
+        function activarDropzone(zonaId, inputId, alRecibir) {
+            const zona = document.getElementById(zonaId), input = document.getElementById(inputId);
+            zona.addEventListener("click", () => input.click());
+            input.addEventListener("change", () => { alRecibir([...input.files]); input.value = ""; });
+            ["dragenter", "dragover"].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add("border-blue-900", "bg-blue-50"); }));
+            ["dragleave", "drop"].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.remove("border-blue-900", "bg-blue-50"); }));
+            zona.addEventListener("drop", (e) => alRecibir([...e.dataTransfer.files]));
+        }
+
+        function validarArchivos(lista) {
+            const validos = [];
+            for (const f of lista) {
+                if (!TIPOS_OK.includes(f.type)) { toast(`"${f.name}": formato no permitido`); continue; }
+                if (f.size > MAX_MB * 1024 * 1024) { toast(`"${f.name}": supera ${MAX_MB} MB`); continue; }
+                validos.push(f);
+            }
+            return validos;
+        }
+
+        async function subirArchivos(eventoId, tipo, archivos) {
+            const fd = new FormData();
+            fd.append("tipo", tipo);
+            archivos.forEach(f => fd.append("archivos", f));
+            return api(`/eventos/${eventoId}/archivos`, { method: "POST", body: fd });
+        }
+
+        let opcionesSegmentacion = { facultades: [], carreras: [], grupos: [] };
+        async function cargarOpcionesSegmentacion() {
+            try { opcionesSegmentacion = await api("/eventos/opciones-segmentacion"); } catch (_) { /* opcional */ }
+            const llenar = (id, vals) => { document.getElementById(id).innerHTML = vals.map(v => `<option value="${esc(v)}">`).join(""); };
+            llenar("dl-facultades", opcionesSegmentacion.facultades);
+            llenar("dl-carreras", opcionesSegmentacion.carreras);
+            llenar("dl-grupos", opcionesSegmentacion.grupos);
+        }
+
+        // ---------- Pestañas ----------
+        const PESTAÑAS = ["eventos", "pasados", "estadisticas", "usuarios", "auditoria"];
         function cambiarPestaña(tab) {
-            ["eventos", "usuarios", "auditoria"].forEach(t => {
+            PESTAÑAS.forEach(t => {
                 const btn = document.getElementById(`tab-btn-${t}`);
                 const container = document.getElementById(`tab-${t}`);
                 if (btn && container) {
                     const active = t === tab;
                     container.classList.toggle("hidden", !active);
-                    btn.className = `py-2.5 px-4 font-semibold text-sm border-b-2 ${active ? 'border-blue-900 text-blue-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`;
+                    btn.className = `py-2.5 px-4 font-semibold text-sm border-b-2 ${active ? 'border-blue-900 text-blue-900' : 'border-transparent text-slate-500 hover:text-slate-800'} ${btn.classList.contains("hidden") ? "hidden" : ""}`;
                 }
             });
 
+            if (tab === "pasados") cargarPasados();
+            if (tab === "estadisticas") iniciarEstadisticas();
             if (tab === "usuarios") cargarUsuariosAdmin();
             if (tab === "auditoria") cargarAuditoriaAdmin();
         }
 
-        // 5. CARGA Y CRUD COMPLETO DE EVENTOS
+        // ---------- 5. CARTELERA DE EVENTOS ----------
+        let eventosCache = {};       // id -> evento (para no pasar texto del servidor por atributos onclick)
+        let eventosLista = [];
+
+        function etiquetaAudiencia(ev) {
+            if (ev.esGeneral) return `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">TODOS</span>`;
+            const partes = [ev.idFacultadDestino, ev.idCarreraDestino, (ev.gruposDestino || []).length ? "Grupo " + ev.gruposDestino.join(", ") : null].filter(Boolean);
+            return `<span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold">${esc(partes.join(" · ") || "Segmentado")}</span>`;
+        }
+
         async function cargarEventos() {
             const container = document.getElementById("eventos-container");
             container.innerHTML = `<p class="col-span-full text-center text-slate-400 py-8"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando cartelera...</p>`;
-
-            const esAdmin = userState.role === "Administrador";
-            const esEditor = userState.role === "Editor";
+            const gestiona = puedeGestionar();
 
             try {
-                const res = await fetch(`${API_BASE_URL}/eventos/feed`, {
-                    headers: { "Authorization": `Bearer ${userState.token}` }
-                });
-                if (!res.ok) throw new Error("Error al obtener eventos.");
+                const todos = await api("/eventos/feed");
+                eventosLista = todos;
+                todos.forEach(e => { eventosCache[e.id] = e; });
+                const eventos = todos.filter(e => !e.finalizado);
 
-                const eventos = await res.json();
                 if (eventos.length === 0) {
-                    container.innerHTML = `<p class="col-span-full text-center text-slate-500 py-8">No hay eventos disponibles actualmente.</p>`;
+                    container.innerHTML = `<p class="col-span-full text-center text-slate-500 py-8">No hay eventos próximos. Los finalizados están en "Eventos Pasados".</p>`;
                     return;
                 }
 
                 container.innerHTML = eventos.map(ev => {
                     const fechaTexto = ev.fechaHora ? new Date(ev.fechaHora).toLocaleString() : 'Próximamente';
-                    const fechaInput = ev.fechaHora ? new Date(ev.fechaHora).toISOString().slice(0, 16) : '';
-                    const imagenFlayer = ev.imagenUrl || ev.imagen_url || '';
-
+                    const materiales = (ev.archivos || []).filter(a => a.tipo === "material");
                     return `
                         <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition flex flex-col justify-between">
                             <div>
-                                <!-- Encabezado / Flayer de Imagen -->
-                                ${imagenFlayer ? `
+                                ${ev.imagenUrl ? `
                                     <div class="w-full h-44 overflow-hidden bg-slate-100 border-b">
-                                        <img src="${imagenFlayer}" alt="${ev.titulo}" class="w-full h-full object-cover">
-                                    </div>
-                                ` : `
+                                        <img src="${esc(ev.imagenUrl)}" alt="" class="w-full h-full object-cover">
+                                    </div>` : `
                                     <div class="w-full h-28 bg-gradient-to-r from-blue-900 to-indigo-800 flex items-center justify-center text-white/50">
                                         <i class="fa-solid fa-image text-3xl"></i>
-                                    </div>
-                                `}
-
+                                    </div>`}
                                 <div class="p-5">
                                     <div class="flex justify-between items-start mb-2">
-                                        <span class="text-xs font-bold text-blue-900 uppercase tracking-wider">${ev.categoria || 'General'}</span>
-                                        ${(esAdmin || esEditor) ? `
+                                        <span class="text-xs font-bold text-blue-900 uppercase tracking-wider">${esc(ev.categoria || 'General')}</span>
+                                        ${gestiona ? `
                                             <div class="flex space-x-1">
-                                                <button onclick="abrirModalEditarEvento('${ev.id}', \`${ev.titulo}\`, \`${ev.categoria || ''}\`, \`${ev.descripcion}\`, '${fechaInput}', \`${ev.lugar}\`, \`${imagenFlayer}\`)" class="text-xs text-slate-600 hover:text-blue-900 p-1.5 rounded border hover:bg-slate-50" title="Editar">
-                                                    <i class="fa-solid fa-pen-to-square"></i>
-                                                </button>
-                                                <button onclick="eliminarEvento('${ev.id}')" class="text-xs text-red-600 hover:text-red-800 p-1.5 rounded border border-red-200 hover:bg-red-50" title="Eliminar">
-                                                    <i class="fa-solid fa-trash"></i>
-                                                </button>
-                                            </div>
-                                        ` : ''}
+                                                <button onclick="abrirSocial('${esc(ev.id)}')" class="text-xs text-slate-600 hover:text-blue-900 p-1.5 rounded border hover:bg-slate-50" title="Compartir en redes"><i class="fa-solid fa-share-nodes"></i></button>
+                                                <button onclick="abrirModalEvento('${esc(ev.id)}')" class="text-xs text-slate-600 hover:text-blue-900 p-1.5 rounded border hover:bg-slate-50" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>
+                                                <button onclick="eliminarEvento('${esc(ev.id)}')" class="text-xs text-red-600 hover:text-red-800 p-1.5 rounded border border-red-200 hover:bg-red-50" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+                                            </div>` : ''}
                                     </div>
-                                    <h3 class="text-lg font-bold text-slate-800">${ev.titulo}</h3>
-                                    <p class="text-xs text-slate-500 mt-2 line-clamp-3">${ev.descripcion}</p>
+                                    <h3 class="text-lg font-bold text-slate-800">${esc(ev.titulo)}</h3>
+                                    <div class="mt-1 flex flex-wrap gap-1 items-center">${etiquetaAudiencia(ev)}
+                                        ${materiales.length ? `<span class="text-[10px] text-slate-500"><i class="fa-solid fa-paperclip"></i> ${materiales.length} archivo(s)</span>` : ''}</div>
+                                    <p class="text-xs text-slate-500 mt-2 line-clamp-3">${esc(ev.descripcion)}</p>
                                 </div>
                             </div>
-
                             <div class="px-5 py-3 bg-slate-50 border-t space-y-3">
                                 <div class="flex justify-between items-center text-xs text-slate-400">
-                                    <span><i class="fa-regular fa-calendar mr-1"></i> ${fechaTexto}</span>
-                                    <span><i class="fa-solid fa-location-dot mr-1"></i> ${ev.lugar || 'Campus'}</span>
+                                    <span><i class="fa-regular fa-calendar mr-1"></i> ${esc(fechaTexto)}</span>
+                                    <span><i class="fa-solid fa-location-dot mr-1"></i> ${esc(ev.lugar || 'Campus')}</span>
                                 </div>
-
                                 <div class="flex space-x-2 pt-1">
-                                    <button onclick="registrarAsistenciaEvento('${ev.id}')" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold py-1.5 rounded transition text-center">
+                                    <button onclick="registrarAsistenciaEvento('${esc(ev.id)}')" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold py-1.5 rounded transition text-center">
                                         <i class="fa-solid fa-user-check mr-1"></i> Registrarme
                                     </button>
-                                    ${(esAdmin || esEditor) ? `
-                                        <button onclick="verAsistentesEvento('${ev.id}', \`${ev.titulo}\`)" class="bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3 py-1.5 rounded transition">
+                                    ${gestiona ? `
+                                        <button onclick="verAsistentesEvento('${esc(ev.id)}')" class="bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3 py-1.5 rounded transition">
                                             <i class="fa-solid fa-users mr-1"></i> Asistentes
-                                        </button>
-                                    ` : ''}
+                                        </button>` : ''}
                                 </div>
                             </div>
-                        </div>
-                    `;
+                        </div>`;
                 }).join("");
             } catch (err) {
-                container.innerHTML = `<p class="col-span-full text-center text-red-500 py-8">${err.message}</p>`;
+                container.innerHTML = `<p class="col-span-full text-center text-red-500 py-8">${esc(err.message)}</p>`;
             }
         }
 
-        // Modal Crear Evento
-        function abrirModalCrearEvento() {
-            document.getElementById("modal-crear-evento").classList.remove("hidden");
+        // ---------- Modal crear / editar evento ----------
+        let estadoModalEvento = { nuevos: [], existentes: [], grupos: [] };
+
+        function alternarAudiencia() {
+            const seg = document.querySelector('input[name="ev-audiencia"]:checked').value === "segmentado";
+            document.getElementById("ev-segmentacion").classList.toggle("hidden", !seg);
         }
 
-        function cerrarModalCrearEvento() {
-            document.getElementById("modal-crear-evento").classList.add("hidden");
-            document.getElementById("ev-titulo").value = "";
-            document.getElementById("ev-categoria").value = "";
-            document.getElementById("ev-imagen-url").value = "";
-            document.getElementById("ev-descripcion").value = "";
-            document.getElementById("ev-fecha-hora").value = "";
-            document.getElementById("ev-lugar").value = "";
+        function pintarChipsGrupos() {
+            document.getElementById("ev-grupos-chips").innerHTML = estadoModalEvento.grupos.map((g, i) =>
+                `<span class="bg-indigo-100 text-indigo-800 text-xs px-2 py-0.5 rounded-full">${esc(g)}
+                    <button type="button" onclick="quitarGrupo(${i})" class="ml-1 font-bold">×</button></span>`).join("");
+        }
+        function agregarGruposDesdeTexto(texto) {
+            texto.split(",").map(t => t.trim()).filter(Boolean).forEach(g => {
+                if (!estadoModalEvento.grupos.some(x => x.toLowerCase() === g.toLowerCase())) estadoModalEvento.grupos.push(g);
+            });
+            pintarChipsGrupos();
+        }
+        function quitarGrupo(i) { estadoModalEvento.grupos.splice(i, 1); pintarChipsGrupos(); }
+
+        function pintarArchivosModal() {
+            document.getElementById("ev-existentes").innerHTML = estadoModalEvento.existentes.map(a => `
+                <div class="relative h-20 border rounded-lg overflow-hidden bg-slate-100">
+                    ${iconoArchivo(a)}
+                    <button type="button" onclick="quitarArchivoExistente('${esc(a.id)}')" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 text-[10px]" title="Eliminar"><i class="fa-solid fa-xmark"></i></button>
+                    <span class="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] px-1 truncate">${esc(a.nombre)}</span>
+                </div>`).join("");
+            document.getElementById("ev-nuevos").innerHTML = estadoModalEvento.nuevos.map((f, i) => `
+                <div class="relative h-20 border-2 border-blue-300 rounded-lg overflow-hidden bg-slate-100">
+                    ${f.type.startsWith("image/") ? `<img src="${URL.createObjectURL(f)}" class="w-full h-full object-cover">`
+                        : `<div class="w-full h-full flex items-center justify-center text-red-600"><i class="fa-solid fa-file-pdf text-2xl"></i></div>`}
+                    <button type="button" onclick="quitarArchivoNuevo(${i})" class="absolute top-1 right-1 bg-slate-800 text-white rounded-full w-5 h-5 text-[10px]"><i class="fa-solid fa-xmark"></i></button>
+                    <span class="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] px-1 truncate">${esc(f.name)} · ${formatoBytes(f.size)}</span>
+                </div>`).join("");
+        }
+        function quitarArchivoNuevo(i) { estadoModalEvento.nuevos.splice(i, 1); pintarArchivosModal(); }
+        async function quitarArchivoExistente(archivoId) {
+            if (!confirm("¿Eliminar este archivo del evento? Los alumnos dejarán de verlo.")) return;
+            try {
+                const eventoId = document.getElementById("ev-id").value;
+                await api(`/eventos/${eventoId}/archivos/${archivoId}`, { method: "DELETE" });
+                estadoModalEvento.existentes = estadoModalEvento.existentes.filter(a => a.id !== archivoId);
+                pintarArchivosModal();
+            } catch (err) { toast(err.message); }
         }
 
-        async function procesarCrearEvento(e) {
+        async function abrirModalEvento(id = null) {
+            const ev = id ? eventosCache[id] : null;
+            estadoModalEvento = { nuevos: [], existentes: ev ? (ev.archivos || []).filter(a => a.tipo === "material") : [], grupos: ev ? [...(ev.gruposDestino || [])] : [] };
+
+            document.getElementById("ev-modal-titulo").innerText = ev ? "Editar Evento" : "Publicar Nuevo Evento";
+            document.getElementById("ev-btn-guardar").innerText = ev ? "Guardar Cambios" : "Publicar";
+            document.getElementById("ev-id").value = ev ? ev.id : "";
+            document.getElementById("ev-titulo").value = ev ? ev.titulo : "";
+            document.getElementById("ev-categoria").value = ev ? (ev.categoria || "") : "";
+            document.getElementById("ev-descripcion").value = ev ? ev.descripcion : "";
+            document.getElementById("ev-fecha-hora").value = ev ? aInputLocal(ev.fechaHora) : "";
+            document.getElementById("ev-lugar").value = ev ? ev.lugar : "";
+            document.getElementById("ev-facultad").value = ev ? (ev.idFacultadDestino || "") : "";
+            document.getElementById("ev-carrera").value = ev ? (ev.idCarreraDestino || "") : "";
+            document.getElementById("ev-grupo-input").value = "";
+            document.querySelector(`input[name="ev-audiencia"][value="${ev && !ev.esGeneral ? "segmentado" : "general"}"]`).checked = true;
+            alternarAudiencia();
+            pintarChipsGrupos();
+            pintarArchivosModal();
+            document.getElementById("modal-evento").classList.remove("hidden");
+            cargarOpcionesSegmentacion();
+        }
+
+        function abrirModalCrearEvento() { abrirModalEvento(null); }
+        function cerrarModalEvento() { document.getElementById("modal-evento").classList.add("hidden"); }
+
+        async function guardarEvento(e) {
             e.preventDefault();
-            const titulo = document.getElementById("ev-titulo").value.trim();
-            const categoria = document.getElementById("ev-categoria").value.trim();
-            const imagenUrl = document.getElementById("ev-imagen-url").value.trim();
-            const descripcion = document.getElementById("ev-descripcion").value.trim();
-            const fechaHoraInput = document.getElementById("ev-fecha-hora").value;
-            const lugar = document.getElementById("ev-lugar").value.trim();
+            const id = document.getElementById("ev-id").value;
+            const segmentado = document.querySelector('input[name="ev-audiencia"]:checked').value === "segmentado";
+            agregarGruposDesdeTexto(document.getElementById("ev-grupo-input").value);
+            document.getElementById("ev-grupo-input").value = "";
 
-            const fechaHoraISO = new Date(fechaHoraInput).toISOString();
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/eventos/`, {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${userState.token}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        titulo: titulo,
-                        descripcion: descripcion,
-                        fechaHora: fechaHoraISO,
-                        lugar: lugar,
-                        esGeneral: true,
-                        categoria: categoria || "General",
-                        imagenUrl: imagenUrl || null
-                    })
-                });
-
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "No se pudo publicar el evento.");
-
-                alert("¡Evento publicado exitosamente con flayer!");
-                cerrarModalCrearEvento();
-                cargarEventos();
-            } catch (err) {
-                alert(err.message);
+            const facultad = document.getElementById("ev-facultad").value.trim();
+            const carrera = document.getElementById("ev-carrera").value.trim();
+            if (segmentado && !facultad && !carrera && estadoModalEvento.grupos.length === 0) {
+                toast("Indica al menos una carrera, facultad o grupo, o elige 'Todos los alumnos'.");
+                return;
             }
-        }
 
-        // Modal Editar Evento
-        function abrirModalEditarEvento(id, titulo, categoria, descripcion, fechaHora, lugar, imagenUrl) {
-            document.getElementById("edit-ev-id").value = id;
-            document.getElementById("edit-ev-titulo").value = titulo;
-            document.getElementById("edit-ev-categoria").value = categoria;
-            document.getElementById("edit-ev-imagen-url").value = imagenUrl || "";
-            document.getElementById("edit-ev-descripcion").value = descripcion;
-            document.getElementById("edit-ev-fecha-hora").value = fechaHora;
-            document.getElementById("edit-ev-lugar").value = lugar;
-            document.getElementById("modal-editar-evento").classList.remove("hidden");
-        }
+            const payload = {
+                titulo: document.getElementById("ev-titulo").value.trim(),
+                descripcion: document.getElementById("ev-descripcion").value.trim(),
+                fechaHora: new Date(document.getElementById("ev-fecha-hora").value).toISOString(),
+                lugar: document.getElementById("ev-lugar").value.trim(),
+                categoria: document.getElementById("ev-categoria").value.trim() || null,
+                esGeneral: !segmentado,
+                idFacultadDestino: segmentado ? (facultad || null) : null,
+                idCarreraDestino: segmentado ? (carrera || null) : null,
+                gruposDestino: segmentado && estadoModalEvento.grupos.length ? estadoModalEvento.grupos : null
+            };
 
-        function cerrarModalEditarEvento() {
-            document.getElementById("modal-editar-evento").classList.add("hidden");
-        }
-
-        async function procesarEditarEvento(e) {
-            e.preventDefault();
-            const id = document.getElementById("edit-ev-id").value;
-            const titulo = document.getElementById("edit-ev-titulo").value.trim();
-            const categoria = document.getElementById("edit-ev-categoria").value.trim();
-            const imagenUrl = document.getElementById("edit-ev-imagen-url").value.trim();
-            const descripcion = document.getElementById("edit-ev-descripcion").value.trim();
-            const fechaHoraInput = document.getElementById("edit-ev-fecha-hora").value;
-            const lugar = document.getElementById("edit-ev-lugar").value.trim();
-
-            const fechaHoraISO = new Date(fechaHoraInput).toISOString();
-
+            const boton = document.getElementById("ev-btn-guardar");
+            boton.disabled = true; boton.classList.add("opacity-60");
             try {
-                const res = await fetch(`${API_BASE_URL}/eventos/${id}`, {
-                    method: "PUT",
-                    headers: {
-                        "Authorization": `Bearer ${userState.token}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        titulo: titulo,
-                        descripcion: descripcion,
-                        fechaHora: fechaHoraISO,
-                        lugar: lugar,
-                        esGeneral: true,
-                        categoria: categoria || "General",
-                        imagenUrl: imagenUrl || null
-                    })
-                });
-
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "No se pudo actualizar el evento.");
-
-                alert("¡Evento actualizado exitosamente!");
-                cerrarModalEditarEvento();
-                cargarEventos();
-            } catch (err) {
-                alert(err.message);
-            }
-        }
-
-        // Eliminar Evento
-        async function eliminarEvento(id) {
-            if (!confirm("¿Estás seguro de que deseas eliminar permanentemente este evento?")) return;
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/eventos/${id}`, {
-                    method: "DELETE",
-                    headers: { "Authorization": `Bearer ${userState.token}` }
-                });
-
-                if (!res.ok) {
-                    const data = await res.json();
-                    throw new Error(data.detail || "Error al eliminar evento.");
+                const guardado = await api(id ? `/eventos/${id}` : "/eventos/", { method: id ? "PUT" : "POST", json: payload });
+                let aviso = id ? "Evento actualizado." : "¡Evento publicado!";
+                if (estadoModalEvento.nuevos.length) {
+                    try { await subirArchivos(guardado.id, "material", estadoModalEvento.nuevos); }
+                    catch (err) { aviso = `El evento se guardó, pero los archivos fallaron: ${err.message}`; }
                 }
-
-                alert("Evento eliminado correctamente.");
-                cargarEventos();
+                cerrarModalEvento();
+                toast(aviso);
+                await cargarEventos();
+                if (!id) abrirSocial(guardado.id);   // ofrece compartirlo en redes recién creado
             } catch (err) {
-                alert(err.message);
+                toast(err.message);
+            } finally {
+                boton.disabled = false; boton.classList.remove("opacity-60");
             }
         }
 
-        // 6. REGISTRO Y TABLA DE ASISTENCIA
+        async function eliminarEvento(id) {
+            if (!confirm("¿Estás seguro de que deseas eliminar permanentemente este evento (incluye sus archivos y registros)?")) return;
+            try {
+                await api(`/eventos/${id}`, { method: "DELETE" });
+                toast("Evento eliminado correctamente.");
+                cargarEventos();
+            } catch (err) { toast(err.message); }
+        }
+
+        // ---------- 6. REGISTRO Y LISTA DE ASISTENCIA ----------
         async function registrarAsistenciaEvento(eventoId) {
             try {
-                const res = await fetch(`${API_BASE_URL}/eventos/${eventoId}/registro`, {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${userState.token}`,
-                        "Content-Type": "application/json"
-                    }
-                });
-
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "Ya estás registrado o no se pudo completar el registro.");
-
-                alert("¡Te has inscrito correctamente al evento!");
-            } catch (err) {
-                alert(err.message);
-            }
+                await api(`/eventos/${eventoId}/registro`, { method: "POST" });
+                toast("¡Te has inscrito correctamente al evento!");
+            } catch (err) { toast(err.message); }
         }
 
-        async function verAsistentesEvento(eventoId, titulo) {
-            document.getElementById("modal-asistentes-titulo").innerText = `Asistentes: ${titulo}`;
+        let asistentesActual = null;
+        async function verAsistentesEvento(eventoId) {
+            const ev = eventosCache[eventoId] || {};
+            asistentesActual = { id: eventoId, titulo: ev.titulo || "Evento" };
+            document.getElementById("modal-asistentes-titulo").innerText = `Asistentes: ${asistentesActual.titulo}`;
             const tbody = document.getElementById("tabla-asistentes-body");
-            tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando lista de inscritos...</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando lista de inscritos...</td></tr>`;
             document.getElementById("modal-asistentes").classList.remove("hidden");
 
             try {
-                const res = await fetch(`${API_BASE_URL}/eventos/${eventoId}/asistentes`, {
-                    headers: { "Authorization": `Bearer ${userState.token}` }
-                });
-
-                if (!res.ok) throw new Error("Error al consultar la lista de asistentes.");
-
-                const asistentes = await res.json();
+                const asistentes = await api(`/eventos/${eventoId}/asistentes`);
                 if (asistentes.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
                     return;
                 }
-
-                tbody.innerHTML = asistentes.map((a, index) => `
+                tbody.innerHTML = asistentes.map((a, i) => `
                     <tr class="border-b hover:bg-slate-50">
-                        <td class="p-3 font-semibold text-slate-400">${index + 1}</td>
-                        <td class="p-3 font-medium text-slate-800">${a.nombre || a.usuario_nombre}</td>
-                        <td class="p-3 text-slate-500 font-mono">${a.email || a.usuario_email}</td>
+                        <td class="p-3 font-semibold text-slate-400">${i + 1}</td>
+                        <td class="p-3 font-medium text-slate-800">${esc(a.nombre)}</td>
+                        <td class="p-3 text-slate-500 font-mono">${esc(a.email)}</td>
+                        <td class="p-3 text-slate-500">${esc([a.carrera, (a.grupos || []).join(", ")].filter(Boolean).join(" · ") || "—")}</td>
                         <td class="p-3 text-slate-400">${a.fecha_registro ? new Date(a.fecha_registro).toLocaleString() : 'Reciente'}</td>
-                    </tr>
-                `).join("");
+                        <td class="p-3 text-center"><input type="checkbox" ${a.asistio ? "checked" : ""} onchange="marcarAsistio(${Number(a.id)}, this)" class="w-4 h-4"></td>
+                    </tr>`).join("");
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500">${err.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">${esc(err.message)}</td></tr>`;
             }
         }
 
-        function cerrarModalAsistentes() {
-            document.getElementById("modal-asistentes").classList.add("hidden");
+        async function marcarAsistio(asistenciaId, checkbox) {
+            try {
+                await api(`/eventos/${asistentesActual.id}/asistentes/${asistenciaId}`, { method: "PATCH", json: { asistio: checkbox.checked } });
+            } catch (err) { checkbox.checked = !checkbox.checked; toast(err.message); }
         }
 
+        function cerrarModalAsistentes() { document.getElementById("modal-asistentes").classList.add("hidden"); }
+
+        async function descargarPDFDe(eventoId) {
+            try {
+                const res = await api(`/eventos/${eventoId}/asistentes/pdf`, { blob: true });
+                const nombre = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "asistencia.pdf";
+                const url = URL.createObjectURL(await res.blob());
+                const a = Object.assign(document.createElement("a"), { href: url, download: nombre });
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+            } catch (err) { toast(err.message); }
+        }
+        function descargarAsistenciaPDF() { if (asistentesActual) descargarPDFDe(asistentesActual.id); }
+
+        // ---------- EVENTOS PASADOS + EVIDENCIAS ----------
+        let pasadosCache = {};
+        async function cargarPasados() {
+            const cont = document.getElementById("pasados-container");
+            cont.innerHTML = `<p class="col-span-full text-center text-slate-400 py-8"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando...</p>`;
+            try {
+                const lista = await api("/eventos/pasados");
+                pasadosCache = {};
+                lista.forEach(e => { pasadosCache[e.id] = e; eventosCache[e.id] = e; });
+                if (!lista.length) { cont.innerHTML = `<p class="col-span-full text-center text-slate-500 py-8">Todavía no hay eventos finalizados.</p>`; }
+                else cont.innerHTML = lista.map(ev => {
+                    const evid = (ev.archivos || []).filter(a => a.tipo === "evidencia");
+                    return `
+                    <div class="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col">
+                        <div class="h-28 bg-slate-200 grid ${evid.length ? "grid-cols-3" : ""}">
+                            ${evid.length ? evid.slice(0, 3).map(a => `<div class="overflow-hidden">${iconoArchivo(a)}</div>`).join("")
+                                : `<div class="flex items-center justify-center text-slate-400 text-xs"><i class="fa-solid fa-camera mr-2"></i> Sin evidencias</div>`}
+                        </div>
+                        <div class="p-4 flex-1">
+                            <span class="text-[10px] font-bold text-blue-900 uppercase">${esc(ev.categoria || "General")}</span>
+                            <h3 class="font-bold text-slate-800">${esc(ev.titulo)}</h3>
+                            <p class="text-xs text-slate-500 mt-1"><i class="fa-regular fa-calendar mr-1"></i>${esc(new Date(ev.fechaHora).toLocaleString())} · ${esc(ev.lugar)}</p>
+                            <div class="flex gap-3 text-xs mt-2">
+                                <span class="text-slate-600"><b>${ev.totalRegistrados ?? 0}</b> registrados</span>
+                                <span class="text-emerald-700"><b>${ev.totalAsistieron ?? 0}</b> asistieron</span>
+                                <span class="${evid.length ? "text-blue-900" : "text-amber-600"}"><b>${evid.length}</b> evidencia(s)</span>
+                            </div>
+                        </div>
+                        <div class="px-4 py-3 bg-slate-50 border-t grid grid-cols-2 gap-2">
+                            <button onclick="abrirEvidencias('${esc(ev.id)}')" class="bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-images mr-1"></i> Evidencias</button>
+                            <button onclick="verAsistentesEvento('${esc(ev.id)}')" class="bg-slate-700 hover:bg-slate-800 text-white text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-users mr-1"></i> Asistentes</button>
+                            <button onclick="descargarPDFDe('${esc(ev.id)}')" class="border border-red-300 text-red-600 hover:bg-red-50 text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-file-pdf mr-1"></i> PDF</button>
+                            <button onclick="verEstadisticasDe('${esc(ev.id)}')" class="border text-slate-600 hover:bg-slate-100 text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-chart-column mr-1"></i> Estadísticas</button>
+                        </div>
+                    </div>`;
+                }).join("");
+                if (!document.getElementById("modal-evidencias").classList.contains("hidden")) pintarEvidencias();
+            } catch (err) {
+                cont.innerHTML = `<p class="col-span-full text-center text-red-500 py-8">${esc(err.message)}</p>`;
+            }
+        }
+
+        function abrirEvidencias(id) {
+            document.getElementById("evid-evento-id").value = id;
+            pintarEvidencias();
+            document.getElementById("modal-evidencias").classList.remove("hidden");
+        }
+        function cerrarModalEvidencias() { document.getElementById("modal-evidencias").classList.add("hidden"); }
+
+        function pintarEvidencias() {
+            const ev = pasadosCache[document.getElementById("evid-evento-id").value];
+            if (!ev) return;
+            const evid = (ev.archivos || []).filter(a => a.tipo === "evidencia");
+            document.getElementById("evid-titulo").innerText = `Evidencias: ${ev.titulo}`;
+            document.getElementById("evid-sub").innerText = `${new Date(ev.fechaHora).toLocaleString()} · ${ev.lugar} · ${evid.length} archivo(s)`;
+            document.getElementById("evid-galeria").innerHTML = evid.length ? evid.map(a => `
+                <div class="relative border rounded-lg overflow-hidden bg-slate-100 h-36">
+                    <a href="${esc(a.url)}" target="_blank" rel="noopener" class="block w-full h-full">${iconoArchivo(a)}</a>
+                    <button onclick="eliminarEvidencia('${esc(ev.id)}', '${esc(a.id)}')" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 text-xs" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+                    <span class="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[10px] px-1 truncate">${esc(a.nombre)}</span>
+                </div>`).join("") : `<p class="col-span-full text-center text-slate-400 text-sm py-6">Aún no hay evidencias para este evento.</p>`;
+        }
+
+        async function eliminarEvidencia(eventoId, archivoId) {
+            if (!confirm("¿Eliminar esta evidencia?")) return;
+            try { await api(`/eventos/${eventoId}/archivos/${archivoId}`, { method: "DELETE" }); await cargarPasados(); }
+            catch (err) { toast(err.message); }
+        }
+
+        async function subirEvidencias(lista) {
+            const archivos = validarArchivos(lista);
+            if (!archivos.length) return;
+            const id = document.getElementById("evid-evento-id").value;
+            try {
+                toast(`Subiendo ${archivos.length} archivo(s)...`);
+                await subirArchivos(id, "evidencia", archivos);
+                await cargarPasados();
+                toast("Evidencias guardadas.");
+            } catch (err) { toast(err.message); }
+        }
+
+        // ---------- COMPARTIR EN REDES ----------
+        let socialActual = null;
+        async function abrirSocial(eventoId) {
+            try {
+                const [post, estado] = await Promise.all([api(`/social/eventos/${eventoId}/post`), api("/social/estado")]);
+                socialActual = { id: eventoId, ...post };
+                document.getElementById("social-texto").value = post.texto;
+                const img = document.getElementById("social-imagen");
+                img.classList.toggle("hidden", !post.imagenUrl);
+                if (post.imagenUrl) img.src = post.imagenUrl;
+                const aviso = document.getElementById("social-aviso");
+                aviso.textContent = post.advertencia || "";
+                aviso.classList.toggle("hidden", !post.advertencia);
+                document.getElementById("social-api-fb").classList.toggle("hidden", !estado.facebookApi);
+                document.getElementById("social-api-ig").classList.toggle("hidden", !estado.instagramApi);
+                document.getElementById("social-api").classList.toggle("hidden", !(estado.facebookApi || estado.instagramApi));
+                document.getElementById("modal-social").classList.remove("hidden");
+            } catch (err) { toast(err.message); }
+        }
+        function cerrarModalSocial() { document.getElementById("modal-social").classList.add("hidden"); }
+
+        async function copiarTexto(texto) {
+            try { await navigator.clipboard.writeText(texto); return true; } catch (_) { return false; }
+        }
+
+        async function compartirFacebook() {
+            const texto = document.getElementById("social-texto").value;
+            const copiado = await copiarTexto(texto);
+            const url = "https://www.facebook.com/sharer/sharer.php?" + new URLSearchParams({ u: socialActual.enlacePublico, quote: texto.slice(0, 1000) });
+            window.open(url, "_blank", "noopener,width=680,height=640");
+            if (copiado) toast("Texto copiado por si Facebook no lo precarga: pégalo en la publicación.");
+        }
+
+        async function compartirInstagram() {
+            const texto = document.getElementById("social-texto").value;
+            const copiado = await copiarTexto(texto);
+            if (socialActual.imagenUrl) {
+                try {
+                    const blob = await (await fetch(socialActual.imagenUrl)).blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = Object.assign(document.createElement("a"), { href: url, download: "flyer-evento" + (blob.type === "image/png" ? ".png" : ".jpg") });
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                } catch (_) { window.open(socialActual.imagenUrl, "_blank", "noopener"); }
+            }
+            window.open("https://www.instagram.com/", "_blank", "noopener");
+            toast(copiado ? "Texto copiado y flyer descargado: crea la publicación en Instagram y pégalos." : "Flyer descargado: copia el texto manualmente.");
+        }
+
+        async function publicarPorApi(plataforma) {
+            if (!confirm(`¿Publicar ahora en ${plataforma === "facebook" ? "Facebook" : "Instagram"}?`)) return;
+            try {
+                const r = await api(`/social/eventos/${socialActual.id}/publicar`, { method: "POST", json: { plataforma, texto: document.getElementById("social-texto").value } });
+                toast(r.mensaje);
+            } catch (err) { toast(err.message); }
+        }
+
+        // ---------- ESTADÍSTICAS ----------
+        let graficas = [];
+        const PALETA = ["#0C2340", "#F59E0B", "#2563EB", "#10B981", "#8B5CF6", "#EF4444", "#14B8A6", "#F97316"];
+
+        function tarjetaKPI(titulo, valor, icono, color = "text-blue-900") {
+            return `<div class="bg-white rounded-xl border shadow-sm p-4 flex items-center gap-3">
+                <i class="fa-solid ${icono} text-2xl ${color}"></i>
+                <div><p class="text-2xl font-bold text-slate-800">${esc(valor)}</p><p class="text-xs text-slate-500">${esc(titulo)}</p></div></div>`;
+        }
+        function cajaGrafica(id, titulo, ancho = "") {
+            return `<div class="bg-white rounded-xl border shadow-sm p-4 ${ancho}"><h3 class="text-sm font-bold text-slate-700 mb-2">${esc(titulo)}</h3><div class="relative h-64"><canvas id="${id}"></canvas></div></div>`;
+        }
+        function dibujar(id, config) {
+            if (typeof Chart === "undefined") return;
+            graficas.push(new Chart(document.getElementById(id), { ...config, options: { responsive: true, maintainAspectRatio: false, ...(config.options || {}) } }));
+        }
+        function limpiarGraficas() { graficas.forEach(g => g.destroy()); graficas = []; }
+
+        async function iniciarEstadisticas() {
+            if (!eventosLista.length) { try { eventosLista = await api("/eventos/feed"); eventosLista.forEach(e => { eventosCache[e.id] = e; }); } catch (_) { /* se mostrará vacío */ } }
+            const sel = document.getElementById("stats-selector"), actual = sel.value;
+            sel.innerHTML = `<option value="general">Todos los eventos (general)</option>` +
+                [...eventosLista].sort((a, b) => new Date(b.fechaHora) - new Date(a.fechaHora))
+                    .map(e => `<option value="${esc(e.id)}">${esc(e.titulo)} — ${esc(new Date(e.fechaHora).toLocaleDateString())}</option>`).join("");
+            if ([...sel.options].some(o => o.value === actual)) sel.value = actual;
+            cargarEstadisticas();
+        }
+
+        function verEstadisticasDe(eventoId) {
+            cambiarPestaña("estadisticas");
+            setTimeout(() => { document.getElementById("stats-selector").value = eventoId; cargarEstadisticas(); }, 50);
+        }
+
+        async function cargarEstadisticas() {
+            const cont = document.getElementById("stats-contenido");
+            const valor = document.getElementById("stats-selector").value;
+            cont.innerHTML = `<p class="text-center text-slate-400 py-8"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Calculando...</p>`;
+            limpiarGraficas();
+            try {
+                if (typeof Chart === "undefined") throw new Error("No se pudo cargar la librería de gráficas (revisa tu conexión a internet).");
+                if (valor === "general") await pintarEstadisticasGenerales(cont);
+                else await pintarEstadisticasEvento(cont, valor);
+            } catch (err) { cont.innerHTML = `<p class="text-center text-red-500 py-8">${esc(err.message)}</p>`; }
+        }
+
+        async function pintarEstadisticasGenerales(cont) {
+            const d = await api("/estadisticas/general");
+            cont.innerHTML = `
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    ${tarjetaKPI("Eventos totales", d.totalEventos, "fa-calendar-days")}
+                    ${tarjetaKPI("Próximos / Finalizados", `${d.proximos} / ${d.finalizados}`, "fa-clock", "text-amber-500")}
+                    ${tarjetaKPI("Registros totales", d.totalRegistros, "fa-user-check", "text-emerald-600")}
+                    ${tarjetaKPI("Asistencia confirmada", `${d.tasaAsistencia}%`, "fa-circle-check", "text-emerald-600")}
+                    ${tarjetaKPI("Promedio de registros por evento", d.promedioRegistrosPorEvento, "fa-chart-line")}
+                    ${tarjetaKPI("Generales / Segmentados", `${d.eventosGenerales} / ${d.eventosSegmentados}`, "fa-bullseye", "text-indigo-600")}
+                    ${tarjetaKPI("Finalizados con evidencia", d.finalizadosConEvidencia, "fa-images", "text-blue-900")}
+                    ${tarjetaKPI("Finalizados sin evidencia", d.finalizadosSinEvidencia, "fa-triangle-exclamation", "text-red-500")}
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    ${cajaGrafica("g-mes", "Eventos y registros por mes")}
+                    ${cajaGrafica("g-categoria", "Eventos por categoría")}
+                    ${cajaGrafica("g-carrera", "Registros y asistencia por carrera")}
+                    ${cajaGrafica("g-top", "Eventos con más registros")}
+                </div>`;
+            dibujar("g-mes", { type: "bar", data: { labels: d.porMes.map(m => m.mes), datasets: [
+                { label: "Eventos", data: d.porMes.map(m => m.eventos), backgroundColor: PALETA[0] },
+                { label: "Registros", data: d.porMes.map(m => m.registros), backgroundColor: PALETA[1] }] },
+                options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
+            dibujar("g-categoria", { type: "doughnut", data: { labels: d.porCategoria.map(c => c.categoria), datasets: [{ data: d.porCategoria.map(c => c.eventos), backgroundColor: PALETA }] } });
+            dibujar("g-carrera", { type: "bar", data: { labels: d.porCarrera.map(c => c.carrera), datasets: [
+                { label: "Registros", data: d.porCarrera.map(c => c.registros), backgroundColor: PALETA[2] },
+                { label: "Asistieron", data: d.porCarrera.map(c => c.asistencias), backgroundColor: PALETA[3] }] },
+                options: { indexAxis: "y", scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } } });
+            dibujar("g-top", { type: "bar", data: { labels: d.topEventos.map(t => t.titulo.length > 28 ? t.titulo.slice(0, 27) + "…" : t.titulo), datasets: [
+                { label: "Registrados", data: d.topEventos.map(t => t.registrados), backgroundColor: PALETA[0] },
+                { label: "Asistieron", data: d.topEventos.map(t => t.asistieron), backgroundColor: PALETA[3] }] },
+                options: { indexAxis: "y", scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } } });
+        }
+
+        async function pintarEstadisticasEvento(cont, id) {
+            const d = await api(`/estadisticas/evento/${id}`);
+            cont.innerHTML = `
+                <div class="bg-white rounded-xl border shadow-sm p-4">
+                    <h3 class="font-bold text-slate-800">${esc(d.evento.titulo)}</h3>
+                    <p class="text-xs text-slate-500">${esc(d.evento.fecha)} · ${esc(d.evento.lugar)} · ${d.evento.finalizado ? "Finalizado" : "Próximo"}</p>
+                </div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    ${tarjetaKPI("Registrados", d.registrados, "fa-user-check", "text-emerald-600")}
+                    ${tarjetaKPI("Asistieron", d.asistieron, "fa-circle-check", "text-emerald-600")}
+                    ${tarjetaKPI("Tasa de asistencia", `${d.tasaAsistencia}%`, "fa-percent", "text-amber-500")}
+                    ${tarjetaKPI("Evidencias / Archivos", `${d.archivosEvidencia} / ${d.archivosMaterial}`, "fa-images")}
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    ${cajaGrafica("g-ev-carrera", "Por carrera")}
+                    ${cajaGrafica("g-ev-grupo", "Por grupo")}
+                    ${cajaGrafica("g-ev-dia", "Inscripciones por día", "lg:col-span-2")}
+                </div>`;
+            const barras = (id2, filas, clave) => dibujar(id2, { type: "bar", data: { labels: filas.map(f => f[clave]), datasets: [
+                { label: "Registros", data: filas.map(f => f.registros), backgroundColor: PALETA[2] },
+                { label: "Asistieron", data: filas.map(f => f.asistencias), backgroundColor: PALETA[3] }] },
+                options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
+            barras("g-ev-carrera", d.porCarrera, "carrera");
+            barras("g-ev-grupo", d.porGrupo, "grupo");
+            dibujar("g-ev-dia", { type: "line", data: { labels: d.inscripcionesPorDia.map(x => x.fecha), datasets: [
+                { label: "Inscripciones", data: d.inscripcionesPorDia.map(x => x.registros), borderColor: PALETA[0], backgroundColor: PALETA[0], tension: 0.25 }] },
+                options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
+        }
+
+        // ---------- Inicialización de las zonas de arrastre ----------
+        window.addEventListener("DOMContentLoaded", () => {
+            activarDropzone("ev-dropzone", "ev-archivos", (lista) => { estadoModalEvento.nuevos.push(...validarArchivos(lista)); pintarArchivosModal(); });
+            activarDropzone("evid-dropzone", "evid-archivos", subirEvidencias);
+            const gi = document.getElementById("ev-grupo-input");
+            gi.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); agregarGruposDesdeTexto(gi.value); gi.value = ""; } });
+            gi.addEventListener("change", () => { agregarGruposDesdeTexto(gi.value); gi.value = ""; });
+        });
+
         // 7. ADMINISTRACIÓN: USUARIOS Y AUDITORÍA
+        let usuariosCache = {};
         async function cargarUsuariosAdmin() {
             const tbody = document.getElementById("tabla-usuarios-body");
             try {
-                const res = await fetch(`${API_BASE_URL}/admin/usuarios`, {
-                    headers: { "Authorization": `Bearer ${userState.token}` }
-                });
-                const usuarios = await res.json();
+                const usuarios = await api("/admin/usuarios");
+                usuariosCache = {};
+                usuarios.forEach(u => { usuariosCache[u.id] = u; });
 
                 tbody.innerHTML = usuarios.map(u => `
                     <tr class="border-b hover:bg-slate-50">
-                        <td class="p-3 font-mono text-xs">${u.id}</td>
-                        <td class="p-3 font-medium">${u.nombre}</td>
-                        <td class="p-3 text-slate-500">${u.email}</td>
-                        <td class="p-3"><span class="px-2 py-1 bg-slate-200 rounded text-xs font-semibold">${u.rol}</span></td>
+                        <td class="p-3 font-mono text-xs">${Number(u.id)}</td>
+                        <td class="p-3 font-medium">${esc(u.nombre)}</td>
+                        <td class="p-3 text-slate-500">${esc(u.email)}</td>
+                        <td class="p-3"><span class="px-2 py-1 bg-slate-200 rounded text-xs font-semibold">${esc(u.rol)}</span></td>
+                        <td class="p-3 text-xs text-slate-600">
+                            ${esc([u.id_carrera, (u.grupos || []).join(", ")].filter(Boolean).join(" · ") || "—")}
+                            <button onclick="abrirSegmentacionUsuario(${Number(u.id)})" class="ml-1 text-blue-900 hover:underline" title="Editar carrera y grupo"><i class="fa-solid fa-pen"></i></button>
+                        </td>
                         <td class="p-3">
-                            <select onchange="cambiarRolUsuario(${u.id}, this.value)" class="text-xs border rounded px-2 py-1 bg-white">
+                            <select onchange="cambiarRolUsuario(${Number(u.id)}, this.value)" class="text-xs border rounded px-2 py-1 bg-white">
                                 <option value="Usuario Regular" ${u.rol === 'Usuario Regular' ? 'selected' : ''}>Usuario Regular</option>
                                 <option value="Editor" ${u.rol === 'Editor' ? 'selected' : ''}>Editor</option>
                                 <option value="Administrador" ${u.rol === 'Administrador' ? 'selected' : ''}>Administrador</option>
@@ -837,8 +1281,34 @@
                     </tr>
                 `).join("");
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Error al obtener usuarios.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Error al obtener usuarios.</td></tr>`;
             }
+        }
+
+        function abrirSegmentacionUsuario(id) {
+            const u = usuariosCache[id];
+            document.getElementById("segu-id").value = id;
+            document.getElementById("segu-nombre").innerText = `${u.nombre} · ${u.email}`;
+            document.getElementById("segu-facultad").value = u.id_facultad || "";
+            document.getElementById("segu-carrera").value = u.id_carrera || "";
+            document.getElementById("segu-grupos").value = (u.grupos || []).join(", ");
+            document.getElementById("modal-segmentacion-usuario").classList.remove("hidden");
+            cargarOpcionesSegmentacion();
+        }
+
+        async function guardarSegmentacionUsuario(e) {
+            e.preventDefault();
+            const id = document.getElementById("segu-id").value;
+            try {
+                await api(`/admin/usuarios/${id}/segmentacion`, { method: "PUT", json: {
+                    id_facultad: document.getElementById("segu-facultad").value.trim() || null,
+                    id_carrera: document.getElementById("segu-carrera").value.trim() || null,
+                    grupos: document.getElementById("segu-grupos").value.split(",").map(g => g.trim()).filter(Boolean)
+                } });
+                document.getElementById("modal-segmentacion-usuario").classList.add("hidden");
+                toast("Datos académicos actualizados.");
+                cargarUsuariosAdmin();
+            } catch (err) { toast(err.message); }
         }
 
         async function cambiarRolUsuario(userId, nuevoRol) {
@@ -924,4 +1394,4 @@
         }
     </script>
 </body>
-</html>
+</html>

@@ -54,65 +54,65 @@ private data class DatosAcademicosAlumno(
     val cicloEscolar: String
 )
 
-// Extrae automáticamente el correo guardado en sesión y formatea el nombre del alumno
+// Conecta directamente con el TokenManager encriptado (EncryptedSharedPreferences)
 private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
-    // Buscamos el correo y rol en los posibles nombres de SharedPreferences que usa TokenManager
-    val posiblesPrefs = listOf("auth_prefs", "TokenPrefs", "campus_connect_prefs", "user_prefs", " MisPreferencias")
-    var emailGuardado: String? = null
-    var rolGuardado: String? = null
+    val correoReal = TokenManager.obtenerEmail(context).trim().lowercase()
+    val rolGuardado = TokenManager.obtenerRol(context)
 
-    for (nombrePref in posiblesPrefs) {
-        val prefs = context.getSharedPreferences(nombrePref, Context.MODE_PRIVATE)
-        if (emailGuardado.isNullOrBlank()) {
-            emailGuardado = prefs.getString("user_email", null)
-                ?: prefs.getString("email", null)
-                        ?: prefs.getString("correo", null)
+    val rolFormateado = when (rolGuardado?.lowercase()) {
+        "admin", "administrador", "superadmin" -> "Administrador ETDA"
+        "organizador", "docente" -> "Organizador Académico"
+        "alumno", "estudiante", "usuario_regular" -> "Estudiante Activo"
+        else -> if (!rolGuardado.isNullOrBlank()) rolGuardado else "Estudiante Activo"
+    }
+
+    val usuarioCorreo = correoReal.substringBefore("@")
+
+    // Reconocimiento directo de perfiles registrados o formateo inteligente desde el correo UNACH
+    val (nombreFinal, inicialesFinal, matriculaFinal) = when {
+        correoReal.startsWith("luz.rossette") -> Triple(
+            "Luz Ximena Rossette Pérez",
+            "LX",
+            "100016853"
+        )
+        correoReal.contains("yasir") || correoReal.contains("estrada") -> Triple(
+            "Rodolfo Yasir Estrada Gálvez",
+            "RY",
+            "100016854"
+        )
+        else -> {
+            val partesNombre = usuarioCorreo
+                .replace(Regex("[0-9]"), "")
+                .split(".", "_", "-")
+                .filter { it.isNotBlank() }
+                .map { it.replaceFirstChar { char -> char.uppercase() } }
+
+            val nombre = when {
+                partesNombre.size >= 2 -> partesNombre.joinToString(" ")
+                partesNombre.size == 1 -> partesNombre[0]
+                else -> "Estudiante UNACH"
+            }
+
+            val ini = when {
+                partesNombre.size >= 2 -> "${partesNombre[0].first()}${partesNombre[1].first()}".uppercase()
+                partesNombre.size == 1 -> partesNombre[0].take(2).uppercase()
+                else -> "UN"
+            }
+
+            val digitos = usuarioCorreo.filter { it.isDigit() }.ifEmpty { "53" }
+            Triple(nombre, ini, "1000168$digitos")
         }
-        if (rolGuardado.isNullOrBlank()) {
-            rolGuardado = prefs.getString("user_role", null)
-                ?: prefs.getString("rol", null)
-                        ?: prefs.getString("role", null)
-        }
     }
-
-    val correoFinal = if (!emailGuardado.isNullOrBlank()) emailGuardado else "estudiante.etda26@unach.mx"
-    val rolFinal = if (!rolGuardado.isNullOrBlank()) rolGuardado else "Estudiante Activo"
-
-    // Convertimos "nombre.apellido##@unach.mx" en un nombre presentable si no hay nombre explícito
-    val usuarioCorreo = correoFinal.substringBefore("@")
-    val partesNombre = usuarioCorreo
-        .replace(Regex("[0-9]"), "")
-        .split(".", "_", "-")
-        .filter { it.isNotBlank() }
-        .map { it.replaceFirstChar { char -> char.uppercase() } }
-
-    val nombreFormateado = if (partesNombre.size >= 2) {
-        partesNombre.joinToString(" ")
-    } else if (partesNombre.size == 1) {
-        "${partesNombre[0]} (Estudiante UNACH)"
-    } else {
-        "Estudiante UNACH"
-    }
-
-    val iniciales = when {
-        partesNombre.size >= 2 -> "${partesNombre[0].first()}${partesNombre[1].first()}".uppercase()
-        partesNombre.size == 1 -> partesNombre[0].take(2).uppercase()
-        else -> "UN"
-    }
-
-    // Extraer dígitos del correo para simular sufijo de matrícula o usar matrícula institucional
-    val digitosCorreo = usuarioCorreo.filter { it.isDigit() }.ifEmpty { "53" }
-    val matriculaGenerada = "1000168$digitosCorreo"
 
     return DatosAcademicosAlumno(
-        nombreCompleto = nombreFormateado,
-        iniciales = iniciales,
-        correo = correoFinal,
-        rol = rolFinal,
-        matricula = matriculaGenerada,
+        nombreCompleto = nombreFinal,
+        iniciales = inicialesFinal,
+        correo = correoReal,
+        rol = rolFormateado,
+        matricula = matriculaFinal,
         escuela = "Escuela de Tecnologías Digitales Aplicadas (ETDA)",
         carrera = "Lic. en Ingeniería en Desarrollo y Tecnologías de Software",
-        semestreGrupo = "6° Semestre • Grupo A",
+        semestreGrupo = "7° Semestre • Grupo N",
         modalidad = "Escolarizada (Campus I, Tuxtla Gutiérrez)",
         cicloEscolar = "Agosto - Diciembre 2026"
     )
@@ -135,7 +135,6 @@ fun PerfilScreen(puntos: Int) {
     var mostrarQrDialog by remember { mutableStateOf(false) }
     var mostrarCredencialExpandida by remember { mutableStateOf(true) }
 
-    // Desglose de asistencias por categoría conectado al concepto de Recompensas
     val categoriasAsistencia = remember {
         listOf(
             ProgresoCategoriaPerfil("Talleres", 3, 5, Icons.Default.Build, Color(0xFF0284C7)),
@@ -173,7 +172,6 @@ fun PerfilScreen(puntos: Int) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Insignia superior ETDA
                 Surface(
                     color = Color.White.copy(alpha = 0.14f),
                     shape = RoundedCornerShape(50),
@@ -202,7 +200,6 @@ fun PerfilScreen(puntos: Int) {
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // Avatar circular con iniciales e indicador de cuenta activa
                 Box(contentAlignment = Alignment.BottomEnd) {
                     Surface(
                         modifier = Modifier.size(94.dp),
@@ -221,7 +218,6 @@ fun PerfilScreen(puntos: Int) {
                         }
                     }
 
-                    // Punto verde de estatus activo
                     Surface(
                         shape = CircleShape,
                         color = EtdaSuccess,
@@ -239,7 +235,6 @@ fun PerfilScreen(puntos: Int) {
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Nombre del alumno
                 Text(
                     text = datosAlumno.nombreCompleto,
                     color = Color.White,
@@ -250,7 +245,6 @@ fun PerfilScreen(puntos: Int) {
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Correo institucional con el que inició sesión
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
@@ -272,7 +266,6 @@ fun PerfilScreen(puntos: Int) {
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Badges de Rol y Seguridad 2FA
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Surface(
                         color = EtdaOrange,
@@ -315,7 +308,7 @@ fun PerfilScreen(puntos: Int) {
             }
         }
 
-        // 2. TARJETA FLOTANTE DE ESTADÍSTICAS RÁPIDAS (ASISTENCIAS, INSIGNIAS, PUNTOS)
+        // 2. TARJETA FLOTANTE DE ESTADÍSTICAS RÁPIDAS
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -361,7 +354,7 @@ fun PerfilScreen(puntos: Int) {
             }
         }
 
-        // 3. INFORMACIÓN ACADÉMICA E INSTITUCIONAL DEL ESTUDIANTE
+        // 3. EXPEDIENTE ACADÉMICO E INSTITUCIONAL DEL ESTUDIANTE
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -395,7 +388,7 @@ fun PerfilScreen(puntos: Int) {
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = " expediente Académico",
+                                text = "Expediente Académico",
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 16.sp,
                                 color = EtdaNavy
@@ -408,7 +401,6 @@ fun PerfilScreen(puntos: Int) {
                         }
                     }
 
-                    // Botón rápido para mostrar QR de asistencia
                     FilledTonalButton(
                         onClick = { mostrarQrDialog = true },
                         colors = ButtonDefaults.filledTonalButtonColors(
@@ -488,7 +480,7 @@ fun PerfilScreen(puntos: Int) {
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // 4. DESGLOSE DE PARTICIPACIÓN POR CATEGORÍA (CONECTADO A RECOMPENSAS)
+        // 4. DESGLOSE DE PARTICIPACIÓN POR CATEGORÍA
         Card(
             modifier = Modifier
                 .fillMaxWidth()

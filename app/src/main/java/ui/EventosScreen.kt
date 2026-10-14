@@ -1,5 +1,8 @@
 package com.example.campusconnect.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -9,9 +12,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -25,11 +31,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.campusconnect.model.ArchivoEvento
 import com.example.campusconnect.model.Evento
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -45,7 +55,7 @@ private val EtdaOrange = Color(0xFFF57C00)
 private val EtdaBg = Color(0xFFF4F7FB)
 private val EtdaSuccess = Color(0xFF10B981)
 
-// Zona horaria oficial de México para que "hoy" sea martes 13 de octubre
+// Zona horaria oficial de México para evitar desfase UTC en el emulador
 private val zonaHorariaMx: TimeZone = TimeZone.getTimeZone("America/Mexico_City")
 private val localeMx = Locale("es", "MX")
 
@@ -64,7 +74,7 @@ private data class DiaMesContext(
     fun esValido() = dia > 0
 }
 
-// Configuración visual por categoría para conectar con el sistema de Recompensas
+// Configuración visual por categoría conectada con el backend de Yasir y el sistema de Insignias
 private data class InfoCategoria(
     val nombre: String,
     val icono: ImageVector,
@@ -81,8 +91,10 @@ private val listaCategorias = listOf(
     InfoCategoria("Académicos", Icons.Default.MenuBook, EtdaNavy)
 )
 
+// Usa primero el campo `evento.categoria` que agregó Yasir en el backend, o lo detecta del texto
 private fun detectarCategoriaEvento(evento: Evento): InfoCategoria {
-    val texto = "${evento.titulo} ${evento.descripcion}".lowercase()
+    val catBackend = (evento.categoria ?: "").lowercase()
+    val texto = "$catBackend ${evento.titulo} ${evento.descripcion}".lowercase()
     return when {
         texto.contains("tutor") || texto.contains("asesor") -> listaCategorias[1]
         texto.contains("conferencia") || texto.contains("plática") || texto.contains("foro") || texto.contains("congreso") -> listaCategorias[2]
@@ -93,7 +105,7 @@ private fun detectarCategoriaEvento(evento: Evento): InfoCategoria {
     }
 }
 
-// Mantiene el 15 de Octubre para las tarjetas de eventos que no traigan otra fecha específica
+// Conserva el 15 de Octubre por defecto o extrae la fecha real del servidor
 private fun extraerFechaVisual(fechaHora: String?): Triple<String, String, String> {
     if (fechaHora.isNullOrBlank()) return Triple("OCT", "15", "10:00")
     return try {
@@ -123,24 +135,22 @@ fun EventosScreen(
     var eventoSeleccionado by remember { mutableStateOf<Evento?>(null) }
     var calendarioExpandido by remember { mutableStateOf(true) }
 
-    // Nueva pestaña: 0 = Próximos Eventos, 1 = Mis Inscritos
+    // 0 = Próximos Eventos, 1 = Mis Inscritos
     var tabVistaEventos by remember { mutableIntStateOf(0) }
-
-    // Lista reactiva que guarda los títulos/IDs de los eventos a los que el alumno se ha inscrito
     val eventosInscritos = remember { mutableStateListOf<String>() }
 
-    // Estado del Motor del Calendario usando la hora de México (Hoy: 13 de Octubre)
+    // Estado del Motor del Calendario con zona horaria de México
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
     var fechaSeleccionada by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
 
-    // Filtrado inteligente por texto, categoría y pestaña (Próximos vs Inscritos)
     val eventosFiltrados = remember(eventos, searchQuery, filtroSeleccionado, tabVistaEventos, eventosInscritos.size) {
         eventos.filter { ev ->
             val catInfo = detectarCategoriaEvento(ev)
             val coincideBusqueda = searchQuery.isBlank() ||
                     ev.titulo.contains(searchQuery, ignoreCase = true) ||
                     ev.lugar.contains(searchQuery, ignoreCase = true) ||
-                    ev.descripcion.contains(searchQuery, ignoreCase = true)
+                    ev.descripcion.contains(searchQuery, ignoreCase = true) ||
+                    (ev.categoria ?: "").contains(searchQuery, ignoreCase = true)
 
             val coincideCategoria = filtroSeleccionado == "Todos" ||
                     catInfo.nombre.equals(filtroSeleccionado, ignoreCase = true)
@@ -236,7 +246,7 @@ fun EventosScreen(
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Text(
-                                text = "Participa y acumula asistencias por categoría",
+                                text = "Participa, consulta materiales y suma asistencias",
                                 color = Color.White.copy(alpha = 0.8f),
                                 fontSize = 12.sp
                             )
@@ -458,7 +468,7 @@ fun EventosScreen(
             }
         }
 
-        // 4. NUEVO SELECTOR DE PESTAÑAS: "PRÓXIMOS EVENTOS" VS "MIS INSCRITOS"
+        // 4. SELECTOR DE PESTAÑAS: "PRÓXIMOS EVENTOS" VS "MIS INSCRITOS"
         item {
             Column(
                 modifier = Modifier
@@ -478,7 +488,6 @@ fun EventosScreen(
                             .padding(5.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Pestaña 1: Próximos Eventos
                         val tab0Activa = tabVistaEventos == 0
                         val bgTab0 by animateColorAsState(
                             targetValue = if (tab0Activa) EtdaNavy else Color.Transparent,
@@ -514,7 +523,6 @@ fun EventosScreen(
                             }
                         }
 
-                        // Pestaña 2: Mis Inscritos (con contador dinámico)
                         val tab1Activa = tabVistaEventos == 1
                         val bgTab1 by animateColorAsState(
                             targetValue = if (tab1Activa) EtdaNavy else Color.Transparent,
@@ -567,7 +575,6 @@ fun EventosScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Subtítulo informativo según la pestaña activa
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -711,7 +718,7 @@ fun EventosScreen(
         }
     }
 
-    // 6. MODAL BOTTOM SHEET DE DETALLE E INSCRIPCIÓN
+    // 6. MODAL BOTTOM SHEET CON FLYER + ARCHIVOS PDF DE YASIR + DISEÑO ETDA
     eventoSeleccionado?.let { evento ->
         val yaInscrito = eventosInscritos.contains(evento.titulo)
         DetalleEventoSheet(
@@ -726,7 +733,7 @@ fun EventosScreen(
                     }
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            "¡Inscripción exitosa a ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
+                            "¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
                         )
                     }
                 } else {
@@ -1019,7 +1026,7 @@ private fun TarjetaEventoAnimada(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = catInfo.nombre.uppercase(),
+                                text = (evento.categoria ?: catInfo.nombre).uppercase(),
                                 color = catInfo.color,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold
@@ -1094,27 +1101,53 @@ private fun TarjetaEventoAnimada(
                             )
                         }
 
-                        Surface(
-                            color = EtdaOrange.copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        if (evento.materiales.isNotEmpty()) {
+                            Surface(
+                                color = EtdaBlue.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(6.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Stars,
-                                    contentDescription = null,
-                                    tint = EtdaOrange,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = "+1 Insignia",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = EtdaOrange
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AttachFile,
+                                        contentDescription = null,
+                                        tint = EtdaBlue,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = "${evento.materiales.size} arch.",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EtdaBlue
+                                    )
+                                }
+                            }
+                        } else {
+                            Surface(
+                                color = EtdaOrange.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Stars,
+                                        contentDescription = null,
+                                        tint = EtdaOrange,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "+1 Sello",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EtdaOrange
+                                    )
+                                }
                             }
                         }
                     }
@@ -1179,7 +1212,7 @@ private fun DetalleEventoSheet(
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
 
     val progresoCupo by animateFloatAsState(
-        targetValue = if (isInscrito) 0.85f else 0.78f,
+        targetValue = if (isInscrito) 0.85f else 0.80f,
         animationSpec = tween(600),
         label = "progresoCupo"
     )
@@ -1193,9 +1226,24 @@ private fun DetalleEventoSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp)
                 .padding(bottom = 32.dp)
         ) {
+            // FLYER DEL EVENTO (Integración de Yasir con Coil AsyncImage)
+            if (!evento.imagenUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = evento.imagenUrl,
+                    contentDescription = "Flyer de ${evento.titulo}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1229,7 +1277,7 @@ private fun DetalleEventoSheet(
                                 )
                                 Spacer(modifier = Modifier.width(5.dp))
                                 Text(
-                                    text = catInfo.nombre.uppercase(),
+                                    text = (evento.categoria ?: catInfo.nombre).uppercase(),
                                     color = Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold
@@ -1367,7 +1415,7 @@ private fun DetalleEventoSheet(
                                     Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(22.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "¡Tu lugar está reservado!",
+                                        text = "Estás inscrito",
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF065F46),
                                         fontSize = 16.sp
@@ -1383,7 +1431,7 @@ private fun DetalleEventoSheet(
                                 }
                             }
                             Text(
-                                text = "Ya puedes consultar este evento en tu pestaña 'Mis Inscritos'. Cuando el administrador confirme tu asistencia, sumarás puntos en ${catInfo.nombre}.",
+                                text = "El administrador confirmará tu asistencia el día del evento. Ya puedes verlo en la pestaña 'Mis Inscritos'.",
                                 color = Color(0xFF047857),
                                 fontSize = 13.sp,
                                 lineHeight = 18.sp
@@ -1409,6 +1457,9 @@ private fun DetalleEventoSheet(
                 }
             }
 
+            // SECCIÓN DE ARCHIVOS ADJUNTOS (IMÁGENES Y PDFs DE YASIR)
+            ArchivosDelEvento(evento.materiales)
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1421,7 +1472,7 @@ private fun DetalleEventoSheet(
                     border = BorderStroke(1.5.dp, EtdaNavy),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaNavy)
                 ) {
-                    Text("Cerrar", fontWeight = FontWeight.Bold)
+                    Text("Al calendario", fontWeight = FontWeight.Bold)
                 }
 
                 Button(
@@ -1447,12 +1498,86 @@ private fun DetalleEventoSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isInscrito) "Inscrito" else "Inscribirme ahora",
+                        text = if (isInscrito) "Inscrito" else "Inscribirme",
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 14.sp
                     )
                 }
             }
+        }
+    }
+}
+
+/** Lista de archivos adjuntos (imágenes y PDFs) del evento creada por Yasir, estilizada con la paleta ETDA */
+@Composable
+private fun ArchivosDelEvento(archivos: List<ArchivoEvento>) {
+    if (archivos.isEmpty()) return
+    val context = LocalContext.current
+    val abrir: (ArchivoEvento) -> Unit = { archivo ->
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(archivo.url)))
+        } catch (_: ActivityNotFoundException) {
+            // Sin app que abra este tipo de archivo
+        }
+    }
+
+    Spacer(modifier = Modifier.height(20.dp))
+    Text(
+        text = "Archivos del evento",
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 16.sp,
+        color = EtdaNavy
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+
+    val imagenes = archivos.filter { it.esImagen }
+    if (imagenes.isNotEmpty()) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(imagenes) { img ->
+                AsyncImage(
+                    model = img.url,
+                    contentDescription = img.nombre,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(110.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, EtdaBlue.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .clickable { abrir(img) }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    archivos.filter { !it.esImagen }.forEach { doc ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(EtdaBg)
+                .border(1.dp, EtdaNavy.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                .clickable { abrir(doc) }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PictureAsPdf,
+                contentDescription = "PDF",
+                tint = Color(0xFFC62828),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = doc.nombre,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = EtdaNavy
+            )
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = EtdaBlue)
         }
     }
 }

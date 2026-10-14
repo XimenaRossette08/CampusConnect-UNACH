@@ -3,216 +3,438 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Campus Connect - UNACH</title>
-    <!-- Tailwind CSS CDN para estilos y diseño responsivo -->
+    <title>Campus Connect UNACH — Panel Institucional ETDA</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconografía FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Tipografía Institucional Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Librería de Gráficas Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Librería ExcelJS para generar archivos .xlsx con formato y gráficas incrustadas -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <!-- Hoja de estilos institucional ETDA - UNACH -->
+    <link rel="stylesheet" href="css/styles.css">
 </head>
-<body class="bg-slate-100 font-sans text-slate-800 min-h-screen flex flex-col">
+<body class="min-h-screen flex flex-col">
 
-    <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
-    <nav id="navbar" class="bg-[#0C2340] text-white shadow-md hidden">
+    <!-- BARRA SUPERIOR DE SIMULACIÓN DE PERMISOS (VISIBLE SOLO AL PROBAR VISTA DE OTRO USUARIO) -->
+    <div id="banner-simulacion-permisos" class="hidden bg-[#F57C00] text-white px-4 py-2 text-xs font-bold shadow-md z-40">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-eye text-sm"></i>
+                <span>MODO VISTA PREVIA DE PERMISOS ACTIVO — Viendo el panel con los permisos:</span>
+                <span id="texto-simulacion-detalle" class="bg-black/20 px-2.5 py-0.5 rounded-full font-extrabold"></span>
+            </div>
+            <button onclick="salirSimulacionPermisos()" class="bg-[#122652] hover:bg-[#0C1B3B] text-white px-3 py-1 rounded-lg text-xs font-extrabold transition">
+                <i class="fa-solid fa-rotate-left mr-1"></i> Volver a mi vista de Administrador
+            </button>
+        </div>
+    </div>
+
+    <!-- BARRA DE NAVEGACIÓN INSTITUCIONAL SUPERIOR -->
+    <nav id="navbar" class="bg-[#122652] text-white shadow-lg border-b-2 border-[#F57C00] hidden">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
-                <div class="flex items-center space-x-3">
-                    <i class="fa-solid fa-graduation-cap text-2xl text-amber-400"></i>
-                    <span class="font-bold text-xl tracking-wide">Campus Connect UNACH</span>
+                <!-- Identidad sincronizada con TopAppBar de MainNavigationScreen.kt -->
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-[#F57C00] flex items-center justify-center shadow-md shrink-0">
+                        <i class="fa-solid fa-building-columns text-white text-lg"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-extrabold text-lg tracking-tight leading-none">Campus Connect</span>
+                            <span class="hidden sm:inline-block text-[10px] font-extrabold uppercase tracking-wider bg-white/10 text-[#FFB74D] border border-[#F57C00]/50 px-2 py-0.5 rounded-full">
+                                UNACH • ETDA
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-white/75 font-medium mt-0.5">Panel de Administración y Gestión Universitaria</p>
+                    </div>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <span id="user-badge" class="bg-blue-900 text-blue-200 text-xs px-3 py-1 rounded-full font-semibold border border-blue-700">
-                        <!-- Rol del usuario -->
+
+                <!-- Estado de sesión y controles de cuenta -->
+                <div class="flex items-center gap-3">
+                    <span id="user-badge" class="hidden md:inline-flex items-center bg-white/10 text-white text-xs px-3 py-1.5 rounded-full font-bold border border-[#F57C00]/60">
+                        <!-- Nivel de acceso o permisos -->
                     </span>
-                    <span id="user-email" class="text-sm font-medium text-slate-200"></span>
-                    <button onclick="abrirModalCambiarPassword()" class="text-slate-300 hover:text-white text-sm bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 transition">
-                        <i class="fa-solid fa-key mr-1"></i> Contraseña
+
+                    <div class="flex items-center gap-2 bg-white/5 px-2.5 py-1 rounded-xl border border-white/10">
+                        <div id="user-avatar-nav" class="w-7 h-7 rounded-full bg-[#193773] border border-[#F57C00] flex items-center justify-center text-[11px] font-extrabold text-white">
+                            UN
+                        </div>
+                        <span id="user-email" class="text-xs font-semibold text-slate-100 hidden sm:inline"></span>
+                    </div>
+
+                    <button onclick="abrirModalCambiarPassword()" class="text-slate-200 hover:text-white text-xs font-semibold bg-[#193773] hover:bg-[#0093FF]/30 px-3 py-2 rounded-xl border border-white/15 transition" title="Cambiar contraseña">
+                        <i class="fa-solid fa-key text-[#F57C00] sm:mr-1"></i>
+                        <span class="hidden sm:inline">Contraseña</span>
                     </button>
-                    <button onclick="cerrarSesion()" class="bg-red-600 hover:bg-red-700 text-white text-sm px-3 py-1.5 rounded-lg transition font-medium">
-                        <i class="fa-solid fa-right-from-bracket mr-1"></i> Salir
+
+                    <button onclick="cerrarSesion()" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition">
+                        <i class="fa-solid fa-right-from-bracket sm:mr-1"></i>
+                        <span class="hidden sm:inline">Salir</span>
                     </button>
                 </div>
             </div>
         </div>
     </nav>
 
-    <!-- VISTA 1: FORMULARIO DE INICIO DE SESIÓN Y REGISTRO -->
-    <div id="view-auth" class="flex-1 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-md w-full">
-            <div class="bg-[#0C2340] p-6 text-center text-white">
-                <i class="fa-solid fa-university text-4xl text-amber-400 mb-2"></i>
-                <h2 class="text-2xl font-bold">Campus Connect</h2>
-                <p class="text-xs text-slate-300 mt-1">“Por la conciencia de la necesidad de servir”</p>
+    <!-- VISTA 1: AUTENTICACIÓN INSTITUCIONAL (LOGIN, REGISTRO Y RECUPERACIÓN) -->
+    <main id="view-auth" class="flex-1 flex items-center justify-center p-4 bg-etda-gradient">
+        <div class="bg-white rounded-3xl shadow-2xl border border-white/20 overflow-hidden max-w-md w-full">
+            <!-- Encabezado con identidad oficial UNACH - ETDA -->
+            <div class="bg-[#122652] p-7 text-center text-white border-b-4 border-[#F57C00] relative">
+                <div class="w-16 h-16 rounded-full bg-[#F57C00]/20 border-2 border-[#F57C00] flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <i class="fa-solid fa-building-columns text-2xl text-[#F57C00]"></i>
+                </div>
+                <span class="etda-pill-tag mb-2">ETDA • Campus I Tuxtla</span>
+                <h1 class="text-2xl font-extrabold tracking-tight mt-1">Campus Connect UNACH</h1>
+                <p class="text-xs text-slate-300 mt-1 italic">“Por la conciencia de la necesidad de servir”</p>
             </div>
 
-            <div class="p-6">
-                <div id="auth-alert" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+            <div class="p-7">
+                <div id="auth-alert" class="hidden"></div>
 
-                <!-- Formulario de Login -->
+                <!-- Formulario de Inicio de Sesión -->
                 <form id="form-login" onsubmit="procesarLogin(event)" class="space-y-4">
-                    <h3 class="text-lg font-semibold text-slate-700 border-b pb-2">Iniciar Sesión</h3>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Correo Institucional</label>
-                        <input type="email" id="login-email" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                        <h2 class="text-base font-extrabold text-[#122652]">Acceso Institucional</h2>
+                        <p class="text-xs text-[#5B6670]">Ingresa con tu cuenta oficial de la Universidad Autónoma de Chiapas.</p>
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Contraseña</label>
-                        <input type="password" id="login-password" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                        <label class="block text-xs font-bold text-[#122652] uppercase tracking-wider mb-1">Correo Institucional</label>
+                        <div class="relative">
+                            <i class="fa-regular fa-envelope absolute left-3.5 top-3 text-[#0093FF] text-sm"></i>
+                            <input type="email" id="login-email" required placeholder="usuario@unach.mx"
+                                class="w-full pl-10 pr-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] focus:border-[#0093FF] outline-none">
+                        </div>
                     </div>
-                    <button type="submit" id="btn-login" class="w-full bg-[#0C2340] text-white py-2.5 rounded-lg font-semibold hover:bg-blue-950 transition">
-                        Ingresar
+                    <div>
+                        <label class="block text-xs font-bold text-[#122652] uppercase tracking-wider mb-1">Contraseña</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-lock absolute left-3.5 top-3 text-[#0093FF] text-sm"></i>
+                            <input type="password" id="login-password" required placeholder="••••••••"
+                                class="w-full pl-10 pr-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] focus:border-[#0093FF] outline-none">
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-login" class="w-full bg-[#122652] hover:bg-[#193773] text-white py-3 rounded-xl font-extrabold text-sm shadow-md transition flex items-center justify-center gap-2">
+                        <span>Ingresar al Panel</span>
+                        <i class="fa-solid fa-arrow-right text-[#F57C00]"></i>
                     </button>
-                    <div class="flex justify-between text-xs text-blue-900 pt-2">
-                        <a href="#" onclick="toggleAuthForm('registro')" class="hover:underline font-semibold">Crear una cuenta</a>
-                        <a href="#" onclick="toggleAuthForm('recuperar')" class="hover:underline">¿Olvidaste tu contraseña?</a>
+                    <div class="flex justify-between text-xs text-[#122652] pt-2 border-t border-slate-100">
+                        <a href="#" onclick="toggleAuthForm('registro')" class="hover:text-[#0093FF] font-bold">Registrar nueva cuenta</a>
+                        <a href="#" onclick="toggleAuthForm('recuperar')" class="text-[#5B6670] hover:text-[#122652]">¿Olvidaste tu contraseña?</a>
                     </div>
                 </form>
 
                 <!-- Formulario de Registro -->
                 <form id="form-registro" onsubmit="procesarRegistro(event)" class="space-y-4 hidden">
-                    <h3 class="text-lg font-semibold text-slate-700 border-b pb-2">Registro de Estudiante</h3>
+                    <h3 class="text-base font-extrabold text-[#122652] border-b pb-2">Registro de Cuenta Universitaria</h3>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Nombre Completo</label>
-                        <input type="text" id="reg-nombre" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Nombre Completo</label>
+                        <input type="text" id="reg-nombre" required class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Correo Institucional</label>
-                        <input type="email" id="reg-email" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Correo Institucional (@unach.mx)</label>
+                        <input type="email" id="reg-email" required class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Contraseña</label>
-                        <input type="password" id="reg-password" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Contraseña</label>
+                        <input type="password" id="reg-password" required class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
-                    <button type="submit" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-semibold hover:bg-emerald-700 transition">
-                        Registrarse
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-extrabold text-sm transition">
+                        Completar Registro
                     </button>
-                    <div class="text-center text-xs text-blue-900 pt-2">
-                        <a href="#" onclick="toggleAuthForm('login')" class="hover:underline font-semibold">¿Ya tienes cuenta? Inicia sesión</a>
+                    <div class="text-center text-xs pt-2">
+                        <a href="#" onclick="toggleAuthForm('login')" class="text-[#122652] hover:underline font-bold">¿Ya tienes cuenta? Inicia sesión</a>
                     </div>
                 </form>
 
-                <!-- Formulario de Solicitud de Recuperación -->
+                <!-- Formulario de Recuperación -->
                 <form id="form-recuperar" onsubmit="procesarRecuperacion(event)" class="space-y-4 hidden">
-                    <h3 class="text-lg font-semibold text-slate-700 border-b pb-2">Recuperar Contraseña</h3>
-                    <p class="text-xs text-slate-500">Ingresa tu correo para recibir las instrucciones de restablecimiento.</p>
+                    <h3 class="text-base font-extrabold text-[#122652] border-b pb-2">Recuperar Contraseña</h3>
+                    <p class="text-xs text-[#5B6670]">Ingresa tu correo institucional para recibir el enlace de restablecimiento.</p>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Correo Institucional</label>
-                        <input type="email" id="rec-email" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-900 outline-none">
+                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Correo Institucional</label>
+                        <input type="email" id="rec-email" required class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
-                    <button type="submit" class="w-full bg-amber-600 text-white py-2.5 rounded-lg font-semibold hover:bg-amber-700 transition">
-                        Enviar Enlace
+                    <button type="submit" class="w-full bg-[#F57C00] hover:bg-amber-600 text-white py-2.5 rounded-xl font-extrabold text-sm transition">
+                        Enviar Instrucciones
                     </button>
-                    <div class="text-center text-xs text-blue-900 pt-2">
-                        <a href="#" onclick="toggleAuthForm('login')" class="hover:underline font-semibold">Volver al inicio de sesión</a>
+                    <div class="text-center text-xs pt-2">
+                        <a href="#" onclick="toggleAuthForm('login')" class="text-[#122652] hover:underline font-bold">Volver al inicio de sesión</a>
                     </div>
                 </form>
             </div>
         </div>
-    </div>
+    </main>
 
-    <!-- VISTA 2: PANEL PRINCIPAL (DASHBOARD) -->
-    <div id="view-dashboard" class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 hidden">
-        
-        <!-- Pestañas de Navegación del Dashboard -->
-        <div class="flex border-b border-slate-300 mb-6 space-x-4">
-            <button onclick="cambiarPestaña('eventos')" id="tab-btn-eventos" class="py-2.5 px-4 font-semibold text-sm border-b-2 border-blue-900 text-blue-900">
-                <i class="fa-solid fa-newspaper mr-2"></i> Eventos y Noticias
-            </button>
-            <button onclick="cambiarPestaña('pasados')" id="tab-btn-pasados" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
-                <i class="fa-solid fa-clock-rotate-left mr-2"></i> Eventos Pasados
-            </button>
-            <button onclick="cambiarPestaña('estadisticas')" id="tab-btn-estadisticas" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
-                <i class="fa-solid fa-chart-column mr-2"></i> Estadísticas
-            </button>
-            <button onclick="cambiarPestaña('usuarios')" id="tab-btn-usuarios" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
-                <i class="fa-solid fa-users mr-2"></i> Usuarios y Roles
-            </button>
-            <button onclick="cambiarPestaña('auditoria')" id="tab-btn-auditoria" class="py-2.5 px-4 font-semibold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 hidden">
-                <i class="fa-solid fa-shield-halved mr-2"></i> Auditoría del Sistema
-            </button>
-        </div>
+    <!-- VISTA 2: PANEL PRINCIPAL DE ADMINISTRACIÓN Y GESTIÓN -->
+    <div id="view-dashboard" class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 hidden">
 
-        <!-- CONTENIDO PESTAÑA 1: EVENTOS -->
-        <div id="tab-eventos" class="space-y-6">
-            <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
-                <div>
-                    <h2 class="text-xl font-bold text-slate-800">Cartelera Unificada</h2>
-                    <p class="text-xs text-slate-500">Eventos de la comunidad académica UNACH</p>
-                </div>
-                <!-- Botón visible solo para Administrador y Editor -->
-                <button id="btn-crear-evento" onclick="abrirModalCrearEvento()" class="hidden bg-blue-900 hover:bg-blue-950 text-white text-sm px-4 py-2 rounded-lg font-medium transition">
-                    <i class="fa-solid fa-plus mr-1"></i> Publicar Evento
+        <!-- BARRA DE PESTAÑAS DEL PANEL (CONTROLADA POR PERMISOS GRANULARES) -->
+        <div class="bg-white p-2 rounded-2xl shadow-sm border border-slate-200/80 mb-6 flex items-center justify-between gap-2 overflow-x-auto">
+            <div class="flex items-center gap-1.5">
+                <button onclick="cambiarPestaña('eventos')" id="tab-btn-eventos" class="nav-tab-btn active">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <span>Cartelera de Eventos</span>
+                </button>
+                <button onclick="cambiarPestaña('pasados')" id="tab-btn-pasados" class="nav-tab-btn hidden">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                    <span>Eventos Pasados</span>
+                </button>
+                <button onclick="cambiarPestaña('estadisticas')" id="tab-btn-estadisticas" class="nav-tab-btn hidden">
+                    <i class="fa-solid fa-chart-column"></i>
+                    <span>Estadísticas y Reportes</span>
+                </button>
+                <button onclick="cambiarPestaña('usuarios')" id="tab-btn-usuarios" class="nav-tab-btn hidden">
+                    <i class="fa-solid fa-user-shield"></i>
+                    <span>Usuarios y Permisos</span>
+                </button>
+                <button onclick="cambiarPestaña('auditoria')" id="tab-btn-auditoria" class="nav-tab-btn hidden">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>Seguridad y Auditoría</span>
                 </button>
             </div>
-
-            <div id="eventos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <!-- Se cargan dinámicamente con JavaScript -->
-            </div>
         </div>
 
-        <!-- CONTENIDO PESTAÑA: EVENTOS PASADOS -->
-        <div id="tab-pasados" class="hidden space-y-6">
-            <div class="bg-white p-4 rounded-xl shadow-sm border">
-                <h2 class="text-xl font-bold text-slate-800">Eventos Finalizados</h2>
-                <p class="text-xs text-slate-500">Sube fotos de evidencia de cada evento y descarga su lista de asistencia.</p>
+        <!-- ==================================================================
+             PESTAÑA 1: CARTELERA DE EVENTOS (ESTILO SINCRONIZADO CON APP MÓVIL)
+             ================================================================== -->
+        <section id="tab-eventos" class="space-y-6">
+            <!-- Banner Institucional estilo EventosScreen.kt -->
+            <div class="bg-etda-banner rounded-3xl p-6 text-white shadow-lg border border-white/10">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <span class="etda-pill-tag">
+                            <i class="fa-solid fa-award"></i>
+                            Escuela de Tecnologías Digitales Aplicadas • UNACH
+                        </span>
+                        <h2 class="text-2xl font-extrabold mt-2 tracking-tight">Cartelera Unificada de Eventos</h2>
+                        <p class="text-xs text-white/80 mt-0.5">Gestión académica, difusión en redes sociales y control de asistencia estudiantil</p>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <button id="btn-crear-evento" onclick="abrirModalCrearEvento()"
+                            class="hidden bg-[#F57C00] hover:bg-amber-600 text-white text-xs sm:text-sm px-5 py-3 rounded-2xl font-extrabold shadow-lg transition flex items-center gap-2 shrink-0">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>Publicar Evento</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Buscador integrado estilo EventosScreen.kt -->
+                <div class="mt-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div class="relative flex-1">
+                        <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-[#0093FF] text-sm"></i>
+                        <input type="text" id="buscador-eventos-input" oninput="filtrarEventosPorTexto(this.value)"
+                            placeholder="Buscar talleres, conferencias, tutorías, sede o descripción..."
+                            class="w-full pl-11 pr-4 py-2.5 rounded-2xl bg-white text-[#122652] placeholder-slate-400 text-sm font-medium focus:ring-2 focus:ring-[#F57C00] outline-none shadow-sm">
+                    </div>
+                    <div class="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 flex items-center justify-center shrink-0">
+                        <span id="contador-eventos-disponibles" class="text-xs font-extrabold text-[#FFB74D]">Cargando...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Carrusel de categorías idéntico a EventosScreen.kt -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-1" id="contenedor-chips-categorias">
+                <!-- Se genera desde js/eventos.js -->
+            </div>
+
+            <!-- Grid de tarjetas de eventos -->
+            <div id="eventos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Cargado dinámicamente -->
+            </div>
+        </section>
+
+        <!-- ==================================================================
+             PESTAÑA 2: EVENTOS PASADOS Y ARCHIVO DE EVIDENCIAS
+             ================================================================== -->
+        <section id="tab-pasados" class="hidden space-y-6">
+            <div class="etda-card p-6 flex flex-wrap items-center justify-between gap-4 border-l-4 border-l-[#122652]">
+                <div>
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#0093FF]">Memoria Académica ETDA</span>
+                    <h2 class="text-xl font-extrabold text-[#122652]">Eventos Finalizados y Evidencias</h2>
+                    <p class="text-xs text-[#5B6670] mt-0.5">Resguardo fotográfico, listas finales de asistencia en PDF y métricas de cierre por evento.</p>
+                </div>
             </div>
             <div id="pasados-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
-        </div>
+        </section>
 
-        <!-- CONTENIDO PESTAÑA: ESTADÍSTICAS -->
-        <div id="tab-estadisticas" class="hidden space-y-6">
-            <div class="bg-white p-4 rounded-xl shadow-sm border flex flex-wrap items-end justify-between gap-3">
-                <div>
-                    <h2 class="text-xl font-bold text-slate-800">Estadísticas de Eventos</h2>
-                    <p class="text-xs text-slate-500">Vista general o detalle de un evento específico.</p>
+        <!-- ==================================================================
+             PESTAÑA 3: ESTADÍSTICAS CON DESCARGA Y EXPORTACIÓN MULTIFORMATO
+             ================================================================== -->
+        <section id="tab-estadisticas" class="hidden space-y-6">
+            <div class="etda-card p-6 space-y-4 border-l-4 border-l-[#F57C00]">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Inteligencia Institucional UNACH</span>
+                        <h2 class="text-xl font-extrabold text-[#122652]">Estadísticas y Descarga de Reportes</h2>
+                        <p class="text-xs text-[#5B6670] mt-0.5">Consulta el desempeño global o por evento y descarga la información en Excel (CSV), PDF oficial o imágenes PNG.</p>
+                    </div>
+
+                    <!-- Selector de alcance -->
+                    <div class="min-w-[18rem]">
+                        <label class="block text-[11px] font-extrabold text-[#122652] uppercase tracking-wider mb-1">Alcance del análisis</label>
+                        <select id="stats-selector" onchange="cargarEstadisticas()"
+                            class="w-full text-xs font-bold text-[#122652] border border-slate-300 rounded-xl px-3.5 py-2.5 bg-[#F4F7FB] focus:ring-2 focus:ring-[#0093FF] outline-none">
+                            <option value="general">Todos los eventos (Vista General Institucional)</option>
+                        </select>
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600 mb-1">Mostrar</label>
-                    <select id="stats-selector" onchange="cargarEstadisticas()" class="text-sm border rounded-lg px-3 py-1.5 bg-white min-w-[16rem]">
-                        <option value="general">Todos los eventos (general)</option>
-                    </select>
+
+                <!-- Barra de herramientas de descarga de estadísticas -->
+                <div class="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                    <span class="text-xs font-bold text-[#5B6670] flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-export text-[#0093FF]"></i>
+                        Obtener y descargar estadísticas actuales:
+                    </span>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" onclick="descargarEstadisticasExcel()"
+                            class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold px-4 py-2 rounded-xl shadow-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-file-csv"></i>
+                            <span>Descargar Excel (.xlsx con Gráficas)</span>
+                        </button>
+                        <button type="button" onclick="descargarReporteEstadisticasPDF()"
+                            class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2 rounded-xl shadow-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-file-pdf text-[#F57C00]"></i>
+                            <span>Reporte PDF con Gráficas</span>
+                        </button>
+                        <button type="button" onclick="descargarEstadisticasJSON()"
+                            class="bg-white hover:bg-slate-100 text-[#122652] border border-slate-300 text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-code text-[#0093FF]"></i>
+                            <span>Datos JSON</span>
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div id="stats-contenido" class="space-y-6"></div>
-        </div>
 
-        <!-- CONTENIDO PESTAÑA 2: GESTIÓN DE USUARIOS -->
-        <div id="tab-usuarios" class="hidden space-y-6">
-            <div class="bg-white p-6 rounded-xl shadow-sm border">
-                <h2 class="text-xl font-bold text-slate-800 mb-4">Usuarios Registrados y Asignación de Roles</h2>
-                <div class="overflow-x-auto">
+            <div id="stats-contenido" class="space-y-6"></div>
+        </section>
+
+        <!-- ==================================================================
+             PESTAÑA 4: USUARIOS Y PERMISOS PERSONALIZADOS (REDISEÑO COMPLETO)
+             ================================================================== -->
+        <section id="tab-usuarios" class="hidden space-y-6">
+            <!-- Encabezado explicativo del nuevo modelo de permisos a medida -->
+            <div class="bg-etda-banner rounded-3xl p-6 text-white shadow-lg">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <span class="etda-pill-tag">
+                            <i class="fa-solid fa-sliders"></i>
+                            Control de Acceso Granular a Medida
+                        </span>
+                        <h2 class="text-2xl font-extrabold mt-2">Gestión de Usuarios y Permisos Individuales</h2>
+                        <p class="text-xs text-white/80 mt-1 max-w-3xl">
+                            Asigna a cada persona exactamente las funciones que necesita sin depender de roles rígidos ni grupos: puedes autorizar a un usuario únicamente para <b>compartir en redes sociales</b>, a otro solo para <b>seguridad y auditoría</b>, o combinar <b>estadísticas y eventos pasados</b> a tu conveniencia.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Resumen rápido de permisos otorgados -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-white/75 block">Usuarios Registrados</span>
+                        <strong id="kpi-usr-total" class="text-xl font-extrabold text-white">0</strong>
+                    </div>
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-[#FFB74D] block"><i class="fa-solid fa-share-nodes mr-1"></i>Con permiso de Redes</span>
+                        <strong id="kpi-usr-redes" class="text-xl font-extrabold text-white">0</strong>
+                    </div>
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-sky-300 block"><i class="fa-solid fa-shield-halved mr-1"></i>Con permiso de Seguridad</span>
+                        <strong id="kpi-usr-seguridad" class="text-xl font-extrabold text-white">0</strong>
+                    </div>
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-emerald-300 block"><i class="fa-solid fa-chart-column mr-1"></i>Estadísticas / Pasados</span>
+                        <strong id="kpi-usr-stats" class="text-xl font-extrabold text-white">0</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Barra de búsqueda y filtro por permiso -->
+            <div class="etda-card p-5 space-y-4">
+                <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                    <div class="relative flex-1">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-[#0093FF] text-sm"></i>
+                        <input type="text" id="buscar-usuario-input" oninput="filtrarTablaUsuarios()"
+                            placeholder="Buscar usuario por nombre, correo institucional o ID..."
+                            class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs font-bold text-[#5B6670] whitespace-nowrap">Filtrar por permiso:</label>
+                        <select id="filtro-permiso-select" onchange="filtrarTablaUsuarios()"
+                            class="text-xs font-bold text-[#122652] border border-slate-300 rounded-xl px-3 py-2.5 bg-[#F4F7FB] outline-none">
+                            <option value="todos">Todos los usuarios</option>
+                            <option value="con_permisos">Con permisos administrativos activos</option>
+                            <option value="redes.compartir">Permiso: Difusión en Redes Sociales</option>
+                            <option value="seguridad.auditoria">Permiso: Seguridad y Auditoría</option>
+                            <option value="estadisticas.ver">Permiso: Ver y Descargar Estadísticas</option>
+                            <option value="pasados.ver">Permiso: Eventos Pasados</option>
+                            <option value="eventos.publicar">Permiso: Publicar y Editar Eventos</option>
+                            <option value="asistencia.gestionar">Permiso: Asistencia y Listas PDF</option>
+                            <option value="evidencias.gestionar">Permiso: Subir Evidencias</option>
+                            <option value="sin_permisos">Sin permisos administrativos (Solo cartelera)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Tabla de usuarios y sus permisos activos (Sin columna de grupos) -->
+                <div class="overflow-x-auto border border-slate-200/80 rounded-2xl">
                     <table class="w-full text-left border-collapse text-sm">
                         <thead>
-                            <tr class="bg-slate-100 text-slate-600 border-b">
-                                <th class="p-3">ID</th>
-                                <th class="p-3">Nombre</th>
-                                <th class="p-3">Correo</th>
-                                <th class="p-3">Rol Actual</th>
-                                <th class="p-3">Carrera / Grupo</th>
-                                <th class="p-3">Acciones</th>
+                            <tr class="bg-[#F4F7FB] text-[#122652] border-b border-slate-200 text-xs uppercase tracking-wider font-extrabold">
+                                <th class="p-4">Usuario Institucional</th>
+                                <th class="p-4">Permisos Asignados a Medida</th>
+                                <th class="p-4 text-right">Configuración</th>
                             </tr>
                         </thead>
                         <tbody id="tabla-usuarios-body">
-                            <!-- Filas dinámicas -->
+                            <!-- Generado por js/usuarios.js -->
                         </tbody>
                     </table>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- CONTENIDO PESTAÑA 3: AUDITORÍA -->
-        <div id="tab-auditoria" class="hidden space-y-6">
-            <div class="bg-white p-6 rounded-xl shadow-sm border">
-                <h2 class="text-xl font-bold text-slate-800 mb-1">Historial de Accesos y Acciones</h2>
-                <p class="text-xs text-slate-500 mb-4">Registro inmutable de trazabilidad y seguridad computacional.</p>
-                <div class="overflow-x-auto">
+        <!-- ==================================================================
+             PESTAÑA 5: SEGURIDAD Y AUDITORÍA DEL SISTEMA
+             ================================================================== -->
+        <section id="tab-auditoria" class="hidden space-y-6">
+            <div class="etda-card p-6 space-y-4 border-l-4 border-l-[#0093FF]">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#0093FF]">Seguridad Computacional UNACH</span>
+                        <h2 class="text-xl font-extrabold text-[#122652]">Bitácora de Accesos y Auditoría del Sistema</h2>
+                        <p class="text-xs text-[#5B6670] mt-0.5">Registro inmutable de trazabilidad, direcciones IP y operaciones críticas.</p>
+                    </div>
+                    <button type="button" onclick="descargarAuditoriaCSV()"
+                        class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 self-start">
+                        <i class="fa-solid fa-file-csv text-[#F57C00]"></i>
+                        <span>Exportar Bitácora CSV</span>
+                    </button>
+                </div>
+
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-[#0093FF] text-sm"></i>
+                    <input type="text" id="buscar-auditoria-input" oninput="renderizarTablaAuditoria()"
+                        placeholder="Filtrar por correo de usuario, dirección IP o tipo de acción..."
+                        class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                </div>
+
+                <div class="overflow-x-auto border border-slate-200/80 rounded-2xl">
                     <table class="w-full text-left border-collapse text-xs">
                         <thead>
-                            <tr class="bg-slate-100 text-slate-600 border-b">
-                                <th class="p-3">Fecha / Hora</th>
-                                <th class="p-3">Usuario</th>
-                                <th class="p-3">Dirección IP</th>
-                                <th class="p-3">Acción</th>
-                                <th class="p-3">Resultado</th>
+                            <tr class="bg-[#F4F7FB] text-[#122652] border-b border-slate-200 uppercase tracking-wider font-extrabold">
+                                <th class="p-3.5">Fecha / Hora</th>
+                                <th class="p-3.5">Usuario</th>
+                                <th class="p-3.5">Dirección IP</th>
+                                <th class="p-3.5">Acción Registrada</th>
+                                <th class="p-3.5">Estado</th>
                             </tr>
                         </thead>
                         <tbody id="tabla-auditoria-body">
@@ -221,42 +443,60 @@
                     </table>
                 </div>
             </div>
-        </div>
+        </section>
     </div>
+
+    <!-- PIE DE PÁGINA INSTITUCIONAL -->
+    <footer id="footer-institucional" class="mt-auto bg-white border-t border-slate-200 py-4 px-6 text-xs text-[#5B6670] hidden">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div class="flex items-center gap-2 font-bold text-[#122652]">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#F57C00]"></span>
+                <span>Universidad Autónoma de Chiapas (UNACH) • Escuela de Tecnologías Digitales Aplicadas (ETDA)</span>
+            </div>
+            <span>Campus I, Tuxtla Gutiérrez, Chiapas · Ciclo Escolar 2026</span>
+        </div>
+    </footer>
+
+    <!-- ======================================================================
+         MODALES DEL SISTEMA
+         ====================================================================== -->
 
     <!-- MODAL 1: VERIFICACIÓN 2FA -->
     <div id="modal-2fa" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl border">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border">
             <div class="text-center mb-4">
-                <i class="fa-solid fa-lock-keyhole text-3xl text-blue-900 mb-2"></i>
-                <h3 class="text-lg font-bold">Verificación en 2 pasos</h3>
-                <p class="text-xs text-slate-500">Ingresa el código de 6 dígitos enviado a tu correo institucional.</p>
+                <div class="w-12 h-12 rounded-full bg-[#122652]/10 text-[#122652] flex items-center justify-center mx-auto mb-2">
+                    <i class="fa-solid fa-shield-halved text-2xl text-[#F57C00]"></i>
+                </div>
+                <h3 class="text-lg font-extrabold text-[#122652]">Verificación en 2 pasos</h3>
+                <p class="text-xs text-[#5B6670]">Ingresa el código de seguridad de 6 dígitos enviado a tu correo institucional.</p>
             </div>
-            <div id="modal-2fa-error" class="hidden mb-3 p-2 bg-red-100 text-red-700 text-xs rounded text-center"></div>
-            <input type="text" id="otp-code" maxlength="6" placeholder="123456" class="w-full text-center text-2xl tracking-widest font-mono py-2 border rounded-lg mb-4 focus:ring-2 focus:ring-blue-900 outline-none">
-            <div class="flex space-x-2">
-                <button onclick="cerrarModal2FA()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
-                <button onclick="validarCodigo2FA()" class="w-1/2 bg-[#0C2340] text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Verificar</button>
+            <div id="modal-2fa-error" class="hidden mb-3 p-2.5 bg-red-50 text-red-700 border border-red-200 text-xs rounded-xl text-center font-semibold"></div>
+            <input type="text" id="otp-code" maxlength="6" placeholder="123456"
+                class="w-full text-center text-2xl tracking-widest font-mono py-2.5 border border-slate-300 rounded-xl mb-4 focus:ring-2 focus:ring-[#0093FF] outline-none">
+            <div class="flex gap-2">
+                <button onclick="cerrarModal2FA()" class="w-1/2 bg-slate-100 text-slate-700 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-200">Cancelar</button>
+                <button onclick="validarCodigo2FA()" class="w-1/2 bg-[#122652] text-white py-2.5 rounded-xl text-xs font-extrabold hover:bg-[#193773]">Verificar</button>
             </div>
         </div>
     </div>
 
     <!-- MODAL 2: CAMBIAR CONTRASEÑA -->
     <div id="modal-password" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl border">
-            <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Cambiar Contraseña</h3>
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border">
+            <h3 class="text-base font-extrabold text-[#122652] mb-4 border-b pb-2">Actualizar Contraseña</h3>
             <form onsubmit="procesarCambioPassword(event)" class="space-y-3">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600">Contraseña Actual</label>
-                    <input type="password" id="pass-actual" required class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                    <label class="block text-xs font-bold text-[#122652] mb-1">Contraseña Actual</label>
+                    <input type="password" id="pass-actual" required class="w-full px-3 py-2 border rounded-xl text-sm">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600">Nueva Contraseña</label>
-                    <input type="password" id="pass-nueva" required class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                    <label class="block text-xs font-bold text-[#122652] mb-1">Nueva Contraseña</label>
+                    <input type="password" id="pass-nueva" required class="w-full px-3 py-2 border rounded-xl text-sm">
                 </div>
-                <div class="flex space-x-2 pt-2">
-                    <button type="button" onclick="cerrarModalPassword()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold">Cancelar</button>
-                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold">Guardar</button>
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="cerrarModalPassword()" class="w-1/2 bg-slate-100 text-slate-700 py-2 rounded-xl text-xs font-bold">Cancelar</button>
+                    <button type="submit" class="w-1/2 bg-[#122652] text-white py-2 rounded-xl text-xs font-extrabold">Guardar</button>
                 </div>
             </form>
         </div>
@@ -264,124 +504,254 @@
 
     <!-- MODAL 3: CREAR / EDITAR EVENTO -->
     <div id="modal-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
-            <h3 id="ev-modal-titulo" class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Publicar Nuevo Evento</h3>
-            <form onsubmit="guardarEvento(event)" class="space-y-3">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b pb-3 mb-4">
+                <h3 id="ev-modal-titulo" class="text-lg font-extrabold text-[#122652]">Publicar Nuevo Evento</h3>
+                <button type="button" onclick="cerrarModalEvento()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="guardarEvento(event)" class="space-y-3.5">
                 <input type="hidden" id="ev-id">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600">Título del Evento</label>
-                    <input type="text" id="ev-titulo" required maxlength="200" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                    <label class="block text-xs font-bold text-[#122652] mb-1">Título del Evento</label>
+                    <input type="text" id="ev-titulo" required maxlength="200" class="w-full px-3.5 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600">Categoría</label>
-                    <input type="text" id="ev-categoria" maxlength="60" list="dl-categorias" placeholder="Académico, Cultural, Deportivo..." class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
-                    <datalist id="dl-categorias"><option value="Académico"><option value="Cultural"><option value="Deportivo"></datalist>
+                    <label class="block text-xs font-bold text-[#122652] mb-1">Categoría (Sincronizada con Insignias de la App Móvil)</label>
+                    <input type="text" id="ev-categoria" maxlength="60" list="dl-categorias" placeholder="Tutorías, Conferencias, Talleres, Deporte, Culturales, Académicos..."
+                        class="w-full px-3.5 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    <datalist id="dl-categorias">
+                        <option value="Tutorías">
+                        <option value="Conferencias">
+                        <option value="Talleres">
+                        <option value="Deporte">
+                        <option value="Culturales">
+                        <option value="Académicos">
+                    </datalist>
                 </div>
 
-                <!-- Flyer / archivos: arrastrar o escoger -->
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600 mb-1">Flyer y archivos del evento</label>
+                    <label class="block text-xs font-bold text-[#122652] mb-1">Flyer y materiales descargables</label>
                     <div id="ev-existentes" class="grid grid-cols-3 gap-2 mb-2"></div>
-                    <div id="ev-dropzone" class="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-900 hover:bg-blue-50 transition">
-                        <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400"></i>
-                        <p class="text-sm text-slate-600 mt-1">Arrastra aquí tus archivos o <span class="text-blue-900 font-semibold underline">elige desde tu equipo</span></p>
-                        <p class="text-[11px] text-slate-400">JPG, PNG, WEBP, GIF o PDF · máx. 10 MB c/u · los alumnos los verán en la app</p>
+                    <div id="ev-dropzone" class="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center cursor-pointer hover:border-[#0093FF] hover:bg-sky-50/40 transition">
+                        <i class="fa-solid fa-cloud-arrow-up text-2xl text-[#0093FF]"></i>
+                        <p class="text-xs text-[#122652] font-semibold mt-1">Arrastra aquí archivos o <span class="text-[#F57C00] underline">elige desde tu equipo</span></p>
+                        <p class="text-[11px] text-slate-400">JPG, PNG, WEBP, GIF o PDF · máx. 10 MB c/u</p>
                         <input type="file" id="ev-archivos" multiple accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="hidden">
                     </div>
                     <div id="ev-nuevos" class="grid grid-cols-3 gap-2 mt-2"></div>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-semibold text-slate-600">Descripción</label>
-                    <textarea id="ev-descripcion" rows="3" required maxlength="5000" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none"></textarea>
+                    <label class="block text-xs font-bold text-[#122652] mb-1">Descripción</label>
+                    <textarea id="ev-descripcion" rows="3" required maxlength="5000" class="w-full px-3.5 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none"></textarea>
                 </div>
-                <div class="grid grid-cols-2 gap-2">
+
+                <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600">Fecha y Hora</label>
-                        <input type="datetime-local" id="ev-fecha-hora" required class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                        <label class="block text-xs font-bold text-[#122652] mb-1">Fecha y Hora</label>
+                        <input type="datetime-local" id="ev-fecha-hora" required class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600">Lugar</label>
-                        <input type="text" id="ev-lugar" placeholder="Auditorio, Sala..." required maxlength="200" class="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-900 outline-none">
+                        <label class="block text-xs font-bold text-[#122652] mb-1">Lugar / Sede</label>
+                        <input type="text" id="ev-lugar" placeholder="Auditorio ETDA, Sala..." required maxlength="200" class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
                 </div>
 
-                <!-- Audiencia: general o por carrera / grupo -->
-                <div class="border rounded-lg p-3 bg-slate-50 space-y-2">
-                    <label class="block text-xs font-semibold text-slate-600">¿A quién va dirigido?</label>
-                    <div class="flex gap-4 text-sm">
-                        <label class="flex items-center gap-1"><input type="radio" name="ev-audiencia" value="general" checked onchange="alternarAudiencia()"> Todos los alumnos</label>
-                        <label class="flex items-center gap-1"><input type="radio" name="ev-audiencia" value="segmentado" onchange="alternarAudiencia()"> Carrera / grupo</label>
+                <div class="border rounded-xl p-3.5 bg-[#F4F7FB] space-y-2">
+                    <label class="block text-xs font-bold text-[#122652]">Audiencia objetivo en la app móvil</label>
+                    <div class="flex gap-4 text-xs font-semibold text-[#122652]">
+                        <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="ev-audiencia" value="general" checked onchange="alternarAudiencia()"> Todos los alumnos</label>
+                        <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="ev-audiencia" value="segmentado" onchange="alternarAudiencia()"> Filtrar por carrera / grupo</label>
                     </div>
-                    <div id="ev-segmentacion" class="hidden space-y-2">
+                    <div id="ev-segmentacion" class="hidden space-y-2 pt-1">
                         <div class="grid grid-cols-2 gap-2">
                             <div>
-                                <label class="block text-[11px] font-semibold text-slate-500">Facultad (opcional)</label>
-                                <input type="text" id="ev-facultad" list="dl-facultades" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                                <label class="block text-[11px] font-bold text-[#5B6670]">Facultad (opcional)</label>
+                                <input type="text" id="ev-facultad" list="dl-facultades" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-xs bg-white">
                             </div>
                             <div>
-                                <label class="block text-[11px] font-semibold text-slate-500">Carrera</label>
-                                <input type="text" id="ev-carrera" list="dl-carreras" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                                <label class="block text-[11px] font-bold text-[#5B6670]">Carrera</label>
+                                <input type="text" id="ev-carrera" list="dl-carreras" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-xs bg-white">
                             </div>
                         </div>
                         <div>
-                            <label class="block text-[11px] font-semibold text-slate-500">Grupo(s) — separa con coma o Enter</label>
+                            <label class="block text-[11px] font-bold text-[#5B6670]">Grupo(s) — separa con coma o Enter</label>
                             <div id="ev-grupos-chips" class="flex flex-wrap gap-1 mb-1"></div>
-                            <input type="text" id="ev-grupo-input" list="dl-grupos" maxlength="30" placeholder="Ej. 5A" class="w-full px-3 py-1.5 border rounded-lg text-sm">
+                            <input type="text" id="ev-grupo-input" list="dl-grupos" maxlength="30" placeholder="Ej. 7N, 5A" class="w-full px-3 py-1.5 border rounded-lg text-xs bg-white">
                         </div>
-                        <p class="text-[11px] text-slate-400">Solo verán el evento los alumnos cuya carrera y grupo coincidan. Déjalo vacío lo que no quieras filtrar.</p>
-                        <datalist id="dl-facultades"></datalist><datalist id="dl-carreras"></datalist><datalist id="dl-grupos"></datalist>
+                        <datalist id="dl-facultades"></datalist>
+                        <datalist id="dl-carreras"></datalist>
+                        <datalist id="dl-grupos"></datalist>
                     </div>
                 </div>
 
-                <div class="flex space-x-2 pt-2">
-                    <button type="button" onclick="cerrarModalEvento()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancelar</button>
-                    <button type="submit" id="ev-btn-guardar" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-950">Publicar</button>
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="cerrarModalEvento()" class="w-1/2 bg-slate-100 text-slate-700 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-200">Cancelar</button>
+                    <button type="submit" id="ev-btn-guardar" class="w-1/2 bg-[#122652] text-white py-2.5 rounded-xl text-xs font-extrabold hover:bg-[#193773]">Publicar Evento</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- MODAL: COMPARTIR EN REDES SOCIALES -->
+    <!-- MODAL 4: COMPARTIR EN REDES SOCIALES (VISTA PREVIA REALISTA + PUBLICACIÓN DIRECTA 1 CLIC) -->
     <div id="modal-social" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
-            <div class="flex justify-between items-center border-b pb-3 mb-3">
-                <h3 class="text-lg font-bold text-slate-800">Compartir en redes</h3>
-                <button onclick="cerrarModalSocial()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        <div class="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border max-h-[94vh] overflow-y-auto">
+            <!-- Cabecera del modal -->
+            <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-3.5 mb-4">
+                <div>
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Difusión Institucional ETDA • UNACH</span>
+                    <h3 class="text-lg font-extrabold text-[#122652]">Publicar Evento en Facebook e Instagram</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="social-api-status-badge" class="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200"></span>
+                    <button type="button" onclick="togglePanelConfigMeta()" class="text-xs font-bold bg-[#F4F7FB] hover:bg-slate-200 text-[#122652] px-3 py-1.5 rounded-xl border border-slate-300 transition">
+                        <i class="fa-solid fa-gear text-[#F57C00] mr-1"></i> Configurar API Meta
+                    </button>
+                    <button onclick="cerrarModalSocial()" class="text-slate-400 hover:text-slate-600 text-lg ml-1"><i class="fa-solid fa-xmark"></i></button>
+                </div>
             </div>
-            <div id="social-aviso" class="hidden mb-3 p-2 rounded bg-amber-100 text-amber-800 text-xs"></div>
-            <img id="social-imagen" class="hidden w-full max-h-56 object-cover rounded-lg border mb-3" alt="Flyer del evento">
-            <label class="block text-xs font-semibold text-slate-600 mb-1">Texto de la publicación (editable)</label>
-            <textarea id="social-texto" rows="9" class="w-full px-3 py-2 border rounded-lg text-sm font-sans"></textarea>
-            <div class="grid grid-cols-2 gap-2 mt-3">
-                <button onclick="compartirFacebook()" class="bg-[#1877F2] hover:bg-blue-700 text-white text-sm py-2 rounded-lg font-semibold"><i class="fa-brands fa-facebook mr-1"></i> Facebook</button>
-                <button onclick="compartirInstagram()" class="bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 text-white text-sm py-2 rounded-lg font-semibold"><i class="fa-brands fa-instagram mr-1"></i> Instagram</button>
-            </div>
-            <p class="text-[11px] text-slate-500 mt-2">Facebook abre su ventana de publicación con el evento. Instagram no permite precargar publicaciones desde la web: se copia el texto, se descarga el flyer y se abre Instagram para que lo pegues.</p>
-            <div id="social-api" class="hidden mt-3 border-t pt-3">
-                <p class="text-xs font-semibold text-slate-600 mb-2">Publicar directo con la API (cuenta conectada)</p>
-                <div class="grid grid-cols-2 gap-2">
-                    <button id="social-api-fb" onclick="publicarPorApi('facebook')" class="hidden border border-[#1877F2] text-[#1877F2] text-xs py-1.5 rounded-lg font-semibold hover:bg-blue-50">Publicar en Facebook</button>
-                    <button id="social-api-ig" onclick="publicarPorApi('instagram')" class="hidden border border-purple-600 text-purple-700 text-xs py-1.5 rounded-lg font-semibold hover:bg-purple-50">Publicar en Instagram</button>
+
+            <!-- Panel desplegable para conectar Page ID, Instagram ID y Access Token sin tocar código -->
+            <form id="panel-config-meta" onsubmit="guardarConfigMetaLocal(event)" class="hidden mb-4 p-4 rounded-2xl bg-[#F4F7FB] border border-[#0093FF]/30 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-extrabold text-[#122652] uppercase tracking-wider">
+                        <i class="fa-solid fa-key text-[#F57C00] mr-1"></i> Conexión Directa con Meta Graph API (Publica con 1 clic incluso desde 127.0.0.1)
+                    </h4>
+                    <button type="button" onclick="togglePanelConfigMeta()" class="text-xs text-slate-500 hover:text-slate-800">Cerrar</button>
+                </div>
+                <p class="text-[11px] text-[#5B6670]">
+                    Al ingresar los datos de tu Página de Facebook y cuenta profesional de Instagram, el sistema sube el archivo del flyer y el texto directamente a Meta sin pasar por el cuadro de enlace local <code>127.0.0.1</code>.
+                </p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block text-[11px] font-bold text-[#122652] mb-1">Facebook Page ID</label>
+                        <input type="text" id="meta-fb-page-id" placeholder="Ej. 104829384756102" class="w-full px-3 py-1.5 border rounded-xl text-xs bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-[#122652] mb-1">Instagram Business Account ID (Opcional)</label>
+                        <input type="text" id="meta-ig-user-id" placeholder="Ej. 17841405822304914" class="w-full px-3 py-1.5 border rounded-xl text-xs bg-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-[11px] font-bold text-[#122652] mb-1">Page Access Token (Token de Acceso de Página de Meta)</label>
+                    <input type="password" id="meta-access-token" placeholder="EAAGm0PX4ZCpsBA..." class="w-full px-3 py-1.5 border rounded-xl text-xs bg-white font-mono">
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="submit" class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2 rounded-xl transition">
+                        <i class="fa-solid fa-floppy-disk text-[#F57C00] mr-1"></i> Guardar Credenciales
+                    </button>
+                </div>
+            </form>
+
+            <!-- Cuerpo en 2 columnas: Izquierda = Vista Previa Exacta del Post | Derecha = Editor y Acciones -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <!-- Columna 1: Vista previa idéntica a cómo se verá publicado -->
+                <div>
+                    <span class="block text-xs font-extrabold text-[#122652] mb-2">
+                        <i class="fa-solid fa-eye text-[#0093FF] mr-1"></i> Vista previa exacta de la publicación:
+                    </span>
+                    <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <!-- Cabecera estilo Post de Facebook / Instagram -->
+                        <div class="p-3 flex items-center gap-2.5 border-b border-slate-100 bg-[#F4F7FB]">
+                            <div class="w-9 h-9 rounded-full bg-[#122652] border-2 border-[#F57C00] flex items-center justify-center text-white text-xs font-extrabold">
+                                <i class="fa-solid fa-building-columns text-[#F57C00]"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs font-extrabold text-[#122652] leading-tight">Campus Connect UNACH • ETDA</p>
+                                <p class="text-[10px] text-[#5B6670]">Publicación Oficial · <i class="fa-solid fa-earth-americas"></i> Público</p>
+                            </div>
+                        </div>
+
+                        <!-- Imagen del Flyer -->
+                        <div class="bg-slate-900 flex items-center justify-center">
+                            <img id="social-imagen" class="hidden w-full max-h-56 object-contain" alt="Flyer del evento">
+                            <div id="social-sin-imagen" class="hidden py-10 text-center text-white/60 text-xs">
+                                <i class="fa-solid fa-image text-2xl mb-1 block"></i>
+                                Evento sin flyer gráfico adjunto
+                            </div>
+                        </div>
+
+                        <!-- Texto exacto debajo de la imagen -->
+                        <div class="p-3.5 bg-white">
+                            <pre id="social-preview-caption" class="text-xs text-slate-800 font-sans whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto m-0"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Columna 2: Editor de texto y botones de publicación -->
+                <div class="flex flex-col justify-between space-y-4">
+                    <div>
+                        <label class="block text-xs font-extrabold text-[#122652] mb-1.5">
+                            <i class="fa-solid fa-pen-nib text-[#F57C00] mr-1"></i> Texto de la publicación (editable):
+                        </label>
+                        <textarea id="social-texto" rows="9" oninput="actualizarVistaPreviaSocialEnVivo()"
+                            class="w-full px-3.5 py-2.5 border border-slate-300 rounded-2xl text-xs font-sans focus:ring-2 focus:ring-[#0093FF] outline-none leading-relaxed"></textarea>
+                    </div>
+
+                    <!-- OPCIÓN A: PUBLICACIÓN AUTOMÁTICA EN 1 CLIC (SUBE FLYER + TEXTO DIRECTO A LA CUENTA) -->
+                    <div class="bg-[#F4F7FB] p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+                        <span class="block text-[11px] font-extrabold text-[#122652] uppercase tracking-wider">
+                            <i class="fa-solid fa-bolt text-[#F57C00] mr-1"></i> 1. Publicar Automáticamente (Idéntico a la vista previa)
+                        </span>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" id="btn-pub-directo-fb" onclick="publicarDirectoEnRed('facebook')"
+                                class="bg-[#1877F2] hover:bg-blue-700 text-white text-xs py-2.5 px-3 rounded-xl font-extrabold shadow-sm transition flex items-center justify-center gap-1.5">
+                                <i class="fa-brands fa-facebook text-sm"></i> Publicar en Facebook
+                            </button>
+                            <button type="button" id="btn-pub-directo-ig" onclick="publicarDirectoEnRed('instagram')"
+                                class="bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-95 text-white text-xs py-2.5 px-3 rounded-xl font-extrabold shadow-sm transition flex items-center justify-center gap-1.5">
+                                <i class="fa-brands fa-instagram text-sm"></i> Publicar en Instagram
+                            </button>
+                        </div>
+                        <button type="button" id="btn-pub-directo-ambas" onclick="publicarDirectoEnRed('ambas')"
+                            class="w-full bg-[#122652] hover:bg-[#193773] text-white text-xs py-2.5 px-3 rounded-xl font-extrabold shadow-sm transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-paper-plane text-[#F57C00]"></i> Publicar en Ambas Redes al Mismo Tiempo
+                        </button>
+                    </div>
+
+                    <!-- OPCIÓN B: PARA PERFILES PERSONALES SIN API (POSTAL UNIFICADA + PORTAPAPELES SIN ERROR 127.0.0.1) -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                        <span class="block text-[11px] font-extrabold text-[#5B6670] uppercase tracking-wider">
+                            <i class="fa-solid fa-images text-[#0093FF] mr-1"></i> 2. O descargar / pegar en cuenta personal (Sin recuadro 127.0.0.1)
+                        </span>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" onclick="copiarFlyerYTextoPortapapeles()"
+                                class="border border-[#122652] text-[#122652] hover:bg-slate-50 text-xs py-2 px-2.5 rounded-xl font-bold transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-copy text-[#0093FF]"></i> Copiar Imagen (Ctrl+V)
+                            </button>
+                            <button type="button" onclick="descargarPostalCompletaPNG()"
+                                class="border border-[#F57C00] bg-amber-50/50 text-[#122652] hover:bg-amber-100/60 text-xs py-2 px-2.5 rounded-xl font-bold transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-download text-[#F57C00]"></i> Bajar Postal Unificada
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 pt-1">
+                            <button type="button" onclick="compartirFacebook()" class="text-[11px] font-bold text-[#1877F2] hover:underline text-center">
+                                Abrir Facebook y pegar →
+                            </button>
+                            <button type="button" onclick="compartirInstagram()" class="text-[11px] font-bold text-purple-700 hover:underline text-center">
+                                Abrir Instagram y subir →
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL: EVIDENCIAS DE UN EVENTO FINALIZADO -->
+    <!-- MODAL 5: EVIDENCIAS DE UN EVENTO FINALIZADO -->
     <div id="modal-evidencias" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
+        <div class="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-center border-b pb-3 mb-4">
                 <div>
-                    <h3 class="text-lg font-bold text-slate-800" id="evid-titulo">Evidencias</h3>
-                    <p class="text-xs text-slate-500" id="evid-sub"></p>
+                    <h3 class="text-lg font-extrabold text-[#122652]" id="evid-titulo">Evidencias</h3>
+                    <p class="text-xs text-[#5B6670]" id="evid-sub"></p>
                 </div>
                 <button onclick="cerrarModalEvidencias()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <input type="hidden" id="evid-evento-id">
-            <div id="evid-dropzone" class="border-2 border-dashed border-slate-300 rounded-lg p-5 text-center cursor-pointer hover:border-blue-900 hover:bg-blue-50 transition">
-                <i class="fa-solid fa-images text-2xl text-slate-400"></i>
-                <p class="text-sm text-slate-600 mt-1">Arrastra las fotos de evidencia o <span class="text-blue-900 font-semibold underline">elígelas desde tu equipo</span></p>
+            <div id="evid-dropzone" class="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center cursor-pointer hover:border-[#0093FF] hover:bg-sky-50/40 transition">
+                <i class="fa-solid fa-images text-2xl text-[#0093FF]"></i>
+                <p class="text-sm text-[#122652] font-semibold mt-1">Arrastra las fotos de evidencia o <span class="text-[#F57C00] underline">elígelas desde tu equipo</span></p>
                 <p class="text-[11px] text-slate-400">JPG, PNG, WEBP, GIF o PDF · máx. 10 MB c/u</p>
                 <input type="file" id="evid-archivos" multiple accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="hidden">
             </div>
@@ -389,41 +759,23 @@
         </div>
     </div>
 
-    <!-- MODAL: DATOS ACADÉMICOS DE UN USUARIO -->
-    <div id="modal-segmentacion-usuario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl border">
-            <h3 class="text-lg font-bold text-slate-800 mb-1">Datos académicos</h3>
-            <p id="segu-nombre" class="text-xs text-slate-500 mb-3"></p>
-            <form onsubmit="guardarSegmentacionUsuario(event)" class="space-y-3">
-                <input type="hidden" id="segu-id">
-                <div><label class="block text-xs font-semibold text-slate-600">Facultad</label><input type="text" id="segu-facultad" list="dl-facultades" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm"></div>
-                <div><label class="block text-xs font-semibold text-slate-600">Carrera</label><input type="text" id="segu-carrera" list="dl-carreras" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-sm"></div>
-                <div><label class="block text-xs font-semibold text-slate-600">Grupo(s), separados por coma</label><input type="text" id="segu-grupos" class="w-full px-3 py-1.5 border rounded-lg text-sm"></div>
-                <div class="flex space-x-2 pt-1">
-                    <button type="button" onclick="document.getElementById('modal-segmentacion-usuario').classList.add('hidden')" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold">Cancelar</button>
-                    <button type="submit" class="w-1/2 bg-blue-900 text-white py-2 rounded-lg text-sm font-semibold">Guardar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- MODAL 5: TABLA DE ASISTENCIA / ALUMNOS REGISTRADOS -->
+    <!-- MODAL 6: LISTA DE ASISTENTES -->
     <div id="modal-asistentes" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl border max-h-[85vh] flex flex-col">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border max-h-[85vh] flex flex-col">
             <div class="flex justify-between items-center border-b pb-3 mb-4">
                 <div>
-                    <h3 class="text-lg font-bold text-slate-800" id="modal-asistentes-titulo">Lista de Asistentes</h3>
-                    <p class="text-xs text-slate-500">Alumnos inscritos a este evento</p>
+                    <h3 class="text-lg font-extrabold text-[#122652]" id="modal-asistentes-titulo">Lista de Asistentes</h3>
+                    <p class="text-xs text-[#5B6670]">Alumnos inscritos a este evento académico</p>
                 </div>
                 <button onclick="cerrarModalAsistentes()" class="text-slate-400 hover:text-slate-600 text-lg">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
-            
-            <div class="overflow-y-auto flex-1 border rounded-lg">
+
+            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
                 <table class="w-full text-left border-collapse text-xs">
                     <thead>
-                        <tr class="bg-slate-100 text-slate-600 border-b">
+                        <tr class="bg-[#F4F7FB] text-[#122652] border-b font-extrabold uppercase">
                             <th class="p-3">#</th>
                             <th class="p-3">Nombre Completo</th>
                             <th class="p-3">Correo Institucional</th>
@@ -439,959 +791,88 @@
             </div>
 
             <div class="pt-4 flex justify-between items-center border-t mt-4">
-                <button id="btn-descargar-pdf" onclick="descargarAsistenciaPDF()" class="bg-red-600 hover:bg-red-700 text-white text-xs px-4 py-2 rounded-lg font-semibold">
-                    <i class="fa-solid fa-file-pdf mr-1"></i> Descargar PDF
+                <button id="btn-descargar-pdf" onclick="descargarAsistenciaPDF()" class="bg-red-600 hover:bg-red-700 text-white text-xs px-4 py-2.5 rounded-xl font-extrabold shadow-sm transition">
+                    <i class="fa-solid fa-file-pdf mr-1"></i> Descargar Lista en PDF
                 </button>
-                <button onclick="cerrarModalAsistentes()" class="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-slate-900">
+                <button onclick="cerrarModalAsistentes()" class="bg-[#122652] text-white text-xs px-5 py-2.5 rounded-xl font-extrabold hover:bg-[#193773]">
                     Cerrar
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- SCRIPT DE LÓGICA Y CONEXIÓN CON LA API REST -->
-    <script>
-        const API_BASE_URL = "http://127.0.0.1:8000";
-        let userState = {
-            token: localStorage.getItem("access_token") || null,
-            email: localStorage.getItem("user_email") || null,
-            role: localStorage.getItem("user_role") || null,
-            temp2FAEmail: null
-        };
-
-        // Inicialización al cargar la ventana
-        window.addEventListener("DOMContentLoaded", () => {
-            if (userState.token) {
-                cargarPerfilYSistema();
-            } else {
-                mostrarVista("auth");
-            }
-        });
-
-        // Alternar vistas principales
-        function mostrarVista(vista) {
-            document.getElementById("view-auth").classList.toggle("hidden", vista !== "auth");
-            document.getElementById("view-dashboard").classList.toggle("hidden", vista !== "dashboard");
-            document.getElementById("navbar").classList.toggle("hidden", vista !== "dashboard");
-        }
-
-        // Alternar formularios dentro de autenticación
-        function toggleAuthForm(form) {
-            document.getElementById("form-login").classList.toggle("hidden", form !== "login");
-            document.getElementById("form-registro").classList.toggle("hidden", form !== "registro");
-            document.getElementById("form-recuperar").classList.toggle("hidden", form !== "recuperar");
-            ocultarAlertaAuth();
-        }
-
-        function mostrarAlertaAuth(mensaje, esError = true) {
-            const el = document.getElementById("auth-alert");
-            el.className = `mb-4 p-3 rounded-lg text-sm font-medium ${esError ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`;
-            el.innerText = mensaje;
-            el.classList.remove("hidden");
-        }
-
-        function ocultarAlertaAuth() {
-            document.getElementById("auth-alert").classList.add("hidden");
-        }
-
-        // 1. AUTENTICACIÓN: LOGIN + 2FA
-        async function procesarLogin(e) {
-            e.preventDefault();
-            ocultarAlertaAuth();
-            const email = document.getElementById("login-email").value.trim();
-            const password = document.getElementById("login-password").value.trim();
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/auth/login`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email, password })
-                });
-
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "Credenciales incorrectas.");
-
-                if (data.requiere_2fa) {
-                    userState.temp2FAEmail = email;
-                    document.getElementById("modal-2fa").classList.remove("hidden");
-                }
-            } catch (err) {
-                mostrarAlertaAuth(err.message, true);
-            }
-        }
-
-        async function validarCodigo2FA() {
-            const codigo = document.getElementById("otp-code").value.trim();
-            const errDiv = document.getElementById("modal-2fa-error");
-            errDiv.classList.add("hidden");
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/auth/verificar-2fa`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email: userState.temp2FAEmail, codigo })
-                });
-
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "Código incorrecto o expirado.");
-
-                userState.token = data.access_token;
-                userState.role = data.role;
-                userState.email = userState.temp2FAEmail;
-
-                localStorage.setItem("access_token", data.access_token);
-                localStorage.setItem("user_email", userState.email);
-                localStorage.setItem("user_role", data.role);
-
-                cerrarModal2FA();
-                cargarPerfilYSistema();
-            } catch (err) {
-                errDiv.innerText = err.message;
-                errDiv.classList.remove("hidden");
-            }
-        }
-
-        function cerrarModal2FA() {
-            document.getElementById("modal-2fa").classList.add("hidden");
-            document.getElementById("otp-code").value = "";
-        }
-
-        // 2. REGISTRO DE USUARIO (Actualizado para limpiar el texto de error)
-        async function procesarRegistro(e) {
-            e.preventDefault();
-            const nombre = document.getElementById("reg-nombre").value.trim();
-            const email = document.getElementById("reg-email").value.trim();
-            const password = document.getElementById("reg-password").value.trim();
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/auth/registro`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ nombre, email, password })
-                });
-
-                const data = await res.json();
-                
-                if (!res.ok) {
-                    let mensajeError = "Error al completar el registro.";
-                    if (Array.isArray(data.detail)) {
-                        // Aquí limpiamos el texto técnico que agrega Python
-                        mensajeError = data.detail[0].msg.replace("Value error, ", "");
-                    } else if (data.detail) {
-                        mensajeError = data.detail;
-                    }
-                    throw new Error(mensajeError);
-                }
-
-                mostrarAlertaAuth("¡Registro exitoso! Ya puedes iniciar sesión.", false);
-                toggleAuthForm("login");
-            } catch (err) {
-                // Se mostrará el mensaje limpio y directo
-                mostrarAlertaAuth(err.message, true);
-            }
-        }
-
-        // 3. RECUPERACIÓN DE CONTRASEÑA
-        async function procesarRecuperacion(e) {
-            e.preventDefault();
-            const email = document.getElementById("rec-email").value.trim();
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/auth/recuperar-password`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email })
-                });
-                const data = await res.json();
-                mostrarAlertaAuth(data.mensaje, false);
-                toggleAuthForm("login");
-            } catch (err) {
-                mostrarAlertaAuth("No se pudo procesar la solicitud.", true);
-            }
-        }
-
-        // 4. CARGA DE DASHBOARD Y ROLES
-        function cargarPerfilYSistema() {
-            document.getElementById("user-email").innerText = userState.email;
-            document.getElementById("user-badge").innerText = userState.role || "Usuario Regular";
-
-            mostrarVista("dashboard");
-            configurarPermisosPorRol();
-            cargarEventos();
-        }
-
-        function configurarPermisosPorRol() {
-            const esAdmin = userState.role === "Administrador";
-            const gestiona = esAdmin || userState.role === "Editor";
-
-            document.getElementById("tab-btn-usuarios").classList.toggle("hidden", !esAdmin);
-            document.getElementById("tab-btn-auditoria").classList.toggle("hidden", !esAdmin);
-            document.getElementById("tab-btn-pasados").classList.toggle("hidden", !gestiona);
-            document.getElementById("tab-btn-estadisticas").classList.toggle("hidden", !gestiona);
-            document.getElementById("btn-crear-evento").classList.toggle("hidden", !gestiona);
-        }
-
-        const puedeGestionar = () => ["Administrador", "Editor"].includes(userState.role);
-
-        // ---------- Utilidades compartidas ----------
-        // Escapa todo texto que viene del servidor antes de ponerlo en innerHTML (evita XSS almacenado).
-        const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-        function mensajeDeError(data, porDefecto) {
-            if (!data) return porDefecto;
-            if (Array.isArray(data.detail)) return (data.detail[0]?.msg || porDefecto).replace("Value error, ", "");
-            return data.detail || porDefecto;
-        }
-
-        async function api(ruta, opciones = {}) {
-            const headers = { "Authorization": `Bearer ${userState.token}`, ...(opciones.headers || {}) };
-            if (opciones.json !== undefined) {
-                headers["Content-Type"] = "application/json";
-                opciones.body = JSON.stringify(opciones.json);
-            }
-            const res = await fetch(`${API_BASE_URL}${ruta}`, { method: opciones.method || "GET", headers, body: opciones.body });
-            if (opciones.blob && res.ok) return res;
-            let data = null;
-            try { data = await res.json(); } catch (_) { /* sin cuerpo JSON */ }
-            if (!res.ok) throw new Error(mensajeDeError(data, "No se pudo completar la acción."));
-            return data;
-        }
-
-        function toast(mensaje) {
-            const el = document.createElement("div");
-            el.className = "fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-[60]";
-            el.textContent = mensaje;
-            document.body.appendChild(el);
-            setTimeout(() => el.remove(), 3500);
-        }
-
-        function aInputLocal(iso) {
-            const d = new Date(iso), p = (n) => String(n).padStart(2, "0");
-            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-        }
-
-        const formatoBytes = (b) => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
-        const TIPOS_OK = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"];
-        const MAX_MB = 10;
-
-        function iconoArchivo(a) {
-            return a.esImagen
-                ? `<img src="${esc(a.url)}" alt="" class="w-full h-full object-cover">`
-                : `<div class="w-full h-full flex flex-col items-center justify-center text-red-600"><i class="fa-solid fa-file-pdf text-2xl"></i></div>`;
-        }
-
-        // Zona de arrastrar y soltar reutilizable
-        function activarDropzone(zonaId, inputId, alRecibir) {
-            const zona = document.getElementById(zonaId), input = document.getElementById(inputId);
-            zona.addEventListener("click", () => input.click());
-            input.addEventListener("change", () => { alRecibir([...input.files]); input.value = ""; });
-            ["dragenter", "dragover"].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add("border-blue-900", "bg-blue-50"); }));
-            ["dragleave", "drop"].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.remove("border-blue-900", "bg-blue-50"); }));
-            zona.addEventListener("drop", (e) => alRecibir([...e.dataTransfer.files]));
-        }
-
-        function validarArchivos(lista) {
-            const validos = [];
-            for (const f of lista) {
-                if (!TIPOS_OK.includes(f.type)) { toast(`"${f.name}": formato no permitido`); continue; }
-                if (f.size > MAX_MB * 1024 * 1024) { toast(`"${f.name}": supera ${MAX_MB} MB`); continue; }
-                validos.push(f);
-            }
-            return validos;
-        }
-
-        async function subirArchivos(eventoId, tipo, archivos) {
-            const fd = new FormData();
-            fd.append("tipo", tipo);
-            archivos.forEach(f => fd.append("archivos", f));
-            return api(`/eventos/${eventoId}/archivos`, { method: "POST", body: fd });
-        }
-
-        let opcionesSegmentacion = { facultades: [], carreras: [], grupos: [] };
-        async function cargarOpcionesSegmentacion() {
-            try { opcionesSegmentacion = await api("/eventos/opciones-segmentacion"); } catch (_) { /* opcional */ }
-            const llenar = (id, vals) => { document.getElementById(id).innerHTML = vals.map(v => `<option value="${esc(v)}">`).join(""); };
-            llenar("dl-facultades", opcionesSegmentacion.facultades);
-            llenar("dl-carreras", opcionesSegmentacion.carreras);
-            llenar("dl-grupos", opcionesSegmentacion.grupos);
-        }
-
-        // ---------- Pestañas ----------
-        const PESTAÑAS = ["eventos", "pasados", "estadisticas", "usuarios", "auditoria"];
-        function cambiarPestaña(tab) {
-            PESTAÑAS.forEach(t => {
-                const btn = document.getElementById(`tab-btn-${t}`);
-                const container = document.getElementById(`tab-${t}`);
-                if (btn && container) {
-                    const active = t === tab;
-                    container.classList.toggle("hidden", !active);
-                    btn.className = `py-2.5 px-4 font-semibold text-sm border-b-2 ${active ? 'border-blue-900 text-blue-900' : 'border-transparent text-slate-500 hover:text-slate-800'} ${btn.classList.contains("hidden") ? "hidden" : ""}`;
-                }
-            });
-
-            if (tab === "pasados") cargarPasados();
-            if (tab === "estadisticas") iniciarEstadisticas();
-            if (tab === "usuarios") cargarUsuariosAdmin();
-            if (tab === "auditoria") cargarAuditoriaAdmin();
-        }
-
-        // ---------- 5. CARTELERA DE EVENTOS ----------
-        let eventosCache = {};       // id -> evento (para no pasar texto del servidor por atributos onclick)
-        let eventosLista = [];
-
-        function etiquetaAudiencia(ev) {
-            if (ev.esGeneral) return `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">TODOS</span>`;
-            const partes = [ev.idFacultadDestino, ev.idCarreraDestino, (ev.gruposDestino || []).length ? "Grupo " + ev.gruposDestino.join(", ") : null].filter(Boolean);
-            return `<span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold">${esc(partes.join(" · ") || "Segmentado")}</span>`;
-        }
-
-        async function cargarEventos() {
-            const container = document.getElementById("eventos-container");
-            container.innerHTML = `<p class="col-span-full text-center text-slate-400 py-8"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando cartelera...</p>`;
-            const gestiona = puedeGestionar();
-
-            try {
-                const todos = await api("/eventos/feed");
-                eventosLista = todos;
-                todos.forEach(e => { eventosCache[e.id] = e; });
-                const eventos = todos.filter(e => !e.finalizado);
-
-                if (eventos.length === 0) {
-                    container.innerHTML = `<p class="col-span-full text-center text-slate-500 py-8">No hay eventos próximos. Los finalizados están en "Eventos Pasados".</p>`;
-                    return;
-                }
-
-                container.innerHTML = eventos.map(ev => {
-                    const fechaTexto = ev.fechaHora ? new Date(ev.fechaHora).toLocaleString() : 'Próximamente';
-                    const materiales = (ev.archivos || []).filter(a => a.tipo === "material");
-                    return `
-                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition flex flex-col justify-between">
-                            <div>
-                                ${ev.imagenUrl ? `
-                                    <div class="w-full h-44 overflow-hidden bg-slate-100 border-b">
-                                        <img src="${esc(ev.imagenUrl)}" alt="" class="w-full h-full object-cover">
-                                    </div>` : `
-                                    <div class="w-full h-28 bg-gradient-to-r from-blue-900 to-indigo-800 flex items-center justify-center text-white/50">
-                                        <i class="fa-solid fa-image text-3xl"></i>
-                                    </div>`}
-                                <div class="p-5">
-                                    <div class="flex justify-between items-start mb-2">
-                                        <span class="text-xs font-bold text-blue-900 uppercase tracking-wider">${esc(ev.categoria || 'General')}</span>
-                                        ${gestiona ? `
-                                            <div class="flex space-x-1">
-                                                <button onclick="abrirSocial('${esc(ev.id)}')" class="text-xs text-slate-600 hover:text-blue-900 p-1.5 rounded border hover:bg-slate-50" title="Compartir en redes"><i class="fa-solid fa-share-nodes"></i></button>
-                                                <button onclick="abrirModalEvento('${esc(ev.id)}')" class="text-xs text-slate-600 hover:text-blue-900 p-1.5 rounded border hover:bg-slate-50" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>
-                                                <button onclick="eliminarEvento('${esc(ev.id)}')" class="text-xs text-red-600 hover:text-red-800 p-1.5 rounded border border-red-200 hover:bg-red-50" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
-                                            </div>` : ''}
-                                    </div>
-                                    <h3 class="text-lg font-bold text-slate-800">${esc(ev.titulo)}</h3>
-                                    <div class="mt-1 flex flex-wrap gap-1 items-center">${etiquetaAudiencia(ev)}
-                                        ${materiales.length ? `<span class="text-[10px] text-slate-500"><i class="fa-solid fa-paperclip"></i> ${materiales.length} archivo(s)</span>` : ''}</div>
-                                    <p class="text-xs text-slate-500 mt-2 line-clamp-3">${esc(ev.descripcion)}</p>
-                                </div>
-                            </div>
-                            <div class="px-5 py-3 bg-slate-50 border-t space-y-3">
-                                <div class="flex justify-between items-center text-xs text-slate-400">
-                                    <span><i class="fa-regular fa-calendar mr-1"></i> ${esc(fechaTexto)}</span>
-                                    <span><i class="fa-solid fa-location-dot mr-1"></i> ${esc(ev.lugar || 'Campus')}</span>
-                                </div>
-                                <div class="flex space-x-2 pt-1">
-                                    <button onclick="registrarAsistenciaEvento('${esc(ev.id)}')" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold py-1.5 rounded transition text-center">
-                                        <i class="fa-solid fa-user-check mr-1"></i> Registrarme
-                                    </button>
-                                    ${gestiona ? `
-                                        <button onclick="verAsistentesEvento('${esc(ev.id)}')" class="bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3 py-1.5 rounded transition">
-                                            <i class="fa-solid fa-users mr-1"></i> Asistentes
-                                        </button>` : ''}
-                                </div>
-                            </div>
-                        </div>`;
-                }).join("");
-            } catch (err) {
-                container.innerHTML = `<p class="col-span-full text-center text-red-500 py-8">${esc(err.message)}</p>`;
-            }
-        }
-
-        // ---------- Modal crear / editar evento ----------
-        let estadoModalEvento = { nuevos: [], existentes: [], grupos: [] };
-
-        function alternarAudiencia() {
-            const seg = document.querySelector('input[name="ev-audiencia"]:checked').value === "segmentado";
-            document.getElementById("ev-segmentacion").classList.toggle("hidden", !seg);
-        }
-
-        function pintarChipsGrupos() {
-            document.getElementById("ev-grupos-chips").innerHTML = estadoModalEvento.grupos.map((g, i) =>
-                `<span class="bg-indigo-100 text-indigo-800 text-xs px-2 py-0.5 rounded-full">${esc(g)}
-                    <button type="button" onclick="quitarGrupo(${i})" class="ml-1 font-bold">×</button></span>`).join("");
-        }
-        function agregarGruposDesdeTexto(texto) {
-            texto.split(",").map(t => t.trim()).filter(Boolean).forEach(g => {
-                if (!estadoModalEvento.grupos.some(x => x.toLowerCase() === g.toLowerCase())) estadoModalEvento.grupos.push(g);
-            });
-            pintarChipsGrupos();
-        }
-        function quitarGrupo(i) { estadoModalEvento.grupos.splice(i, 1); pintarChipsGrupos(); }
-
-        function pintarArchivosModal() {
-            document.getElementById("ev-existentes").innerHTML = estadoModalEvento.existentes.map(a => `
-                <div class="relative h-20 border rounded-lg overflow-hidden bg-slate-100">
-                    ${iconoArchivo(a)}
-                    <button type="button" onclick="quitarArchivoExistente('${esc(a.id)}')" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 text-[10px]" title="Eliminar"><i class="fa-solid fa-xmark"></i></button>
-                    <span class="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] px-1 truncate">${esc(a.nombre)}</span>
-                </div>`).join("");
-            document.getElementById("ev-nuevos").innerHTML = estadoModalEvento.nuevos.map((f, i) => `
-                <div class="relative h-20 border-2 border-blue-300 rounded-lg overflow-hidden bg-slate-100">
-                    ${f.type.startsWith("image/") ? `<img src="${URL.createObjectURL(f)}" class="w-full h-full object-cover">`
-                        : `<div class="w-full h-full flex items-center justify-center text-red-600"><i class="fa-solid fa-file-pdf text-2xl"></i></div>`}
-                    <button type="button" onclick="quitarArchivoNuevo(${i})" class="absolute top-1 right-1 bg-slate-800 text-white rounded-full w-5 h-5 text-[10px]"><i class="fa-solid fa-xmark"></i></button>
-                    <span class="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] px-1 truncate">${esc(f.name)} · ${formatoBytes(f.size)}</span>
-                </div>`).join("");
-        }
-        function quitarArchivoNuevo(i) { estadoModalEvento.nuevos.splice(i, 1); pintarArchivosModal(); }
-        async function quitarArchivoExistente(archivoId) {
-            if (!confirm("¿Eliminar este archivo del evento? Los alumnos dejarán de verlo.")) return;
-            try {
-                const eventoId = document.getElementById("ev-id").value;
-                await api(`/eventos/${eventoId}/archivos/${archivoId}`, { method: "DELETE" });
-                estadoModalEvento.existentes = estadoModalEvento.existentes.filter(a => a.id !== archivoId);
-                pintarArchivosModal();
-            } catch (err) { toast(err.message); }
-        }
-
-        async function abrirModalEvento(id = null) {
-            const ev = id ? eventosCache[id] : null;
-            estadoModalEvento = { nuevos: [], existentes: ev ? (ev.archivos || []).filter(a => a.tipo === "material") : [], grupos: ev ? [...(ev.gruposDestino || [])] : [] };
-
-            document.getElementById("ev-modal-titulo").innerText = ev ? "Editar Evento" : "Publicar Nuevo Evento";
-            document.getElementById("ev-btn-guardar").innerText = ev ? "Guardar Cambios" : "Publicar";
-            document.getElementById("ev-id").value = ev ? ev.id : "";
-            document.getElementById("ev-titulo").value = ev ? ev.titulo : "";
-            document.getElementById("ev-categoria").value = ev ? (ev.categoria || "") : "";
-            document.getElementById("ev-descripcion").value = ev ? ev.descripcion : "";
-            document.getElementById("ev-fecha-hora").value = ev ? aInputLocal(ev.fechaHora) : "";
-            document.getElementById("ev-lugar").value = ev ? ev.lugar : "";
-            document.getElementById("ev-facultad").value = ev ? (ev.idFacultadDestino || "") : "";
-            document.getElementById("ev-carrera").value = ev ? (ev.idCarreraDestino || "") : "";
-            document.getElementById("ev-grupo-input").value = "";
-            document.querySelector(`input[name="ev-audiencia"][value="${ev && !ev.esGeneral ? "segmentado" : "general"}"]`).checked = true;
-            alternarAudiencia();
-            pintarChipsGrupos();
-            pintarArchivosModal();
-            document.getElementById("modal-evento").classList.remove("hidden");
-            cargarOpcionesSegmentacion();
-        }
-
-        function abrirModalCrearEvento() { abrirModalEvento(null); }
-        function cerrarModalEvento() { document.getElementById("modal-evento").classList.add("hidden"); }
-
-        async function guardarEvento(e) {
-            e.preventDefault();
-            const id = document.getElementById("ev-id").value;
-            const segmentado = document.querySelector('input[name="ev-audiencia"]:checked').value === "segmentado";
-            agregarGruposDesdeTexto(document.getElementById("ev-grupo-input").value);
-            document.getElementById("ev-grupo-input").value = "";
-
-            const facultad = document.getElementById("ev-facultad").value.trim();
-            const carrera = document.getElementById("ev-carrera").value.trim();
-            if (segmentado && !facultad && !carrera && estadoModalEvento.grupos.length === 0) {
-                toast("Indica al menos una carrera, facultad o grupo, o elige 'Todos los alumnos'.");
-                return;
-            }
-
-            const payload = {
-                titulo: document.getElementById("ev-titulo").value.trim(),
-                descripcion: document.getElementById("ev-descripcion").value.trim(),
-                fechaHora: new Date(document.getElementById("ev-fecha-hora").value).toISOString(),
-                lugar: document.getElementById("ev-lugar").value.trim(),
-                categoria: document.getElementById("ev-categoria").value.trim() || null,
-                esGeneral: !segmentado,
-                idFacultadDestino: segmentado ? (facultad || null) : null,
-                idCarreraDestino: segmentado ? (carrera || null) : null,
-                gruposDestino: segmentado && estadoModalEvento.grupos.length ? estadoModalEvento.grupos : null
-            };
-
-            const boton = document.getElementById("ev-btn-guardar");
-            boton.disabled = true; boton.classList.add("opacity-60");
-            try {
-                const guardado = await api(id ? `/eventos/${id}` : "/eventos/", { method: id ? "PUT" : "POST", json: payload });
-                let aviso = id ? "Evento actualizado." : "¡Evento publicado!";
-                if (estadoModalEvento.nuevos.length) {
-                    try { await subirArchivos(guardado.id, "material", estadoModalEvento.nuevos); }
-                    catch (err) { aviso = `El evento se guardó, pero los archivos fallaron: ${err.message}`; }
-                }
-                cerrarModalEvento();
-                toast(aviso);
-                await cargarEventos();
-                if (!id) abrirSocial(guardado.id);   // ofrece compartirlo en redes recién creado
-            } catch (err) {
-                toast(err.message);
-            } finally {
-                boton.disabled = false; boton.classList.remove("opacity-60");
-            }
-        }
-
-        async function eliminarEvento(id) {
-            if (!confirm("¿Estás seguro de que deseas eliminar permanentemente este evento (incluye sus archivos y registros)?")) return;
-            try {
-                await api(`/eventos/${id}`, { method: "DELETE" });
-                toast("Evento eliminado correctamente.");
-                cargarEventos();
-            } catch (err) { toast(err.message); }
-        }
-
-        // ---------- 6. REGISTRO Y LISTA DE ASISTENCIA ----------
-        async function registrarAsistenciaEvento(eventoId) {
-            try {
-                await api(`/eventos/${eventoId}/registro`, { method: "POST" });
-                toast("¡Te has inscrito correctamente al evento!");
-            } catch (err) { toast(err.message); }
-        }
-
-        let asistentesActual = null;
-        async function verAsistentesEvento(eventoId) {
-            const ev = eventosCache[eventoId] || {};
-            asistentesActual = { id: eventoId, titulo: ev.titulo || "Evento" };
-            document.getElementById("modal-asistentes-titulo").innerText = `Asistentes: ${asistentesActual.titulo}`;
-            const tbody = document.getElementById("tabla-asistentes-body");
-            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando lista de inscritos...</td></tr>`;
-            document.getElementById("modal-asistentes").classList.remove("hidden");
-
-            try {
-                const asistentes = await api(`/eventos/${eventoId}/asistentes`);
-                if (asistentes.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
-                    return;
-                }
-                tbody.innerHTML = asistentes.map((a, i) => `
-                    <tr class="border-b hover:bg-slate-50">
-                        <td class="p-3 font-semibold text-slate-400">${i + 1}</td>
-                        <td class="p-3 font-medium text-slate-800">${esc(a.nombre)}</td>
-                        <td class="p-3 text-slate-500 font-mono">${esc(a.email)}</td>
-                        <td class="p-3 text-slate-500">${esc([a.carrera, (a.grupos || []).join(", ")].filter(Boolean).join(" · ") || "—")}</td>
-                        <td class="p-3 text-slate-400">${a.fecha_registro ? new Date(a.fecha_registro).toLocaleString() : 'Reciente'}</td>
-                        <td class="p-3 text-center"><input type="checkbox" ${a.asistio ? "checked" : ""} onchange="marcarAsistio(${Number(a.id)}, this)" class="w-4 h-4"></td>
-                    </tr>`).join("");
-            } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">${esc(err.message)}</td></tr>`;
-            }
-        }
-
-        async function marcarAsistio(asistenciaId, checkbox) {
-            try {
-                await api(`/eventos/${asistentesActual.id}/asistentes/${asistenciaId}`, { method: "PATCH", json: { asistio: checkbox.checked } });
-            } catch (err) { checkbox.checked = !checkbox.checked; toast(err.message); }
-        }
-
-        function cerrarModalAsistentes() { document.getElementById("modal-asistentes").classList.add("hidden"); }
-
-        async function descargarPDFDe(eventoId) {
-            try {
-                const res = await api(`/eventos/${eventoId}/asistentes/pdf`, { blob: true });
-                const nombre = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "asistencia.pdf";
-                const url = URL.createObjectURL(await res.blob());
-                const a = Object.assign(document.createElement("a"), { href: url, download: nombre });
-                document.body.appendChild(a); a.click(); a.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 5000);
-            } catch (err) { toast(err.message); }
-        }
-        function descargarAsistenciaPDF() { if (asistentesActual) descargarPDFDe(asistentesActual.id); }
-
-        // ---------- EVENTOS PASADOS + EVIDENCIAS ----------
-        let pasadosCache = {};
-        async function cargarPasados() {
-            const cont = document.getElementById("pasados-container");
-            cont.innerHTML = `<p class="col-span-full text-center text-slate-400 py-8"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando...</p>`;
-            try {
-                const lista = await api("/eventos/pasados");
-                pasadosCache = {};
-                lista.forEach(e => { pasadosCache[e.id] = e; eventosCache[e.id] = e; });
-                if (!lista.length) { cont.innerHTML = `<p class="col-span-full text-center text-slate-500 py-8">Todavía no hay eventos finalizados.</p>`; }
-                else cont.innerHTML = lista.map(ev => {
-                    const evid = (ev.archivos || []).filter(a => a.tipo === "evidencia");
-                    return `
-                    <div class="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col">
-                        <div class="h-28 bg-slate-200 grid ${evid.length ? "grid-cols-3" : ""}">
-                            ${evid.length ? evid.slice(0, 3).map(a => `<div class="overflow-hidden">${iconoArchivo(a)}</div>`).join("")
-                                : `<div class="flex items-center justify-center text-slate-400 text-xs"><i class="fa-solid fa-camera mr-2"></i> Sin evidencias</div>`}
-                        </div>
-                        <div class="p-4 flex-1">
-                            <span class="text-[10px] font-bold text-blue-900 uppercase">${esc(ev.categoria || "General")}</span>
-                            <h3 class="font-bold text-slate-800">${esc(ev.titulo)}</h3>
-                            <p class="text-xs text-slate-500 mt-1"><i class="fa-regular fa-calendar mr-1"></i>${esc(new Date(ev.fechaHora).toLocaleString())} · ${esc(ev.lugar)}</p>
-                            <div class="flex gap-3 text-xs mt-2">
-                                <span class="text-slate-600"><b>${ev.totalRegistrados ?? 0}</b> registrados</span>
-                                <span class="text-emerald-700"><b>${ev.totalAsistieron ?? 0}</b> asistieron</span>
-                                <span class="${evid.length ? "text-blue-900" : "text-amber-600"}"><b>${evid.length}</b> evidencia(s)</span>
-                            </div>
-                        </div>
-                        <div class="px-4 py-3 bg-slate-50 border-t grid grid-cols-2 gap-2">
-                            <button onclick="abrirEvidencias('${esc(ev.id)}')" class="bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-images mr-1"></i> Evidencias</button>
-                            <button onclick="verAsistentesEvento('${esc(ev.id)}')" class="bg-slate-700 hover:bg-slate-800 text-white text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-users mr-1"></i> Asistentes</button>
-                            <button onclick="descargarPDFDe('${esc(ev.id)}')" class="border border-red-300 text-red-600 hover:bg-red-50 text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-file-pdf mr-1"></i> PDF</button>
-                            <button onclick="verEstadisticasDe('${esc(ev.id)}')" class="border text-slate-600 hover:bg-slate-100 text-xs font-semibold py-1.5 rounded"><i class="fa-solid fa-chart-column mr-1"></i> Estadísticas</button>
-                        </div>
-                    </div>`;
-                }).join("");
-                if (!document.getElementById("modal-evidencias").classList.contains("hidden")) pintarEvidencias();
-            } catch (err) {
-                cont.innerHTML = `<p class="col-span-full text-center text-red-500 py-8">${esc(err.message)}</p>`;
-            }
-        }
-
-        function abrirEvidencias(id) {
-            document.getElementById("evid-evento-id").value = id;
-            pintarEvidencias();
-            document.getElementById("modal-evidencias").classList.remove("hidden");
-        }
-        function cerrarModalEvidencias() { document.getElementById("modal-evidencias").classList.add("hidden"); }
-
-        function pintarEvidencias() {
-            const ev = pasadosCache[document.getElementById("evid-evento-id").value];
-            if (!ev) return;
-            const evid = (ev.archivos || []).filter(a => a.tipo === "evidencia");
-            document.getElementById("evid-titulo").innerText = `Evidencias: ${ev.titulo}`;
-            document.getElementById("evid-sub").innerText = `${new Date(ev.fechaHora).toLocaleString()} · ${ev.lugar} · ${evid.length} archivo(s)`;
-            document.getElementById("evid-galeria").innerHTML = evid.length ? evid.map(a => `
-                <div class="relative border rounded-lg overflow-hidden bg-slate-100 h-36">
-                    <a href="${esc(a.url)}" target="_blank" rel="noopener" class="block w-full h-full">${iconoArchivo(a)}</a>
-                    <button onclick="eliminarEvidencia('${esc(ev.id)}', '${esc(a.id)}')" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 text-xs" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
-                    <span class="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[10px] px-1 truncate">${esc(a.nombre)}</span>
-                </div>`).join("") : `<p class="col-span-full text-center text-slate-400 text-sm py-6">Aún no hay evidencias para este evento.</p>`;
-        }
-
-        async function eliminarEvidencia(eventoId, archivoId) {
-            if (!confirm("¿Eliminar esta evidencia?")) return;
-            try { await api(`/eventos/${eventoId}/archivos/${archivoId}`, { method: "DELETE" }); await cargarPasados(); }
-            catch (err) { toast(err.message); }
-        }
-
-        async function subirEvidencias(lista) {
-            const archivos = validarArchivos(lista);
-            if (!archivos.length) return;
-            const id = document.getElementById("evid-evento-id").value;
-            try {
-                toast(`Subiendo ${archivos.length} archivo(s)...`);
-                await subirArchivos(id, "evidencia", archivos);
-                await cargarPasados();
-                toast("Evidencias guardadas.");
-            } catch (err) { toast(err.message); }
-        }
-
-        // ---------- COMPARTIR EN REDES ----------
-        let socialActual = null;
-        async function abrirSocial(eventoId) {
-            try {
-                const [post, estado] = await Promise.all([api(`/social/eventos/${eventoId}/post`), api("/social/estado")]);
-                socialActual = { id: eventoId, ...post };
-                document.getElementById("social-texto").value = post.texto;
-                const img = document.getElementById("social-imagen");
-                img.classList.toggle("hidden", !post.imagenUrl);
-                if (post.imagenUrl) img.src = post.imagenUrl;
-                const aviso = document.getElementById("social-aviso");
-                aviso.textContent = post.advertencia || "";
-                aviso.classList.toggle("hidden", !post.advertencia);
-                document.getElementById("social-api-fb").classList.toggle("hidden", !estado.facebookApi);
-                document.getElementById("social-api-ig").classList.toggle("hidden", !estado.instagramApi);
-                document.getElementById("social-api").classList.toggle("hidden", !(estado.facebookApi || estado.instagramApi));
-                document.getElementById("modal-social").classList.remove("hidden");
-            } catch (err) { toast(err.message); }
-        }
-        function cerrarModalSocial() { document.getElementById("modal-social").classList.add("hidden"); }
-
-        async function copiarTexto(texto) {
-            try { await navigator.clipboard.writeText(texto); return true; } catch (_) { return false; }
-        }
-
-        async function compartirFacebook() {
-            const texto = document.getElementById("social-texto").value;
-            const copiado = await copiarTexto(texto);
-            const url = "https://www.facebook.com/sharer/sharer.php?" + new URLSearchParams({ u: socialActual.enlacePublico, quote: texto.slice(0, 1000) });
-            window.open(url, "_blank", "noopener,width=680,height=640");
-            if (copiado) toast("Texto copiado por si Facebook no lo precarga: pégalo en la publicación.");
-        }
-
-        async function compartirInstagram() {
-            const texto = document.getElementById("social-texto").value;
-            const copiado = await copiarTexto(texto);
-            if (socialActual.imagenUrl) {
-                try {
-                    const blob = await (await fetch(socialActual.imagenUrl)).blob();
-                    const url = URL.createObjectURL(blob);
-                    const a = Object.assign(document.createElement("a"), { href: url, download: "flyer-evento" + (blob.type === "image/png" ? ".png" : ".jpg") });
-                    document.body.appendChild(a); a.click(); a.remove();
-                    setTimeout(() => URL.revokeObjectURL(url), 5000);
-                } catch (_) { window.open(socialActual.imagenUrl, "_blank", "noopener"); }
-            }
-            window.open("https://www.instagram.com/", "_blank", "noopener");
-            toast(copiado ? "Texto copiado y flyer descargado: crea la publicación en Instagram y pégalos." : "Flyer descargado: copia el texto manualmente.");
-        }
-
-        async function publicarPorApi(plataforma) {
-            if (!confirm(`¿Publicar ahora en ${plataforma === "facebook" ? "Facebook" : "Instagram"}?`)) return;
-            try {
-                const r = await api(`/social/eventos/${socialActual.id}/publicar`, { method: "POST", json: { plataforma, texto: document.getElementById("social-texto").value } });
-                toast(r.mensaje);
-            } catch (err) { toast(err.message); }
-        }
-
-        // ---------- ESTADÍSTICAS ----------
-        let graficas = [];
-        const PALETA = ["#0C2340", "#F59E0B", "#2563EB", "#10B981", "#8B5CF6", "#EF4444", "#14B8A6", "#F97316"];
-
-        function tarjetaKPI(titulo, valor, icono, color = "text-blue-900") {
-            return `<div class="bg-white rounded-xl border shadow-sm p-4 flex items-center gap-3">
-                <i class="fa-solid ${icono} text-2xl ${color}"></i>
-                <div><p class="text-2xl font-bold text-slate-800">${esc(valor)}</p><p class="text-xs text-slate-500">${esc(titulo)}</p></div></div>`;
-        }
-        function cajaGrafica(id, titulo, ancho = "") {
-            return `<div class="bg-white rounded-xl border shadow-sm p-4 ${ancho}"><h3 class="text-sm font-bold text-slate-700 mb-2">${esc(titulo)}</h3><div class="relative h-64"><canvas id="${id}"></canvas></div></div>`;
-        }
-        function dibujar(id, config) {
-            if (typeof Chart === "undefined") return;
-            graficas.push(new Chart(document.getElementById(id), { ...config, options: { responsive: true, maintainAspectRatio: false, ...(config.options || {}) } }));
-        }
-        function limpiarGraficas() { graficas.forEach(g => g.destroy()); graficas = []; }
-
-        async function iniciarEstadisticas() {
-            if (!eventosLista.length) { try { eventosLista = await api("/eventos/feed"); eventosLista.forEach(e => { eventosCache[e.id] = e; }); } catch (_) { /* se mostrará vacío */ } }
-            const sel = document.getElementById("stats-selector"), actual = sel.value;
-            sel.innerHTML = `<option value="general">Todos los eventos (general)</option>` +
-                [...eventosLista].sort((a, b) => new Date(b.fechaHora) - new Date(a.fechaHora))
-                    .map(e => `<option value="${esc(e.id)}">${esc(e.titulo)} — ${esc(new Date(e.fechaHora).toLocaleDateString())}</option>`).join("");
-            if ([...sel.options].some(o => o.value === actual)) sel.value = actual;
-            cargarEstadisticas();
-        }
-
-        function verEstadisticasDe(eventoId) {
-            cambiarPestaña("estadisticas");
-            setTimeout(() => { document.getElementById("stats-selector").value = eventoId; cargarEstadisticas(); }, 50);
-        }
-
-        async function cargarEstadisticas() {
-            const cont = document.getElementById("stats-contenido");
-            const valor = document.getElementById("stats-selector").value;
-            cont.innerHTML = `<p class="text-center text-slate-400 py-8"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Calculando...</p>`;
-            limpiarGraficas();
-            try {
-                if (typeof Chart === "undefined") throw new Error("No se pudo cargar la librería de gráficas (revisa tu conexión a internet).");
-                if (valor === "general") await pintarEstadisticasGenerales(cont);
-                else await pintarEstadisticasEvento(cont, valor);
-            } catch (err) { cont.innerHTML = `<p class="text-center text-red-500 py-8">${esc(err.message)}</p>`; }
-        }
-
-        async function pintarEstadisticasGenerales(cont) {
-            const d = await api("/estadisticas/general");
-            cont.innerHTML = `
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    ${tarjetaKPI("Eventos totales", d.totalEventos, "fa-calendar-days")}
-                    ${tarjetaKPI("Próximos / Finalizados", `${d.proximos} / ${d.finalizados}`, "fa-clock", "text-amber-500")}
-                    ${tarjetaKPI("Registros totales", d.totalRegistros, "fa-user-check", "text-emerald-600")}
-                    ${tarjetaKPI("Asistencia confirmada", `${d.tasaAsistencia}%`, "fa-circle-check", "text-emerald-600")}
-                    ${tarjetaKPI("Promedio de registros por evento", d.promedioRegistrosPorEvento, "fa-chart-line")}
-                    ${tarjetaKPI("Generales / Segmentados", `${d.eventosGenerales} / ${d.eventosSegmentados}`, "fa-bullseye", "text-indigo-600")}
-                    ${tarjetaKPI("Finalizados con evidencia", d.finalizadosConEvidencia, "fa-images", "text-blue-900")}
-                    ${tarjetaKPI("Finalizados sin evidencia", d.finalizadosSinEvidencia, "fa-triangle-exclamation", "text-red-500")}
+    <!-- MODAL 7: CONFIGURACIÓN DE PERMISOS GRANULARES A MEDIDA POR USUARIO -->
+    <div id="modal-permisos-usuario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
+            <!-- Encabezado con datos del usuario -->
+            <div class="flex items-center justify-between border-b pb-4 mb-4">
+                <div class="flex items-center gap-3">
+                    <div id="perm-modal-iniciales" class="w-12 h-12 rounded-full bg-[#122652] text-white font-extrabold text-base flex items-center justify-center border-2 border-[#F57C00]">
+                        UN
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Configuración de Permisos a Medida</span>
+                        <h3 id="perm-modal-nombre" class="text-lg font-extrabold text-[#122652] leading-tight">Nombre del Usuario</h3>
+                        <p id="perm-modal-email" class="text-xs text-[#5B6670] font-mono">correo@unach.mx</p>
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    ${cajaGrafica("g-mes", "Eventos y registros por mes")}
-                    ${cajaGrafica("g-categoria", "Eventos por categoría")}
-                    ${cajaGrafica("g-carrera", "Registros y asistencia por carrera")}
-                    ${cajaGrafica("g-top", "Eventos con más registros")}
-                </div>`;
-            dibujar("g-mes", { type: "bar", data: { labels: d.porMes.map(m => m.mes), datasets: [
-                { label: "Eventos", data: d.porMes.map(m => m.eventos), backgroundColor: PALETA[0] },
-                { label: "Registros", data: d.porMes.map(m => m.registros), backgroundColor: PALETA[1] }] },
-                options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-            dibujar("g-categoria", { type: "doughnut", data: { labels: d.porCategoria.map(c => c.categoria), datasets: [{ data: d.porCategoria.map(c => c.eventos), backgroundColor: PALETA }] } });
-            dibujar("g-carrera", { type: "bar", data: { labels: d.porCarrera.map(c => c.carrera), datasets: [
-                { label: "Registros", data: d.porCarrera.map(c => c.registros), backgroundColor: PALETA[2] },
-                { label: "Asistieron", data: d.porCarrera.map(c => c.asistencias), backgroundColor: PALETA[3] }] },
-                options: { indexAxis: "y", scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } } });
-            dibujar("g-top", { type: "bar", data: { labels: d.topEventos.map(t => t.titulo.length > 28 ? t.titulo.slice(0, 27) + "…" : t.titulo), datasets: [
-                { label: "Registrados", data: d.topEventos.map(t => t.registrados), backgroundColor: PALETA[0] },
-                { label: "Asistieron", data: d.topEventos.map(t => t.asistieron), backgroundColor: PALETA[3] }] },
-                options: { indexAxis: "y", scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } } });
-        }
+                <button type="button" onclick="cerrarModalPermisosUsuario()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
 
-        async function pintarEstadisticasEvento(cont, id) {
-            const d = await api(`/estadisticas/evento/${id}`);
-            cont.innerHTML = `
-                <div class="bg-white rounded-xl border shadow-sm p-4">
-                    <h3 class="font-bold text-slate-800">${esc(d.evento.titulo)}</h3>
-                    <p class="text-xs text-slate-500">${esc(d.evento.fecha)} · ${esc(d.evento.lugar)} · ${d.evento.finalizado ? "Finalizado" : "Próximo"}</p>
+            <!-- Selección rápida opcional (1 clic) -->
+            <div class="bg-[#F4F7FB] p-3.5 rounded-2xl border border-slate-200/80 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-extrabold text-[#122652]">
+                        <i class="fa-solid fa-wand-magic-sparkles text-[#F57C00] mr-1"></i>
+                        Selecciones rápidas (opcional, luego puedes marcar o desmarcar cada permiso a tu gusto):
+                    </span>
+                    <span id="perm-modal-contador" class="text-[11px] font-extrabold text-[#0093FF]">0 seleccionados</span>
                 </div>
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    ${tarjetaKPI("Registrados", d.registrados, "fa-user-check", "text-emerald-600")}
-                    ${tarjetaKPI("Asistieron", d.asistieron, "fa-circle-check", "text-emerald-600")}
-                    ${tarjetaKPI("Tasa de asistencia", `${d.tasaAsistencia}%`, "fa-percent", "text-amber-500")}
-                    ${tarjetaKPI("Evidencias / Archivos", `${d.archivosEvidencia} / ${d.archivosMaterial}`, "fa-images")}
+                <div id="perm-modal-plantillas" class="flex flex-wrap gap-1.5">
+                    <!-- Botones generados desde js/usuarios.js -->
                 </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    ${cajaGrafica("g-ev-carrera", "Por carrera")}
-                    ${cajaGrafica("g-ev-grupo", "Por grupo")}
-                    ${cajaGrafica("g-ev-dia", "Inscripciones por día", "lg:col-span-2")}
-                </div>`;
-            const barras = (id2, filas, clave) => dibujar(id2, { type: "bar", data: { labels: filas.map(f => f[clave]), datasets: [
-                { label: "Registros", data: filas.map(f => f.registros), backgroundColor: PALETA[2] },
-                { label: "Asistieron", data: filas.map(f => f.asistencias), backgroundColor: PALETA[3] }] },
-                options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-            barras("g-ev-carrera", d.porCarrera, "carrera");
-            barras("g-ev-grupo", d.porGrupo, "grupo");
-            dibujar("g-ev-dia", { type: "line", data: { labels: d.inscripcionesPorDia.map(x => x.fecha), datasets: [
-                { label: "Inscripciones", data: d.inscripcionesPorDia.map(x => x.registros), borderColor: PALETA[0], backgroundColor: PALETA[0], tension: 0.25 }] },
-                options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-        }
+            </div>
 
-        // ---------- Inicialización de las zonas de arrastre ----------
-        window.addEventListener("DOMContentLoaded", () => {
-            activarDropzone("ev-dropzone", "ev-archivos", (lista) => { estadoModalEvento.nuevos.push(...validarArchivos(lista)); pintarArchivosModal(); });
-            activarDropzone("evid-dropzone", "evid-archivos", subirEvidencias);
-            const gi = document.getElementById("ev-grupo-input");
-            gi.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); agregarGruposDesdeTexto(gi.value); gi.value = ""; } });
-            gi.addEventListener("change", () => { agregarGruposDesdeTexto(gi.value); gi.value = ""; });
-        });
+            <!-- Lista de casillas / switches de permisos individuales -->
+            <div id="perm-modal-lista" class="overflow-y-auto flex-1 space-y-4 pr-1">
+                <!-- Tarjetas de permisos generadas desde js/usuarios.js -->
+            </div>
 
-        // 7. ADMINISTRACIÓN: USUARIOS Y AUDITORÍA
-        let usuariosCache = {};
-        async function cargarUsuariosAdmin() {
-            const tbody = document.getElementById("tabla-usuarios-body");
-            try {
-                const usuarios = await api("/admin/usuarios");
-                usuariosCache = {};
-                usuarios.forEach(u => { usuariosCache[u.id] = u; });
+            <!-- Pie del modal -->
+            <div class="pt-4 mt-4 border-t flex items-center justify-between gap-3">
+                <p class="text-[11px] text-[#5B6670]">
+                    <i class="fa-solid fa-circle-info text-[#0093FF] mr-1"></i>
+                    El usuario verá únicamente las pestañas y botones que dejes activos aquí.
+                </p>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button type="button" onclick="cerrarModalPermisosUsuario()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-xl transition">
+                        Cancelar
+                    </button>
+                    <button type="button" id="btn-guardar-permisos-modal" onclick="guardarPermisosDeUsuario()"
+                        class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2">
+                        <i class="fa-solid fa-floppy-disk text-[#F57C00]"></i>
+                        <span>Guardar Permisos Personalizados</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-                tbody.innerHTML = usuarios.map(u => `
-                    <tr class="border-b hover:bg-slate-50">
-                        <td class="p-3 font-mono text-xs">${Number(u.id)}</td>
-                        <td class="p-3 font-medium">${esc(u.nombre)}</td>
-                        <td class="p-3 text-slate-500">${esc(u.email)}</td>
-                        <td class="p-3"><span class="px-2 py-1 bg-slate-200 rounded text-xs font-semibold">${esc(u.rol)}</span></td>
-                        <td class="p-3 text-xs text-slate-600">
-                            ${esc([u.id_carrera, (u.grupos || []).join(", ")].filter(Boolean).join(" · ") || "—")}
-                            <button onclick="abrirSegmentacionUsuario(${Number(u.id)})" class="ml-1 text-blue-900 hover:underline" title="Editar carrera y grupo"><i class="fa-solid fa-pen"></i></button>
-                        </td>
-                        <td class="p-3">
-                            <select onchange="cambiarRolUsuario(${Number(u.id)}, this.value)" class="text-xs border rounded px-2 py-1 bg-white">
-                                <option value="Usuario Regular" ${u.rol === 'Usuario Regular' ? 'selected' : ''}>Usuario Regular</option>
-                                <option value="Editor" ${u.rol === 'Editor' ? 'selected' : ''}>Editor</option>
-                                <option value="Administrador" ${u.rol === 'Administrador' ? 'selected' : ''}>Administrador</option>
-                            </select>
-                        </td>
-                    </tr>
-                `).join("");
-            } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Error al obtener usuarios.</td></tr>`;
-            }
-        }
-
-        function abrirSegmentacionUsuario(id) {
-            const u = usuariosCache[id];
-            document.getElementById("segu-id").value = id;
-            document.getElementById("segu-nombre").innerText = `${u.nombre} · ${u.email}`;
-            document.getElementById("segu-facultad").value = u.id_facultad || "";
-            document.getElementById("segu-carrera").value = u.id_carrera || "";
-            document.getElementById("segu-grupos").value = (u.grupos || []).join(", ");
-            document.getElementById("modal-segmentacion-usuario").classList.remove("hidden");
-            cargarOpcionesSegmentacion();
-        }
-
-        async function guardarSegmentacionUsuario(e) {
-            e.preventDefault();
-            const id = document.getElementById("segu-id").value;
-            try {
-                await api(`/admin/usuarios/${id}/segmentacion`, { method: "PUT", json: {
-                    id_facultad: document.getElementById("segu-facultad").value.trim() || null,
-                    id_carrera: document.getElementById("segu-carrera").value.trim() || null,
-                    grupos: document.getElementById("segu-grupos").value.split(",").map(g => g.trim()).filter(Boolean)
-                } });
-                document.getElementById("modal-segmentacion-usuario").classList.add("hidden");
-                toast("Datos académicos actualizados.");
-                cargarUsuariosAdmin();
-            } catch (err) { toast(err.message); }
-        }
-
-        async function cambiarRolUsuario(userId, nuevoRol) {
-            try {
-                const res = await fetch(`${API_BASE_URL}/admin/usuarios/${userId}/rol`, {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${userState.token}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ rol: nuevoRol })
-                });
-                if (!res.ok) alert("No se pudo actualizar el rol del usuario.");
-            } catch (err) {
-                alert("Error de conexión al cambiar el rol.");
-            }
-        }
-
-        async function cargarAuditoriaAdmin() {
-            const tbody = document.getElementById("tabla-auditoria-body");
-            try {
-                const res = await fetch(`${API_BASE_URL}/admin/auditoria`, {
-                    headers: { "Authorization": `Bearer ${userState.token}` }
-                });
-                const registros = await res.json();
-
-                tbody.innerHTML = registros.map(r => `
-                    <tr class="border-b hover:bg-slate-50">
-                        <td class="p-3 text-slate-400">${new Date(r.fecha_hora).toLocaleString()}</td>
-                        <td class="p-3 font-medium">${r.usuario_email || 'Anónimo'}</td>
-                        <td class="p-3 font-mono text-slate-500">${r.direccion_ip}</td>
-                        <td class="p-3 font-semibold">${r.accion}</td>
-                        <td class="p-3">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.exitoso ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">
-                                ${r.exitoso ? 'ÉXITO' : 'FALLO'}
-                            </span>
-                        </td>
-                    </tr>
-                `).join("");
-            } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Error al cargar el registro de auditoría.</td></tr>`;
-            }
-        }
-
-        // 8. CAMBIO DE CONTRASEÑA Y CERRAR SESIÓN
-        function abrirModalCambiarPassword() {
-            document.getElementById("modal-password").classList.remove("hidden");
-        }
-
-        function cerrarModalPassword() {
-            document.getElementById("modal-password").classList.add("hidden");
-        }
-
-        async function procesarCambioPassword(e) {
-            e.preventDefault();
-            const password_actual = document.getElementById("pass-actual").value;
-            const password_nueva = document.getElementById("pass-nueva").value;
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/auth/cambiar-password`, {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${userState.token}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ password_actual, password_nueva })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "Error al actualizar la contraseña.");
-
-                alert("Contraseña actualizada exitosamente.");
-                cerrarModalPassword();
-            } catch (err) {
-                alert(err.message);
-            }
-        }
-
-        function cerrarSesion() {
-            localStorage.clear();
-            userState = { token: null, email: null, role: null, temp2FAEmail: null };
-            mostrarVista("auth");
-            toggleAuthForm("login");
-        }
-    </script>
+    <!-- ======================================================================
+         MÓDULOS JAVASCRIPT SEPARADOS POR RESPONSABILIDAD
+         ====================================================================== -->
+    <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/permissions.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/eventos.js"></script>
+    <script src="js/pasados.js"></script>
+    <script src="js/social.js"></script>
+    <script src="js/estadisticas.js"></script>
+    <script src="js/usuarios.js"></script>
+    <script src="js/auditoria.js"></script>
+    <script src="js/app.js"></script>
 </body>
-</html>
+</html>

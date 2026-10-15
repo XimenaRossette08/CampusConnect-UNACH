@@ -111,6 +111,7 @@ function renderizarTarjetasEventos() {
         const f = extraerFechaVisualWeb(ev.fechaHora);
         const catInfo = detectarCategoriaEventoWeb(ev);
         const materiales = (ev.archivos || []).filter(a => a.tipo === "material");
+        const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
 
         return `
             <article class="etda-card overflow-hidden flex flex-col justify-between">
@@ -174,7 +175,7 @@ function renderizarTarjetasEventos() {
                 <div class="px-5 py-3.5 bg-[#F4F7FB] border-t border-slate-200/80 space-y-3">
                     <div class="flex justify-between items-center text-xs text-[#5B6670] font-medium">
                         <span class="truncate"><i class="fa-regular fa-clock text-[#0093FF] mr-1"></i> ${esc(f.completo)}</span>
-                        <span class="truncate ml-2"><i class="fa-solid fa-location-dot text-[#F57C00] mr-1"></i> ${esc(ev.lugar || 'Campus I')}</span>
+                        <span class="truncate ml-2"><i class="fa-solid fa-location-dot text-[#F57C00] mr-1"></i> ${esc(ev.lugar || 'Campus I')}${infoAud ? ` <b class="text-[#122652]">(${infoAud.asientos} asientos)</b>` : ""}</span>
                     </div>
 
                     <div class="flex gap-2">
@@ -279,17 +280,26 @@ async function abrirModalEvento(id = null) {
         grupos: ev ? [...(ev.gruposDestino || [])] : []
     };
 
+    if (typeof poblarSelectoresModalEvento === "function") {
+        poblarSelectoresModalEvento(ev);
+    }
     document.getElementById("ev-modal-titulo").innerText = ev ? "Editar Evento Institucional" : "Publicar Nuevo Evento";
     document.getElementById("ev-btn-guardar").innerText = ev ? "Guardar Cambios" : "Publicar Evento";
     document.getElementById("ev-id").value = ev ? ev.id : "";
     document.getElementById("ev-titulo").value = ev ? ev.titulo : "";
-    document.getElementById("ev-categoria").value = ev ? (ev.categoria || "") : "";
+    if (ev && ev.categoria) document.getElementById("ev-categoria").value = ev.categoria;
     document.getElementById("ev-descripcion").value = ev ? ev.descripcion : "";
     document.getElementById("ev-fecha-hora").value = ev ? aInputLocal(ev.fechaHora) : "";
-    document.getElementById("ev-lugar").value = ev ? ev.lugar : "";
-    document.getElementById("ev-facultad").value = ev ? (ev.idFacultadDestino || "") : "";
-    document.getElementById("ev-carrera").value = ev ? (ev.idCarreraDestino || "") : "";
-    document.getElementById("ev-grupo-input").value = "";
+    if (ev && ev.lugar) {
+        document.getElementById("ev-lugar").value = ev.lugar;
+        if (typeof actualizarBadgeAsientosModal === "function") actualizarBadgeAsientosModal();
+    }
+    if (ev && ev.idFacultadDestino) {
+        document.getElementById("ev-facultad").value = ev.idFacultadDestino;
+        if (typeof actualizarCarrerasSegunFacultadModal === "function") {
+            actualizarCarrerasSegunFacultadModal(ev.idCarreraDestino || "");
+        }
+    }
 
     const radioVal = ev && !ev.esGeneral ? "segmentado" : "general";
     const radioEl = document.querySelector(`input[name="ev-audiencia"][value="${radioVal}"]`);
@@ -314,8 +324,8 @@ async function guardarEvento(e) {
     e.preventDefault();
     const id = document.getElementById("ev-id").value;
     const segmentado = document.querySelector('input[name="ev-audiencia"]:checked').value === "segmentado";
-    agregarGruposDesdeTexto(document.getElementById("ev-grupo-input").value);
-    document.getElementById("ev-grupo-input").value = "";
+    const giEl = document.getElementById("ev-grupo-input");
+    if (giEl) { agregarGruposDesdeTexto(giEl.value); giEl.value = ""; }
 
     const facultad = document.getElementById("ev-facultad").value.trim();
     const carrera = document.getElementById("ev-carrera").value.trim();

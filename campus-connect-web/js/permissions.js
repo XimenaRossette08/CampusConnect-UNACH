@@ -160,12 +160,14 @@ function configurarPermisosInterfaz() {
     // Visibilidad de pestañas según permisos granulares
     const verPasados = tienePermiso("pasados.ver") || tienePermiso("evidencias.gestionar");
     const verEstadisticas = tienePermiso("estadisticas.ver");
+    const verCatalogos = esAdminReal() || tienePermiso("catalogos.gestionar") || tienePermiso("eventos.publicar");
     const verUsuarios = tienePermiso("usuarios.permisos");
     const verAuditoria = tienePermiso("seguridad.auditoria");
     const puedePublicar = tienePermiso("eventos.publicar");
 
     document.getElementById("tab-btn-pasados")?.classList.toggle("hidden", !verPasados);
     document.getElementById("tab-btn-estadisticas")?.classList.toggle("hidden", !verEstadisticas);
+    document.getElementById("tab-btn-catalogos")?.classList.toggle("hidden", !verCatalogos);
     document.getElementById("tab-btn-usuarios")?.classList.toggle("hidden", !verUsuarios);
     document.getElementById("tab-btn-auditoria")?.classList.toggle("hidden", !verAuditoria);
     document.getElementById("btn-crear-evento")?.classList.toggle("hidden", !puedePublicar);
@@ -176,6 +178,7 @@ function configurarPermisosInterfaz() {
         eventos: true,
         pasados: verPasados,
         estadisticas: verEstadisticas,
+        catalogos: verCatalogos,
         usuarios: verUsuarios,
         auditoria: verAuditoria
     };

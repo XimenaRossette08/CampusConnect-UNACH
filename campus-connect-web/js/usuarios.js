@@ -1,6 +1,10 @@
 // ============================================================================
-// MÓDULO DE GESTIÓN DE USUARIOS Y PERMISOS GRANULARES A MEDIDA
-// (Sin asignación de grupos ni roles rígidos; control individual por permiso)
+// MÓDULO DE GESTIÓN DE USUARIOS, ALTA DE EMPLEADOS Y PERMISOS GRANULARES
+// Permite:
+// 1. Dar de alta nuevos empleados/usuarios directo desde la web sin usar la app
+//    y asignarles sus permisos personalizados en el mismo paso.
+// 2. Eliminar usuarios/empleados del sistema con confirmación de seguridad.
+// 3. Configurar permisos granulares a medida sin grupos ni roles rígidos.
 // ============================================================================
 
 let usuariosCache = {};
@@ -9,12 +13,13 @@ let filtroTextoUsuarios = "";
 let filtroPermisoUsuarios = "todos";
 let usuarioEditandoPermisos = null;
 let setPermisosModal = new Set();
+let setPermisosNuevoUsuario = new Set();
 
 async function cargarUsuariosAdmin() {
     if (!tienePermiso("usuarios.permisos")) return;
     const tbody = document.getElementById("tabla-usuarios-body");
     if (!tbody) return;
-    tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2 text-[#F57C00]"></i> Cargando directorio de usuarios y matriz de permisos...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2 text-[#F57C00]"></i> Cargando directorio de usuarios, empleados y matriz de permisos...</td></tr>`;
 
     try {
         const usuarios = await api("/admin/usuarios");
@@ -28,7 +33,7 @@ async function cargarUsuariosAdmin() {
         actualizarContadoresUsuarios();
         renderizarTablaUsuarios();
     } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-6 text-center text-red-500 font-semibold">${esc(err.message || "Error al obtener usuarios.")}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="3" class="p-6 text-center text-red-500 font-semibold">${esc(err.message || "Error al obtener usuarios.")}</td></tr>`;
     }
 }
 
@@ -74,7 +79,7 @@ function renderizarTablaUsuarios() {
     });
 
     if (filtrados.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-500">No se encontraron usuarios con ese criterio de búsqueda.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-slate-500">No se encontraron usuarios o empleados con ese criterio de búsqueda.</td></tr>`;
         return;
     }
 
@@ -82,6 +87,7 @@ function renderizarTablaUsuarios() {
         const iniciales = obtenerIniciales(u.nombre, u.email);
         const permisos = u._permisos || [];
         const esAccesoTotal = permisos.includes("usuarios.permisos") || permisos.length === CATALOGO_PERMISOS.length;
+        const esMismaSesion = userState.email && u.email && userState.email.toLowerCase().trim() === u.email.toLowerCase().trim();
 
         const chipsHtml = permisos.length === 0
             ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-medium border border-slate-200">
@@ -110,6 +116,7 @@ function renderizarTablaUsuarios() {
                             <div class="flex items-center gap-2">
                                 <span class="font-extrabold text-[#122652] text-sm">${esc(u.nombre)}</span>
                                 <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">#${Number(u.id)}</span>
+                                ${esMismaSesion ? `<span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Tú</span>` : ""}
                             </div>
                             <p class="text-xs text-[#5B6670] font-mono">${esc(u.email)}</p>
                         </div>
@@ -129,8 +136,19 @@ function renderizarTablaUsuarios() {
                         </button>
                         <button type="button" onclick="abrirModalPermisosUsuario(${Number(u.id)})"
                             class="text-xs font-bold bg-[#122652] hover:bg-[#193773] text-white px-3.5 py-2 rounded-xl shadow-sm transition flex items-center gap-1.5">
-                            <i class="fa-solid fa-sliders text-[#F57C00]"></i> Configurar Permisos
+                            <i class="fa-solid fa-sliders text-[#F57C00]"></i> Permisos
                         </button>
+                        ${!esMismaSesion ? `
+                            <button type="button" onclick="eliminarUsuarioAdmin(${Number(u.id)})"
+                                class="text-xs font-bold bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-2 rounded-xl transition"
+                                title="Eliminar usuario o empleado del sistema">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>` : `
+                            <button type="button" disabled
+                                class="text-xs font-bold bg-slate-100 text-slate-300 border border-slate-200 px-3 py-2 rounded-xl cursor-not-allowed"
+                                title="No puedes eliminar tu propia cuenta en sesión">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>`}
                     </div>
                 </td>
             </tr>
@@ -142,6 +160,195 @@ function probarVistaDeUsuario(userId) {
     const u = usuariosCache[userId];
     if (!u) return;
     iniciarSimulacionPermisos(u._permisos || [], `${u.nombre} (${u.email})`);
+}
+
+// ============================================================================
+// ALTA DIRECTA DE EMPLEADOS / USUARIOS SIN NECESIDAD DE LA APP MÓVIL
+// ============================================================================
+function abrirModalCrearUsuarioAdmin() {
+    if (!tienePermiso("usuarios.permisos")) {
+        toast("No tienes permiso para dar de alta usuarios.", "alerta");
+        return;
+    }
+    document.getElementById("nuevo-usr-nombre").value = "";
+    document.getElementById("nuevo-usr-email").value = "";
+    document.getElementById("nuevo-usr-password").value = "";
+    setPermisosNuevoUsuario = new Set();
+
+    renderizarPlantillasNuevoUsuario();
+    renderizarCasillasNuevoUsuario();
+    document.getElementById("modal-crear-usuario").classList.remove("hidden");
+}
+
+function cerrarModalCrearUsuarioAdmin() {
+    document.getElementById("modal-crear-usuario").classList.add("hidden");
+}
+
+function generarPasswordEmpleadoSugerida() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    let pass = "Unach";
+    for (let i = 0; i < 5; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    pass += "!";
+    const input = document.getElementById("nuevo-usr-password");
+    if (input) {
+        input.type = "text";
+        input.value = pass;
+    }
+}
+
+function renderizarPlantillasNuevoUsuario() {
+    const cont = document.getElementById("nuevo-usr-plantillas");
+    if (!cont) return;
+    cont.innerHTML = PLANTILLAS_RAPIDAS_PERMISOS.map(pl => `
+        <button type="button" onclick="aplicarPlantillaNuevoUsuario('${esc(pl.id)}')"
+            class="text-[11px] font-bold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-[#0093FF] hover:bg-sky-50/50 text-[#122652] transition flex items-center gap-1.5">
+            <i class="fa-solid ${esc(pl.icono)} text-[#F57C00]"></i>
+            <span>${esc(pl.nombre)}</span>
+        </button>
+    `).join("");
+}
+
+function aplicarPlantillaNuevoUsuario(plantillaId) {
+    const pl = PLANTILLAS_RAPIDAS_PERMISOS.find(p => p.id === plantillaId);
+    if (!pl) return;
+    setPermisosNuevoUsuario = new Set(pl.permisos);
+    renderizarCasillasNuevoUsuario();
+}
+
+function alternarPermisoNuevoUsuario(permisoId, checked) {
+    if (checked) setPermisosNuevoUsuario.add(permisoId);
+    else setPermisosNuevoUsuario.delete(permisoId);
+    renderizarCasillasNuevoUsuario();
+}
+
+function renderizarCasillasNuevoUsuario() {
+    const cont = document.getElementById("nuevo-usr-lista-permisos");
+    if (!cont) return;
+    const contadorEl = document.getElementById("nuevo-usr-contador-permisos");
+    if (contadorEl) {
+        contadorEl.innerText = `${setPermisosNuevoUsuario.size} permiso(s) seleccionado(s)`;
+    }
+
+    cont.innerHTML = CATALOGO_PERMISOS.map(p => {
+        const activo = setPermisosNuevoUsuario.has(p.id);
+        return `
+            <label class="perm-card-label ${activo ? 'checked' : ''}">
+                <div class="flex items-start gap-2.5">
+                    <div class="w-7 h-7 rounded-lg ${activo ? 'bg-[#122652] text-[#F57C00]' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+                        <i class="fa-solid ${esc(p.icono)} text-xs"></i>
+                    </div>
+                    <div>
+                        <span class="block text-xs font-extrabold text-[#122652]">${esc(p.titulo)}</span>
+                        <span class="block text-[10px] text-[#5B6670] leading-tight mt-0.5">${esc(p.descripcion)}</span>
+                    </div>
+                </div>
+                <input type="checkbox" class="perm-toggle-input"
+                    ${activo ? "checked" : ""}
+                    onchange="alternarPermisoNuevoUsuario('${esc(p.id)}', this.checked)">
+            </label>
+        `;
+    }).join("");
+}
+
+async function guardarNuevoUsuarioAdmin(e) {
+    e.preventDefault();
+    const nombre = document.getElementById("nuevo-usr-nombre").value.trim();
+    const email = document.getElementById("nuevo-usr-email").value.trim().toLowerCase();
+    const password = document.getElementById("nuevo-usr-password").value.trim();
+    const permisosIniciales = [...setPermisosNuevoUsuario];
+    const rolCompatible = calcularRolBaseCompatible(permisosIniciales);
+
+    if (!nombre || !email || !password) {
+        toast("Completa el nombre, correo y contraseña del empleado.", "alerta");
+        return;
+    }
+
+    const btn = document.getElementById("btn-crear-usr-submit");
+    btn.disabled = true;
+    btn.classList.add("opacity-60");
+
+    try {
+        // 1. Crear el usuario (intenta primero /admin/usuarios y si no existe usa /auth/registro)
+        let creado = null;
+        try {
+            creado = await api("/admin/usuarios", {
+                method: "POST",
+                json: { nombre, email, password, rol: rolCompatible, permisos: permisosIniciales }
+            });
+        } catch (_) {
+            creado = await api("/auth/registro", {
+                method: "POST",
+                json: { nombre, email, password }
+            });
+        }
+
+        // 2. Guardar sus permisos personalizados en el mapa local y sincronizar su rol base en el servidor
+        const usuarioObj = {
+            id: creado?.id,
+            nombre,
+            email,
+            rol: rolCompatible
+        };
+        guardarPermisosEnMapaLocal(usuarioObj, permisosIniciales);
+
+        if (creado?.id && rolCompatible !== "Usuario Regular") {
+            try {
+                await api(`/admin/usuarios/${creado.id}/rol`, {
+                    method: "POST",
+                    json: { rol: rolCompatible, permisos: permisosIniciales }
+                });
+            } catch (_) {
+                /* el mapa local ya respalda los permisos exactos */
+            }
+        }
+
+        cerrarModalCrearUsuarioAdmin();
+        toast(`¡Empleado "${nombre}" registrado con éxito y permisos asignados!`, "exito");
+        await cargarUsuariosAdmin();
+    } catch (err) {
+        toast(err.message || "No se pudo registrar el empleado.", "error");
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove("opacity-60");
+    }
+}
+
+// ============================================================================
+// ELIMINAR USUARIO / EMPLEADO DESDE EL PANEL DE ADMINISTRACIÓN
+// ============================================================================
+async function eliminarUsuarioAdmin(userId) {
+    if (!tienePermiso("usuarios.permisos")) {
+        toast("No tienes permiso para eliminar usuarios.", "alerta");
+        return;
+    }
+    const u = usuariosCache[userId];
+    if (!u) return;
+
+    if (userState.email && u.email && userState.email.toLowerCase().trim() === u.email.toLowerCase().trim()) {
+        toast("Por seguridad no puedes eliminar tu propia cuenta en sesión.", "alerta");
+        return;
+    }
+
+    if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente al usuario "${u.nombre}" (${u.email}) del sistema?`)) {
+        return;
+    }
+
+    try {
+        await api(`/admin/usuarios/${userId}`, { method: "DELETE" });
+
+        // Limpiar del mapa local de permisos
+        const mapa = obtenerMapaPermisosLocal();
+        delete mapa[`id:${userId}`];
+        if (u.email) delete mapa[`email:${u.email.toLowerCase().trim()}`];
+        localStorage.setItem(STORAGE_MAPA_PERMISOS, JSON.stringify(mapa));
+
+        toast(`Usuario "${u.nombre}" eliminado correctamente.`, "exito");
+        await cargarUsuariosAdmin();
+    } catch (err) {
+        toast(err.message || "Error al eliminar el usuario en el servidor.", "error");
+    }
 }
 
 // ---------- Modal de Configuración de Permisos a Medida ----------
@@ -202,7 +409,6 @@ function renderizarCasillasPermisosModal() {
         contadorEl.innerText = `${setPermisosModal.size} de ${CATALOGO_PERMISOS.length} permisos seleccionados`;
     }
 
-    // Agrupar por categoría funcional
     const grupos = ["Cartelera y Difusión", "Seguimiento y Archivo", "Inteligencia y Seguridad"];
     cont.innerHTML = grupos.map(nombreGrupo => {
         const items = CATALOGO_PERMISOS.filter(p => p.grupo === nombreGrupo);
@@ -237,7 +443,6 @@ function renderizarCasillasPermisosModal() {
     }).join("");
 }
 
-// Determina el rol base equivalente para retrocompatibilidad con endpoints legacy de FastAPI
 function calcularRolBaseCompatible(listaPermisos) {
     if (listaPermisos.includes("usuarios.permisos") || listaPermisos.includes("seguridad.auditoria")) {
         return "Administrador";
@@ -259,24 +464,18 @@ async function guardarPermisosDeUsuario() {
     btn.classList.add("opacity-60");
 
     try {
-        // 1. Intentar endpoint dedicado de permisos granulares (si ya está en FastAPI)
-        let guardadoEnBackend = false;
         try {
             await api(`/admin/usuarios/${u.id}/permisos`, {
                 method: "PUT",
                 json: { permisos: nuevosPermisos, rol: rolCompatible }
             });
-            guardadoEnBackend = true;
         } catch (_) {
-            // 2. Fallback automático al endpoint existente `/admin/usuarios/{id}/rol`
             await api(`/admin/usuarios/${u.id}/rol`, {
                 method: "POST",
                 json: { rol: rolCompatible, permisos: nuevosPermisos }
             });
-            guardadoEnBackend = true;
         }
 
-        // 3. Guardar siempre el mapa exacto de permisos personalizados
         guardarPermisosEnMapaLocal(u, nuevosPermisos);
         u._permisos = nuevosPermisos;
         u.rol = rolCompatible;
@@ -286,7 +485,6 @@ async function guardarPermisosDeUsuario() {
         renderizarTablaUsuarios();
         toast(`Permisos de ${u.nombre} actualizados a tu medida.`, "exito");
     } catch (err) {
-        // Aun si el servidor local está apagado o en pruebas, actualizar en sesión local y avisar
         guardarPermisosEnMapaLocal(u, nuevosPermisos);
         u._permisos = nuevosPermisos;
         cerrarModalPermisosUsuario();

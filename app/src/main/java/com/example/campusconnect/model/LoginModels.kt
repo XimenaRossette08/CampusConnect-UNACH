@@ -15,11 +15,15 @@ data class LoginResponse(
     @SerializedName("requiere_2fa")
     val requiere2fa: Boolean = true,
     @SerializedName("access_token")
-    val accessToken: String? = null,
+    val token: String? = null,
     @SerializedName("refresh_token")
     val refreshToken: String? = null,
     @SerializedName("role")
-    val role: String? = null,
+    val rol: String? = null,
     @SerializedName("mensaje")
     val mensaje: String? = null
-)
+) {
+    // Propiedades alias para compatibilidad con todas las pantallas
+    val accessToken: String? get() = token
+    val role: String? get() = rol
+}

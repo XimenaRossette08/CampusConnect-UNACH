@@ -2,13 +2,14 @@
 // INICIALIZADOR PRINCIPAL Y NAVEGACIÓN DE PESTAÑAS DEL PANEL
 // ============================================================================
 
-const PESTAÑAS = ["eventos", "pasados", "estadisticas", "usuarios", "auditoria"];
+const PESTAÑAS = ["eventos", "pasados", "estadisticas", "catalogos", "usuarios", "auditoria"];
 
 function cargarPerfilYSistema() {
     document.getElementById("user-email").innerText = userState.email || "";
     const av = document.getElementById("user-avatar-nav");
     if (av) av.innerText = obtenerIniciales(null, userState.email);
 
+    sincronizarCatalogosDesdeServidor();
     mostrarVista("dashboard");
     configurarPermisosInterfaz();
 
@@ -39,6 +40,7 @@ function cambiarPestaña(tab) {
     if (tab === "eventos") cargarEventos();
     if (tab === "pasados") cargarPasados();
     if (tab === "estadisticas") iniciarEstadisticas();
+    if (tab === "catalogos") iniciarCatalogosFacultad();
     if (tab === "usuarios") cargarUsuariosAdmin();
     if (tab === "auditoria") cargarAuditoriaAdmin();
 }

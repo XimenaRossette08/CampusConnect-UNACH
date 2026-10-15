@@ -190,6 +190,11 @@
                     <i class="fa-solid fa-chart-column"></i>
                     <span>Estadísticas y Reportes</span>
                 </button>
+                <button onclick="cambiarPestaña('catalogos')" id="tab-btn-catalogos" class="nav-tab-btn">
+                    <i class="fa-solid fa-building-columns"></i>
+                    <span>Catálogos de Facultad</span>
+                </button>
+
                 <button onclick="cambiarPestaña('usuarios')" id="tab-btn-usuarios" class="nav-tab-btn hidden">
                     <i class="fa-solid fa-user-shield"></i>
                     <span>Usuarios y Permisos</span>
@@ -316,11 +321,146 @@
             <div id="stats-contenido" class="space-y-6"></div>
         </section>
 
-        <!-- ==================================================================
-             PESTAÑA 4: USUARIOS Y PERMISOS PERSONALIZADOS (REDISEÑO COMPLETO)
+                        <!-- ==================================================================
+             PESTAÑA: CATÁLOGOS DE FACULTAD, CARRERAS, GRUPOS Y AUDITORIOS
+             ================================================================== -->
+        <section id="tab-catalogos" class="hidden space-y-6">
+            <div class="bg-etda-banner rounded-3xl p-6 text-white shadow-lg">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <span class="etda-pill-tag">
+                            <i class="fa-solid fa-building-columns"></i>
+                            Configuración de Espacios y Aforo UNACH
+                        </span>
+                        <h2 class="text-2xl font-extrabold mt-2">Catálogos de Facultad, Carreras y Auditorios</h2>
+                        <p class="text-xs text-white/80 mt-1 max-w-3xl">
+                            Configura aquí los auditorios y salas con su <b>número exacto de asientos</b>, las carreras y los grupos oficiales. Al publicar un evento, todo aparecerá en listas desplegables automáticas sin escribir nada a mano.
+                        </p>
+                    </div>
+                    <div class="shrink-0">
+                        <button type="button" onclick="restaurarCatalogosPorDefecto()"
+                            class="bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-rotate-left text-[#F57C00]"></i>
+                            <span>Restaurar Valores UNACH</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-white/75 block">Facultades / Escuelas</span>
+                        <strong id="kpi-cat-facultades" class="text-xl font-extrabold text-white">3</strong>
+                    </div>
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-sky-300 block"><i class="fa-solid fa-graduation-cap mr-1"></i>Carreras</span>
+                        <strong id="kpi-cat-carreras" class="text-xl font-extrabold text-white">3</strong>
+                    </div>
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-[#FFB74D] block"><i class="fa-solid fa-users-rectangle mr-1"></i>Grupos</span>
+                        <strong id="kpi-cat-grupos" class="text-xl font-extrabold text-white">9</strong>
+                    </div>
+                    <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
+                        <span class="text-[11px] text-emerald-300 block"><i class="fa-solid fa-chair mr-1"></i>Auditorios</span>
+                        <strong id="kpi-cat-auditorios" class="text-base font-extrabold text-white">6</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Auditorios y Asientos -->
+                <div class="etda-card p-6 space-y-4 border-t-4 border-t-[#F57C00]">
+                    <div class="border-b pb-3">
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Aforo y Capacidad</span>
+                        <h3 class="text-base font-extrabold text-[#122652]">1. Auditorios y Número de Asientos</h3>
+                        <p class="text-xs text-[#5B6670]">Capacidad oficial de cada recinto para la cartelera.</p>
+                    </div>
+
+                    <form onsubmit="agregarAuditorioCatalogo(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            <div class="sm:col-span-2">
+                                <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Nombre del Auditorio o Sala</label>
+                                <input type="text" id="cat-nuevo-aud-nombre" required placeholder="Ej. Sala Audiovisual 1"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Núm. Asientos</label>
+                                <input type="number" id="cat-nuevo-aud-asientos" required min="1" max="5000" placeholder="Ej. 60"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold">
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="text" id="cat-nuevo-aud-ubicacion" placeholder="Ubicación / Edificio (Ej. Planta Alta ETDA)"
+                                class="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                            <button type="submit" class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2 rounded-xl transition shrink-0">
+                                <i class="fa-solid fa-plus text-[#F57C00] mr-1"></i> Guardar Auditorio
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="lista-cat-auditorios" class="space-y-2.5 max-h-80 overflow-y-auto pr-1"></div>
+                </div>
+
+                <!-- Carreras y Facultades -->
+                <div class="etda-card p-6 space-y-4 border-t-4 border-t-[#0093FF]">
+                    <div class="border-b pb-3">
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#0093FF]">Academia</span>
+                        <h3 class="text-base font-extrabold text-[#122652]">2. Carreras y Facultades</h3>
+                        <p class="text-xs text-[#5B6670]">Programas educativos disponibles en los desplegables.</p>
+                    </div>
+
+                    <form onsubmit="agregarCarreraCatalogo(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-2.5">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <select id="cat-nueva-carrera-facultad" class="px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white"></select>
+                            <input type="text" id="cat-nueva-carrera-nombre" required placeholder="Nombre de la carrera..."
+                                class="sm:col-span-2 px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                        </div>
+                        <button type="submit" class="w-full bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold py-2 rounded-xl transition">
+                            + Guardar Carrera
+                        </button>
+                    </form>
+
+                    <div id="lista-cat-carreras" class="space-y-2 max-h-44 overflow-y-auto pr-1"></div>
+
+                    <div class="pt-3 border-t border-slate-200 space-y-2">
+                        <form onsubmit="agregarFacultadCatalogo(event)" class="flex gap-2">
+                            <input type="text" id="cat-nueva-fac-id" required placeholder="Siglas (ETDA)" class="w-28 px-3 py-1.5 border rounded-xl text-xs uppercase bg-white">
+                            <input type="text" id="cat-nueva-fac-nombre" required placeholder="Nombre de Facultad" class="flex-1 px-3 py-1.5 border rounded-xl text-xs bg-white">
+                            <button type="submit" class="bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-xl shrink-0">+ Facultad</button>
+                        </form>
+                        <div id="lista-cat-facultades" class="space-y-1.5 max-h-28 overflow-y-auto pr-1"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Grupos y Categorías -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="etda-card p-6 space-y-3">
+                    <h3 class="text-sm font-extrabold text-[#122652]">3. Grupos Académicos</h3>
+                    <form onsubmit="agregarGruposCatalogo(event)" class="flex gap-2">
+                        <input type="text" id="cat-nuevo-grupo-input" required placeholder="Ej. 1A, 3B, 7N, 7O (separa con coma)"
+                            class="flex-1 px-3 py-2 border rounded-xl text-xs bg-white">
+                        <button type="submit" class="bg-[#122652] text-white text-xs font-bold px-3.5 py-2 rounded-xl shrink-0">+ Grupos</button>
+                    </form>
+                    <div id="lista-cat-grupos" class="flex flex-wrap gap-2 pt-1"></div>
+                </div>
+
+                <div class="etda-card p-6 space-y-3">
+                    <h3 class="text-sm font-extrabold text-[#122652]">4. Categorías de Eventos</h3>
+                    <form onsubmit="agregarCategoriaCatalogo(event)" class="flex gap-2">
+                        <input type="text" id="cat-nueva-categoria-input" required placeholder="Ej. Seminarios, Foros..."
+                            class="flex-1 px-3 py-2 border rounded-xl text-xs bg-white">
+                        <button type="submit" class="bg-[#F57C00] text-white text-xs font-bold px-3.5 py-2 rounded-xl shrink-0">+ Categoría</button>
+                    </form>
+                    <div id="lista-cat-categorias" class="flex flex-wrap gap-2 pt-1"></div>
+                </div>
+            </div>
+        </section>
+
+<!-- ==================================================================
+             PESTAÑA 4: USUARIOS Y PERMISOS PERSONALIZADOS (DISEÑO INSTITUCIONAL)
              ================================================================== -->
         <section id="tab-usuarios" class="hidden space-y-6">
-            <!-- Encabezado explicativo del nuevo modelo de permisos a medida -->
+            <!-- Encabezado explicativo del modelo de permisos a medida -->
             <div class="bg-etda-banner rounded-3xl p-6 text-white shadow-lg">
                 <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                     <div>
@@ -333,9 +473,16 @@
                             Asigna a cada persona exactamente las funciones que necesita sin depender de roles rígidos ni grupos: puedes autorizar a un usuario únicamente para <b>compartir en redes sociales</b>, a otro solo para <b>seguridad y auditoría</b>, o combinar <b>estadísticas y eventos pasados</b> a tu conveniencia.
                         </p>
                     </div>
+                    <div class="shrink-0">
+                        <button type="button" onclick="abrirModalCrearUsuarioAdmin()"
+                            class="bg-[#F57C00] hover:bg-amber-600 text-white text-xs sm:text-sm font-extrabold px-5 py-3 rounded-2xl shadow-lg transition flex items-center gap-2">
+                            <i class="fa-solid fa-user-plus"></i>
+                            <span>+ Agregar Empleado / Usuario</span>
+                        </button>
+                    </div>
                 </div>
 
-                <!-- Resumen rápido de permisos otorgados -->
+                <!-- Resumen rápido de permisos otorgados en 4 tarjetas KPI -->
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
                     <div class="bg-white/10 border border-white/15 rounded-2xl p-3.5">
                         <span class="text-[11px] text-white/75 block">Usuarios Registrados</span>
@@ -383,7 +530,7 @@
                     </div>
                 </div>
 
-                <!-- Tabla de usuarios y sus permisos activos (Sin columna de grupos) -->
+                <!-- Tabla de usuarios y sus permisos activos -->
                 <div class="overflow-x-auto border border-slate-200/80 rounded-2xl">
                     <table class="w-full text-left border-collapse text-sm">
                         <thead>
@@ -401,7 +548,7 @@
             </div>
         </section>
 
-        <!-- ==================================================================
+<!-- ==================================================================
              PESTAÑA 5: SEGURIDAD Y AUDITORÍA DEL SISTEMA
              ================================================================== -->
         <section id="tab-auditoria" class="hidden space-y-6">
@@ -502,86 +649,120 @@
         </div>
     </div>
 
-    <!-- MODAL 3: CREAR / EDITAR EVENTO -->
+    <!-- MODAL 3: CREAR / EDITAR EVENTO (CON LISTAS DESPLEGABLES PREDEFINIDAS DEL CATÁLOGO) -->
     <div id="modal-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border max-h-[92vh] overflow-y-auto">
+        <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border max-h-[93vh] overflow-y-auto">
             <div class="flex items-center justify-between border-b pb-3 mb-4">
-                <h3 id="ev-modal-titulo" class="text-lg font-extrabold text-[#122652]">Publicar Nuevo Evento</h3>
-                <button type="button" onclick="cerrarModalEvento()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+                <div>
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#0093FF]">Formulario Guiado por Catálogos</span>
+                    <h3 id="ev-modal-titulo" class="text-lg font-extrabold text-[#122652]">Publicar Nuevo Evento</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="irAConfigurarCatalogosDesdeModal()"
+                        class="text-[11px] font-bold text-[#122652] bg-[#F4F7FB] hover:bg-slate-200 border border-slate-300 px-2.5 py-1.5 rounded-xl transition"
+                        title="Ir a configurar auditorios, carreras o grupos">
+                        <i class="fa-solid fa-Sliders text-[#F57C00] mr-1"></i>Editar Catálogos
+                    </button>
+                    <button type="button" onclick="cerrarModalEvento()" class="text-slate-400 hover:text-slate-600 text-lg"><i class="fa-solid fa-xmark"></i></button>
+                </div>
             </div>
+
             <form onsubmit="guardarEvento(event)" class="space-y-3.5">
                 <input type="hidden" id="ev-id">
                 <div>
-                    <label class="block text-xs font-bold text-[#122652] mb-1">Título del Evento</label>
-                    <input type="text" id="ev-titulo" required maxlength="200" class="w-full px-3.5 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-[#122652] mb-1">Categoría (Sincronizada con Insignias de la App Móvil)</label>
-                    <input type="text" id="ev-categoria" maxlength="60" list="dl-categorias" placeholder="Tutorías, Conferencias, Talleres, Deporte, Culturales, Académicos..."
-                        class="w-full px-3.5 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
-                    <datalist id="dl-categorias">
-                        <option value="Tutorías">
-                        <option value="Conferencias">
-                        <option value="Talleres">
-                        <option value="Deporte">
-                        <option value="Culturales">
-                        <option value="Académicos">
-                    </datalist>
+                    <label class="block text-xs font-extrabold text-[#122652] mb-1">Título del Evento</label>
+                    <input type="text" id="ev-titulo" required maxlength="200" placeholder="Ej. Congreso de Ingeniería de Software 2026"
+                        class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                 </div>
 
+                <!-- Categoría mediante lista desplegable predefinida -->
                 <div>
-                    <label class="block text-xs font-bold text-[#122652] mb-1">Flyer y materiales descargables</label>
+                    <label class="block text-xs font-extrabold text-[#122652] mb-1">Categoría Oficial (Lista desplegable)</label>
+                    <select id="ev-categoria" required
+                        class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-[#122652] bg-[#F4F7FB] focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    </select>
+                </div>
+
+                <!-- Flyer y materiales -->
+                <div>
+                    <label class="block text-xs font-extrabold text-[#122652] mb-1">Flyer y materiales descargables</label>
                     <div id="ev-existentes" class="grid grid-cols-3 gap-2 mb-2"></div>
-                    <div id="ev-dropzone" class="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center cursor-pointer hover:border-[#0093FF] hover:bg-sky-50/40 transition">
-                        <i class="fa-solid fa-cloud-arrow-up text-2xl text-[#0093FF]"></i>
+                    <div id="ev-dropzone" class="border-2 border-dashed border-slate-300 rounded-xl p-3.5 text-center cursor-pointer hover:border-[#0093FF] hover:bg-sky-50/40 transition">
+                        <i class="fa-solid fa-cloud-arrow-up text-xl text-[#0093FF]"></i>
                         <p class="text-xs text-[#122652] font-semibold mt-1">Arrastra aquí archivos o <span class="text-[#F57C00] underline">elige desde tu equipo</span></p>
-                        <p class="text-[11px] text-slate-400">JPG, PNG, WEBP, GIF o PDF · máx. 10 MB c/u</p>
+                        <p class="text-[10px] text-slate-400">JPG, PNG, WEBP, GIF o PDF · máx. 10 MB c/u</p>
                         <input type="file" id="ev-archivos" multiple accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="hidden">
                     </div>
                     <div id="ev-nuevos" class="grid grid-cols-3 gap-2 mt-2"></div>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-bold text-[#122652] mb-1">Descripción</label>
-                    <textarea id="ev-descripcion" rows="3" required maxlength="5000" class="w-full px-3.5 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none"></textarea>
+                    <label class="block text-xs font-extrabold text-[#122652] mb-1">Descripción y Detalles</label>
+                    <textarea id="ev-descripcion" rows="3" required maxlength="5000" placeholder="Describe el objetivo, ponentes o requisitos del evento..."
+                        class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none"></textarea>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
+                <!-- Fecha y Auditorio con Capacidad Automática de Asientos -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs font-bold text-[#122652] mb-1">Fecha y Hora</label>
-                        <input type="datetime-local" id="ev-fecha-hora" required class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                        <label class="block text-xs font-extrabold text-[#122652] mb-1">Fecha y Hora</label>
+                        <input type="datetime-local" id="ev-fecha-hora" required
+                            class="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-[#122652] mb-1">Lugar / Sede</label>
-                        <input type="text" id="ev-lugar" placeholder="Auditorio ETDA, Sala..." required maxlength="200" class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                        <label class="block text-xs font-extrabold text-[#122652] mb-1">Auditorio / Sede (Predefinido)</label>
+                        <select id="ev-lugar" required onchange="actualizarBadgeAsientosModal()"
+                            class="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-[#122652] bg-[#F4F7FB] focus:ring-2 focus:ring-[#0093FF] outline-none">
+                        </select>
+                        <p id="ev-asientos-info" class="text-[11px] text-emerald-700 font-semibold mt-1"></p>
                     </div>
                 </div>
 
-                <div class="border rounded-xl p-3.5 bg-[#F4F7FB] space-y-2">
-                    <label class="block text-xs font-bold text-[#122652]">Audiencia objetivo en la app móvil</label>
-                    <div class="flex gap-4 text-xs font-semibold text-[#122652]">
-                        <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="ev-audiencia" value="general" checked onchange="alternarAudiencia()"> Todos los alumnos</label>
-                        <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="ev-audiencia" value="segmentado" onchange="alternarAudiencia()"> Filtrar por carrera / grupo</label>
+                <!-- Segmentación mediante Listas Desplegables y Botones de Grupos (Sin escritura manual) -->
+                <div class="border border-slate-200 rounded-2xl p-4 bg-[#F4F7FB] space-y-3">
+                    <label class="block text-xs font-extrabold text-[#122652]">¿A qué alumnos va dirigido el evento?</label>
+                    <div class="flex gap-4 text-xs font-bold text-[#122652]">
+                        <label class="flex items-center gap-1.5 cursor-pointer">
+                            <input type="radio" name="ev-audiencia" value="general" checked onchange="alternarAudiencia()">
+                            <span>Todos los alumnos (Comunidad General)</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 cursor-pointer">
+                            <input type="radio" name="ev-audiencia" value="segmentado" onchange="alternarAudiencia()">
+                            <span>Seleccionar Facultad / Carrera / Grupo</span>
+                        </label>
                     </div>
-                    <div id="ev-segmentacion" class="hidden space-y-2 pt-1">
-                        <div class="grid grid-cols-2 gap-2">
+
+                    <div id="ev-segmentacion" class="hidden space-y-3 pt-2 border-t border-slate-200/80">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                             <div>
-                                <label class="block text-[11px] font-bold text-[#5B6670]">Facultad (opcional)</label>
-                                <input type="text" id="ev-facultad" list="dl-facultades" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-xs bg-white">
+                                <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Facultad (Desplegable)</label>
+                                <select id="ev-facultad" onchange="actualizarCarrerasSegunFacultadModal()"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-[#122652] bg-white outline-none">
+                                </select>
                             </div>
                             <div>
-                                <label class="block text-[11px] font-bold text-[#5B6670]">Carrera</label>
-                                <input type="text" id="ev-carrera" list="dl-carreras" maxlength="120" class="w-full px-3 py-1.5 border rounded-lg text-xs bg-white">
+                                <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Carrera / Programa (Desplegable)</label>
+                                <select id="ev-carrera"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-[#122652] bg-white outline-none">
+                                </select>
                             </div>
                         </div>
+
                         <div>
-                            <label class="block text-[11px] font-bold text-[#5B6670]">Grupo(s) — separa con coma o Enter</label>
-                            <div id="ev-grupos-chips" class="flex flex-wrap gap-1 mb-1"></div>
-                            <input type="text" id="ev-grupo-input" list="dl-grupos" maxlength="30" placeholder="Ej. 7N, 5A" class="w-full px-3 py-1.5 border rounded-lg text-xs bg-white">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <label class="block text-[11px] font-extrabold text-[#122652]">Selecciona el/los Grupo(s) con un clic:</label>
+                                <div class="flex gap-2 text-[11px] font-bold">
+                                    <button type="button" onclick="seleccionarTodosLosGruposModal()" class="text-[#0093FF] hover:underline">Todos</button>
+                                    <span class="text-slate-300">|</span>
+                                    <button type="button" onclick="limpiarGruposModal()" class="text-slate-500 hover:underline">Ninguno</button>
+                                </div>
+                            </div>
+                            <div id="ev-selector-botones-grupos" class="flex flex-wrap gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
+                                <!-- Botones clicables generados desde js/catalogos.js -->
+                            </div>
+                            <div id="ev-grupos-chips" class="hidden"></div>
+                            <input type="hidden" id="ev-grupo-input">
                         </div>
-                        <datalist id="dl-facultades"></datalist>
-                        <datalist id="dl-carreras"></datalist>
-                        <datalist id="dl-grupos"></datalist>
                     </div>
                 </div>
 
@@ -801,10 +982,10 @@
         </div>
     </div>
 
-    <!-- MODAL 7: CONFIGURACIÓN DE PERMISOS GRANULARES A MEDIDA POR USUARIO -->
+        <!-- MODAL 7: CONFIGURACIÓN DE PERMISOS GRANULARES A MEDIDA POR USUARIO -->
     <div id="modal-permisos-usuario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
-            <!-- Encabezado con datos del usuario -->
+            <!-- Encabezado con avatar e iniciales -->
             <div class="flex items-center justify-between border-b pb-4 mb-4">
                 <div class="flex items-center gap-3">
                     <div id="perm-modal-iniciales" class="w-12 h-12 rounded-full bg-[#122652] text-white font-extrabold text-base flex items-center justify-center border-2 border-[#F57C00]">
@@ -830,15 +1011,11 @@
                     </span>
                     <span id="perm-modal-contador" class="text-[11px] font-extrabold text-[#0093FF]">0 seleccionados</span>
                 </div>
-                <div id="perm-modal-plantillas" class="flex flex-wrap gap-1.5">
-                    <!-- Botones generados desde js/usuarios.js -->
-                </div>
+                <div id="perm-modal-plantillas" class="flex flex-wrap gap-1.5"></div>
             </div>
 
-            <!-- Lista de casillas / switches de permisos individuales -->
-            <div id="perm-modal-lista" class="overflow-y-auto flex-1 space-y-4 pr-1">
-                <!-- Tarjetas de permisos generadas desde js/usuarios.js -->
-            </div>
+            <!-- Lista de casillas / switches de permisos individuales divididos en 3 áreas -->
+            <div id="perm-modal-lista" class="overflow-y-auto flex-1 space-y-4 pr-1"></div>
 
             <!-- Pie del modal -->
             <div class="pt-4 mt-4 border-t flex items-center justify-between gap-3">
@@ -860,6 +1037,137 @@
         </div>
     </div>
 
+<!-- MODAL 8: DAR DE ALTA NUEVO EMPLEADO / USUARIO DIRECTAMENTE DESDE EL PANEL WEB -->
+    <div id="modal-crear-usuario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
+            <div class="flex items-center justify-between border-b pb-3.5 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-full bg-[#122652] text-[#F57C00] flex items-center justify-center text-lg border-2 border-[#F57C00]">
+                        <i class="fa-solid fa-user-plus"></i>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Alta Administrativa Directa (Sin App Móvil)</span>
+                        <h3 class="text-lg font-extrabold text-[#122652] leading-tight">Registrar Nuevo Empleado o Colaborador</h3>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModalCrearUsuarioAdmin()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form onsubmit="guardarNuevoUsuarioAdmin(event)" class="flex-1 overflow-y-auto space-y-4 pr-1">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-extrabold text-[#122652] mb-1">Nombre Completo del Empleado</label>
+                        <input type="text" id="nuevo-usr-nombre" required placeholder="Ej. Lic. Carlos Morales"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-extrabold text-[#122652] mb-1">Correo Institucional / Acceso</label>
+                        <input type="email" id="nuevo-usr-email" required placeholder="carlos.morales@unach.mx"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-xs font-extrabold text-[#122652]">Contraseña Inicial para la Plataforma Web</label>
+                        <button type="button" onclick="generarPasswordEmpleadoSugerida()" class="text-[11px] font-bold text-[#0093FF] hover:underline">
+                            <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Generar contraseña segura
+                        </button>
+                    </div>
+                    <input type="text" id="nuevo-usr-password" required placeholder="Mínimo 8 caracteres (ej. Unach2026!)"
+                        class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm font-mono focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    <p class="text-[11px] text-[#5B6670] mt-1">Comparte este correo y contraseña con el empleado para que inicie sesión directamente en este panel web.</p>
+                </div>
+
+                <!-- Asignación de permisos desde el momento del alta -->
+                <div class="bg-[#F4F7FB] p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-extrabold text-[#122652]">
+                            <i class="fa-solid fa-sliders text-[#F57C00] mr-1"></i>
+                            Selecciona qué permisos tendrá este empleado:
+                        </span>
+                        <span id="nuevo-usr-contador-permisos" class="text-[11px] font-extrabold text-[#0093FF]">0 permiso(s)</span>
+                    </div>
+                    <div id="nuevo-usr-plantillas" class="flex flex-wrap gap-1.5"></div>
+                </div>
+
+                <div id="nuevo-usr-lista-permisos" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto p-0.5">
+                    <!-- Casillas generadas desde js/usuarios.js -->
+                </div>
+
+                <div class="pt-3 border-t flex items-center justify-end gap-2">
+                    <button type="button" onclick="cerrarModalCrearUsuarioAdmin()"
+                        class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-xl transition">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="btn-crear-usr-submit"
+                        class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2">
+                        <i class="fa-solid fa-user-check text-[#F57C00]"></i>
+                        <span>Crear Empleado y Asignar Permisos</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <!-- MODAL 9: CONFIGURAR AUDITORIOS, ASIENTOS Y CARRERAS (ACCESIBLE CON 1 CLIC DESDE EL FORMULARIO DE EVENTOS) -->
+    <div id="modal-config-auditorios" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
+            <div class="flex items-center justify-between border-b pb-3 mb-4">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-xl bg-[#122652] text-[#F57C00] flex items-center justify-center text-base font-extrabold">
+                        <i class="fa-solid fa-chair"></i>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Infraestructura y Aforo UNACH</span>
+                        <h3 class="text-lg font-extrabold text-[#122652] leading-tight">Configuración de Auditorios y Asientos</h3>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModalConfigAuditorios()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto space-y-4 pr-1">
+                <form onsubmit="agregarAuditorioCatalogo(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-2.5">
+                    <span class="block text-xs font-extrabold text-[#122652]">
+                        <i class="fa-solid fa-plus text-[#F57C00] mr-1"></i>Dar de alta nuevo Auditorio o Sala con sus Asientos:
+                    </span>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input type="text" id="cat-nuevo-aud-nombre" required placeholder="Nombre (Ej. Auditorio B)"
+                            class="sm:col-span-2 px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                        <input type="number" id="cat-nuevo-aud-asientos" required min="1" max="5000" placeholder="Núm. Asientos"
+                            class="px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold">
+                    </div>
+                    <div class="flex gap-2">
+                        <input type="text" id="cat-nuevo-aud-ubicacion" placeholder="Edificio / Ubicación (Ej. Edificio A Planta Baja)"
+                            class="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                        <button type="submit" class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2 rounded-xl transition shrink-0">
+                            + Guardar Auditorio
+                        </button>
+                    </div>
+                </form>
+
+                <div>
+                    <span class="block text-xs font-extrabold text-[#122652] mb-2">Auditorios y Salas configurados:</span>
+                    <div id="lista-cat-auditorios" class="space-y-2 max-h-56 overflow-y-auto pr-1"></div>
+                </div>
+
+                <div class="border-t pt-3 flex items-center justify-between">
+                    <button type="button" onclick="restaurarCatalogosPorDefecto()" class="text-xs text-slate-500 hover:text-[#122652] font-semibold">
+                        <i class="fa-solid fa-rotate-left mr-1"></i>Restaurar auditorios oficiales UNACH
+                    </button>
+                    <button type="button" onclick="cerrarModalConfigAuditorios()" class="bg-[#122652] text-white text-xs font-bold px-4 py-2 rounded-xl">
+                        Listo, volver al evento
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ======================================================================
          MÓDULOS JAVASCRIPT SEPARADOS POR RESPONSABILIDAD
          ====================================================================== -->
@@ -867,6 +1175,7 @@
     <script src="js/utils.js"></script>
     <script src="js/permissions.js"></script>
     <script src="js/auth.js"></script>
+    <script src="js/catalogos.js"></script>
     <script src="js/eventos.js"></script>
     <script src="js/pasados.js"></script>
     <script src="js/social.js"></script>

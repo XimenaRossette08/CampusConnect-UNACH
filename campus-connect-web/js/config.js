@@ -30,6 +30,15 @@ const CATEGORIAS_ETDA = [
 // Catálogo de Permisos Individuales (Reemplaza a los roles rígidos)
 const CATALOGO_PERMISOS = [
     {
+        id: "catalogos.gestionar",
+        grupo: "Cartelera y Difusión",
+        titulo: "Configurar Facultad, Carreras y Auditorios",
+        etiquetaCorta: "Catálogos Facultad",
+        descripcion: "Definir carreras, grupos y auditorios con su capacidad de asientos para las listas desplegables.",
+        icono: "fa-building-columns",
+        colorBadge: "bg-purple-50 text-purple-800 border-purple-200"
+    },
+    {
         id: "eventos.publicar",
         grupo: "Cartelera y Difusión",
         titulo: "Publicar y Editar Eventos",

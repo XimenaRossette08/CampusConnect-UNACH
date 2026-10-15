@@ -176,3 +176,80 @@ async def manejador_errores_genericos(request: Request, exc: Exception):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+# Endpoint administrativo para eliminar usuarios/empleados desde el panel web
+from fastapi import Depends, HTTPException
+from sqlalchemy.orm import Session
+from .database import get_db
+from .models_auth import Usuario
+from .security import get_current_user
+
+@app.delete("/admin/usuarios/{usuario_id}")
+def eliminar_usuario_administrativo(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    rol_actual = usuario_actual.rol.nombre if usuario_actual.rol else ""
+    if rol_actual != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo un administrador puede eliminar usuarios")
+
+    if usuario_actual.id == usuario_id:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta activa")
+
+    objetivo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if objetivo is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    db.delete(objetivo)
+    db.commit()
+    return {"mensaje": f"Usuario {objetivo.email} eliminado correctamente"}
+
+
+# ==============================================================================
+# PERSISTENCIA DEL CATÁLOGO DE FACULTAD, CARRERAS, GRUPOS Y AUDITORIOS (ASIENTOS)
+# ==============================================================================
+import json
+
+try:
+    with engine.begin() as _conn:
+        _conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS catalogos_institucionales (
+                id INTEGER PRIMARY KEY,
+                payload_json TEXT NOT NULL
+            )
+        """))
+except Exception as _e:
+    logger.warning(f"No se pudo crear tabla catalogos_institucionales: {_e}")
+
+
+@app.get("/catalogos/facultad")
+def obtener_catalogos_facultad():
+    with engine.begin() as conn:
+        row = conn.execute(text("SELECT payload_json FROM catalogos_institucionales WHERE id = 1")).fetchone()
+        if row and row[0]:
+            try:
+                return json.loads(row[0])
+            except Exception:
+                pass
+    return {}
+
+
+@app.put("/catalogos/facultad")
+async def guardar_catalogos_facultad(
+    request: Request,
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    datos = await request.json()
+    payload_str = json.dumps(datos, ensure_ascii=False)
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO catalogos_institucionales (id, payload_json)
+                VALUES (1, :payload)
+                ON CONFLICT (id) DO UPDATE SET payload_json = EXCLUDED.payload_json
+            """),
+            {"payload": payload_str},
+        )
+    return {"mensaje": "Catálogo institucional guardado correctamente"}

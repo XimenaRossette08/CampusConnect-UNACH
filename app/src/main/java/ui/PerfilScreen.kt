@@ -193,7 +193,9 @@ fun PerfilScreen(puntos: Int) {
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.8.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -238,9 +240,11 @@ fun PerfilScreen(puntos: Int) {
                 Text(
                     text = datosAlumno.nombreCompleto,
                     color = Color.White,
-                    fontSize = 22.sp,
+                    fontSize = 21.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -260,7 +264,9 @@ fun PerfilScreen(puntos: Int) {
                         text = datosAlumno.correo,
                         color = Color.White.copy(alpha = 0.92f),
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -276,6 +282,8 @@ fun PerfilScreen(puntos: Int) {
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                         )
                     }
@@ -300,7 +308,9 @@ fun PerfilScreen(puntos: Int) {
                                 text = "2FA Activo",
                                 color = Color.White,
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -312,7 +322,7 @@ fun PerfilScreen(puntos: Int) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
                 .offset(y = (-28).dp),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -321,36 +331,42 @@ fun PerfilScreen(puntos: Int) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 16.dp, horizontal = 12.dp),
+                    .padding(vertical = 16.dp, horizontal = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IndicadorRapidoPerfil(
-                    valor = "$totalEventosAsistidos",
-                    etiqueta = "Asistencias",
-                    icono = Icons.Default.EventAvailable,
-                    color = EtdaBlue
-                )
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    IndicadorRapidoPerfil(
+                        valor = "$totalEventosAsistidos",
+                        etiqueta = "Asistencias",
+                        icono = Icons.Default.EventAvailable,
+                        color = EtdaBlue
+                    )
+                }
                 VerticalDivider(
                     modifier = Modifier.height(36.dp),
                     color = Color(0xFFE2E8F0)
                 )
-                IndicadorRapidoPerfil(
-                    valor = "$insigniasDesbloqueadas",
-                    etiqueta = "Insignias",
-                    icono = Icons.Default.WorkspacePremium,
-                    color = EtdaOrange
-                )
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    IndicadorRapidoPerfil(
+                        valor = "$insigniasDesbloqueadas",
+                        etiqueta = "Insignias",
+                        icono = Icons.Default.WorkspacePremium,
+                        color = EtdaOrange
+                    )
+                }
                 VerticalDivider(
                     modifier = Modifier.height(36.dp),
                     color = Color(0xFFE2E8F0)
                 )
-                IndicadorRapidoPerfil(
-                    valor = "$puntos pts",
-                    etiqueta = "Rewards",
-                    icono = Icons.Default.Stars,
-                    color = EtdaNavy
-                )
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    IndicadorRapidoPerfil(
+                        valor = "$puntos pts",
+                        etiqueta = "Rewards",
+                        icono = Icons.Default.Stars,
+                        color = EtdaNavy
+                    )
+                }
             }
         }
 
@@ -358,61 +374,77 @@ fun PerfilScreen(puntos: Int) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
                 .offset(y = (-12).dp),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                // ✅ FILA RESPONSIVA CORREGIDA: El texto usa weight(1f) y el botón Mi QR nunca se aplasta
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { mostrarCredencialExpandida = !mostrarCredencialExpandida },
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = EtdaNavy.copy(alpha = 0.08f),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountBalance,
-                                contentDescription = null,
-                                tint = EtdaNavy,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Expediente Académico",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 16.sp,
-                                color = EtdaNavy
-                            )
-                            Text(
-                                text = "Datos oficiales de adscripción UNACH",
-                                fontSize = 11.sp,
-                                color = Color.Gray
-                            )
-                        }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = EtdaNavy.copy(alpha = 0.08f),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountBalance,
+                            contentDescription = null,
+                            tint = EtdaNavy,
+                            modifier = Modifier.padding(8.dp)
+                        )
                     }
 
-                    FilledTonalButton(
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Expediente Académico",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            color = EtdaNavy,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Datos oficiales de adscripción UNACH",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Surface(
                         onClick = { mostrarQrDialog = true },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = EtdaOrange.copy(alpha = 0.14f),
-                            contentColor = EtdaOrange
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        color = EtdaOrange.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Mi QR", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCode2,
+                                contentDescription = "Mi QR",
+                                tint = EtdaOrange,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Text(
+                                text = "Mi QR",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = EtdaOrange,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
 
@@ -484,44 +516,46 @@ fun PerfilScreen(puntos: Int) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 16.dp),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(18.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = EtdaOrange.copy(alpha = 0.12f),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Insights,
-                                contentDescription = null,
-                                tint = EtdaOrange,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Asistencias por Categoría",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 16.sp,
-                                color = EtdaNavy
-                            )
-                            Text(
-                                text = "Tu progreso para desbloquear recompensas",
-                                fontSize = 11.sp,
-                                color = Color.Gray
-                            )
-                        }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = EtdaOrange.copy(alpha = 0.12f),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Insights,
+                            contentDescription = null,
+                            tint = EtdaOrange,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Asistencias por Categoría",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            color = EtdaNavy,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Tu progreso para desbloquear recompensas",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Surface(
@@ -533,6 +567,8 @@ fun PerfilScreen(puntos: Int) {
                             color = EtdaBlue,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -554,7 +590,10 @@ fun PerfilScreen(puntos: Int) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Icon(
                                     imageVector = itemCat.icono,
                                     contentDescription = null,
@@ -566,14 +605,18 @@ fun PerfilScreen(puntos: Int) {
                                     text = itemCat.categoria,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = EtdaNavy
+                                    color = EtdaNavy,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             Text(
                                 text = "${itemCat.asistencias} / ${itemCat.meta} eventos",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = itemCat.color
+                                color = itemCat.color,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                         Spacer(modifier = Modifier.height(6.dp))
@@ -603,7 +646,7 @@ fun PerfilScreen(puntos: Int) {
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
                 .height(52.dp),
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
@@ -618,7 +661,9 @@ fun PerfilScreen(puntos: Int) {
             Text(
                 text = "Cerrar sesión segura",
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 14.sp
+                fontSize = 14.sp,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -738,14 +783,18 @@ private fun IndicadorRapidoPerfil(
         Text(
             text = valor,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 16.sp,
-            color = EtdaNavy
+            fontSize = 15.sp,
+            color = EtdaNavy,
+            maxLines = 1,
+            softWrap = false
         )
         Text(
             text = etiqueta,
             fontSize = 11.sp,
             color = Color.Gray,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }
@@ -779,7 +828,9 @@ private fun ItemDatoAcademico(
                 text = titulo,
                 fontSize = 11.sp,
                 color = Color.Gray,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(

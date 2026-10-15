@@ -16,14 +16,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.campusconnect.ComposeLoginActivity
 import com.example.campusconnect.TokenManager
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
+import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
 // Paleta Oficial ETDA - UNACH (pública para RutasScreen y todas las pantallas)
@@ -94,152 +99,183 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
         unselectedTextColor = ColorUnach.TextoSecundario
     )
 
-    Scaffold(
-        containerColor = ColorUnach.Fondo,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = ColorUnach.Dorado,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountBalance,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.padding(7.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = tituloBarra,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                color = Color.White
-                            )
-                            Text(
-                                text = subtituloBarra,
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.78f),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    // Chip rápido de puntos en la esquina superior derecha
-                    Surface(
-                        onClick = { pestañaSeleccionada = 1 },
-                        shape = RoundedCornerShape(50),
-                        color = Color.White.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, ColorUnach.Dorado.copy(alpha = 0.8f)),
-                        modifier = Modifier.padding(end = 12.dp)
-                    ) {
+    // Ajuste responsivo: Normaliza el fontScale y adapta ligeramente la densidad en pantallas angostas
+    val currentDensity = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+    // Si el teléfono es más angosto que 390dp, escala proporcionalmente para que nada se aplaste
+    val factorEscalaPantalla = if (screenWidthDp < 390) (screenWidthDp / 390f).coerceAtLeast(0.85f) else 1f
+
+    CompositionLocalProvider(
+        LocalDensity provides Density(
+            density = currentDensity.density * factorEscalaPantalla, // ✅ Con el asterisco de multiplicación correcto
+            fontScale = 1.0f // Evita que la letra grande del sistema rompa los botones y tarjetas
+        )
+    ) {
+        Scaffold(
+            containerColor = ColorUnach.Fondo,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                TopAppBar(
+                    title = {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Stars,
-                                contentDescription = "Puntos",
-                                tint = ColorUnach.Dorado,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "$puntosAnimados pts",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
+                            Surface(
+                                shape = CircleShape,
+                                color = ColorUnach.Dorado,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalance,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.padding(7.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = tituloBarra,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 17.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = subtituloBarra,
+                                    fontSize = 11.sp,
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ColorUnach.AzulProfundo,
-                    titleContentColor = Color.White
-                )
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = Color.White,
-                tonalElevation = 8.dp,
-                modifier = Modifier.shadow(12.dp)
-            ) {
-                NavigationBarItem(
-                    selected = pestañaSeleccionada == 0,
-                    onClick = { pestañaSeleccionada = 0 },
-                    icon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
-                    label = {
-                        Text(
-                            "Eventos",
-                            fontWeight = if (pestañaSeleccionada == 0) FontWeight.ExtraBold else FontWeight.Medium
-                        )
                     },
-                    colors = coloresNavItem
-                )
-                NavigationBarItem(
-                    selected = pestañaSeleccionada == 1,
-                    onClick = { pestañaSeleccionada = 1 },
-                    icon = { Icon(Icons.Filled.WorkspacePremium, contentDescription = null) },
-                    label = {
-                        Text(
-                            "Insignias",
-                            fontWeight = if (pestañaSeleccionada == 1) FontWeight.ExtraBold else FontWeight.Medium
-                        )
+                    actions = {
+                        // Chip rápido de puntos en la esquina superior derecha
+                        Surface(
+                            onClick = { pestañaSeleccionada = 1 },
+                            shape = RoundedCornerShape(50),
+                            color = Color.White.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, ColorUnach.Dorado.copy(alpha = 0.8f)),
+                            modifier = Modifier.padding(end = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stars,
+                                    contentDescription = "Puntos",
+                                    tint = ColorUnach.Dorado,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "$puntosAnimados pts",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
                     },
-                    colors = coloresNavItem
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = ColorUnach.AzulProfundo,
+                        titleContentColor = Color.White
+                    )
                 )
-                NavigationBarItem(
-                    selected = pestañaSeleccionada == 2,
-                    onClick = { pestañaSeleccionada = 2 },
-                    icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                    label = {
-                        Text(
-                            "Perfil",
-                            fontWeight = if (pestañaSeleccionada == 2) FontWeight.ExtraBold else FontWeight.Medium
-                        )
-                    },
-                    colors = coloresNavItem
-                )
-                NavigationBarItem(
-                    selected = pestañaSeleccionada == 3,
-                    onClick = { pestañaSeleccionada = 3 },
-                    icon = { Icon(Icons.Filled.DirectionsBus, contentDescription = null) },
-                    label = {
-                        Text(
-                            "Rutas",
-                            fontWeight = if (pestañaSeleccionada == 3) FontWeight.ExtraBold else FontWeight.Medium
-                        )
-                    },
-                    colors = coloresNavItem
-                )
+            },
+            bottomBar = {
+                NavigationBar(
+                    containerColor = Color.White,
+                    tonalElevation = 8.dp,
+                    modifier = Modifier.shadow(12.dp)
+                ) {
+                    NavigationBarItem(
+                        selected = pestañaSeleccionada == 0,
+                        onClick = { pestañaSeleccionada = 0 },
+                        icon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
+                        label = {
+                            Text(
+                                "Eventos",
+                                fontWeight = if (pestañaSeleccionada == 0) FontWeight.ExtraBold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        colors = coloresNavItem
+                    )
+                    NavigationBarItem(
+                        selected = pestañaSeleccionada == 1,
+                        onClick = { pestañaSeleccionada = 1 },
+                        icon = { Icon(Icons.Filled.WorkspacePremium, contentDescription = null) },
+                        label = {
+                            Text(
+                                "Insignias",
+                                fontWeight = if (pestañaSeleccionada == 1) FontWeight.ExtraBold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        colors = coloresNavItem
+                    )
+                    NavigationBarItem(
+                        selected = pestañaSeleccionada == 2,
+                        onClick = { pestañaSeleccionada = 2 },
+                        icon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                        label = {
+                            Text(
+                                "Perfil",
+                                fontWeight = if (pestañaSeleccionada == 2) FontWeight.ExtraBold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        colors = coloresNavItem
+                    )
+                    NavigationBarItem(
+                        selected = pestañaSeleccionada == 3,
+                        onClick = { pestañaSeleccionada = 3 },
+                        icon = { Icon(Icons.Filled.DirectionsBus, contentDescription = null) },
+                        label = {
+                            Text(
+                                "Rutas",
+                                fontWeight = if (pestañaSeleccionada == 3) FontWeight.ExtraBold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        colors = coloresNavItem
+                    )
+                }
             }
-        }
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            Crossfade(targetState = pestañaSeleccionada, label = "cambioPestaña") { pestaña ->
-                when (pestaña) {
-                    0 -> EventosScreen(
-                        cargando = cargandoEventos,
-                        error = errorEventos,
-                        eventos = listaEventosReal,
-                        snackbarHostState = snackbarHostState,
-                        scope = scope
-                    )
-                    1 -> RewardsScreen(
-                        puntos = puntosUsuario,
-                        onPuntosCambiados = { nuevosPuntos -> puntosUsuario = nuevosPuntos },
-                        snackbarHostState = snackbarHostState,
-                        scope = scope
-                    )
-                    2 -> PerfilScreen(puntos = puntosUsuario)
-                    else -> RutasScreen()
+        ) { paddingValues ->
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                Crossfade(targetState = pestañaSeleccionada, label = "cambioPestaña") { pestaña ->
+                    when (pestaña) {
+                        0 -> EventosScreen(
+                            cargando = cargandoEventos,
+                            error = errorEventos,
+                            eventos = listaEventosReal,
+                            snackbarHostState = snackbarHostState,
+                            scope = scope
+                        )
+                        1 -> RewardsScreen(
+                            puntos = puntosUsuario,
+                            onPuntosCambiados = { nuevosPuntos -> puntosUsuario = nuevosPuntos },
+                            snackbarHostState = snackbarHostState,
+                            scope = scope
+                        )
+                        2 -> PerfilScreen(puntos = puntosUsuario)
+                        else -> RutasScreen()
+                    }
                 }
             }
         }

@@ -13,23 +13,14 @@ const STORAGE_CATALOGOS_KEY = "cc_unach_catalogos_institucionales_v1";
 const CATALOGO_POR_DEFECTO = {
     facultadActiva: "ETDA",
     facultades: [
-        { id: "ETDA", nombre: "Escuela de Tecnologías Digitales Aplicadas (ETDA)" },
-        { id: "FCA", nombre: "Facultad de Contaduría y Administración (FCA)" },
-        { id: "FI", nombre: "Facultad de Ingeniería (FI)" }
+        { id: "ETDA", nombre: "Escuela de Tecnologías Digitales Aplicadas (ETDA)" }
     ],
     carreras: [
-        { id: "LIDTS", nombre: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software", facultadId: "ETDA" },
-        { id: "LSC", nombre: "Lic. en Sistemas Computacionales", facultadId: "FCA" },
-        { id: "IC", nombre: "Ingeniería Civil", facultadId: "FI" }
+        { id: "LIDTS", nombre: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software", facultadId: "ETDA" }
     ],
     grupos: ["1A", "1B", "3A", "3B", "5A", "5B", "7N", "7O", "8A"],
     auditorios: [
-        { id: "aud-etda", nombre: "Auditorio Principal ETDA", asientos: 180, ubicacion: "Edificio Principal ETDA" },
-        { id: "sala-av1", nombre: "Sala Audiovisual 1", asientos: 60, ubicacion: "Planta Alta ETDA" },
-        { id: "sala-av2", nombre: "Sala Audiovisual 2", asientos: 50, ubicacion: "Planta Alta ETDA" },
-        { id: "lab-comp-a", nombre: "Laboratorio de Cómputo A", asientos: 35, ubicacion: "Centro de Cómputo" },
-        { id: "aud-constituyentes", nombre: "Auditorio Los Constituyentes", asientos: 350, ubicacion: "Campus I Central" },
-        { id: "explanada-etda", nombre: "Explanada Central ETDA", asientos: 250, ubicacion: "Área Abierta Campus I" }
+        { id: "aud-etda", nombre: "Auditorio Principal ETDA", asientos: 180, ubicacion: "Edificio Principal ETDA" }
     ],
     categorias: ["Académicos", "Conferencias", "Talleres", "Tutorías", "Culturales", "Deporte"]
 };

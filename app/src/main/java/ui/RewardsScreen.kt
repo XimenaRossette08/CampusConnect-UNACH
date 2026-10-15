@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -307,7 +306,7 @@ fun RewardsScreen(
                 tituloBaseInsignia = "Mentor Ocelote",
                 subtituloMedalla = "Compromiso Tutorial",
                 descripcionBase = "Seguimiento académico y sesiones de tutoría en la ETDA.",
-                asistenciasIniciales = 5, // ¡Lista para reclamar medalla Bronce y pasar a meta de 8!
+                asistenciasIniciales = 5,
                 nivelInicialReclamado = 0,
                 icono = Icons.Default.School,
                 colorCategoria = EtdaBlue,
@@ -319,7 +318,7 @@ fun RewardsScreen(
                 tituloBaseInsignia = "Vanguardia Tech",
                 subtituloMedalla = "Líder en Ponencias",
                 descripcionBase = "Participación en congresos, foros y pláticas tecnológicas.",
-                asistenciasIniciales = 7, // Ya tiene Bronce (5) y va en 7/8 hacia Plata
+                asistenciasIniciales = 7,
                 nivelInicialReclamado = 1,
                 icono = Icons.Default.RecordVoiceOver,
                 colorCategoria = EtdaOrange,
@@ -331,7 +330,7 @@ fun RewardsScreen(
                 tituloBaseInsignia = "Arquitecto Dev",
                 subtituloMedalla = "Master en Talleres",
                 descripcionBase = "Talleres prácticos de software, redes, IA y ciberseguridad.",
-                asistenciasIniciales = 4, // 4/5
+                asistenciasIniciales = 4,
                 nivelInicialReclamado = 0,
                 icono = Icons.Default.Terminal,
                 colorCategoria = Color(0xFF0284C7),
@@ -343,7 +342,7 @@ fun RewardsScreen(
                 tituloBaseInsignia = "Mente Brillante",
                 subtituloMedalla = "Excelencia Académica",
                 descripcionBase = "Coloquios, ferias de proyectos y presentaciones de semestre.",
-                asistenciasIniciales = 5, // Ya tiene Bronce (5) y va en 5/8
+                asistenciasIniciales = 5,
                 nivelInicialReclamado = 1,
                 icono = Icons.Default.AutoStories,
                 colorCategoria = EtdaNavy,
@@ -355,7 +354,7 @@ fun RewardsScreen(
                 tituloBaseInsignia = "Legado Chiapas",
                 subtituloMedalla = "Embajador Cultural",
                 descripcionBase = "Muestras culturales, arte, música y festivales UNACH.",
-                asistenciasIniciales = 4, // 4/5
+                asistenciasIniciales = 4,
                 nivelInicialReclamado = 0,
                 icono = Icons.Default.TheaterComedy,
                 colorCategoria = Color(0xFF2563EB),
@@ -367,7 +366,7 @@ fun RewardsScreen(
                 tituloBaseInsignia = "Fuerza Ocelote",
                 subtituloMedalla = "Espíritu Deportivo",
                 descripcionBase = "Torneos deportivos, activación física y carreras atléticas.",
-                asistenciasIniciales = 2, // 2/5
+                asistenciasIniciales = 2,
                 nivelInicialReclamado = 0,
                 icono = Icons.Default.EmojiEvents,
                 colorCategoria = Color(0xFFEA580C),
@@ -430,7 +429,7 @@ fun RewardsScreen(
             )
         }
 
-        // 2. SELECTOR DE PESTAÑAS
+        // 2. SELECTOR DE PESTAÑAS (100% Responsivo en 1 sola línea)
         item {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -462,7 +461,7 @@ fun RewardsScreen(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -470,14 +469,17 @@ fun RewardsScreen(
                                 imageVector = Icons.Default.MilitaryTech,
                                 contentDescription = null,
                                 tint = if (tab0) EtdaOrange else EtdaNavy.copy(alpha = 0.6f),
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Insignias (5 • 8 • 12)",
-                                fontSize = 13.sp,
+                                text = "Insignias (5•8•12)",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (tab0) Color.White else EtdaNavy.copy(alpha = 0.7f)
+                                color = if (tab0) Color.White else EtdaNavy.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -497,7 +499,7 @@ fun RewardsScreen(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -505,14 +507,17 @@ fun RewardsScreen(
                                 imageVector = Icons.Default.Redeem,
                                 contentDescription = null,
                                 tint = if (tab1) EtdaOrange else EtdaBlue,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "Canjear Puntos",
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (tab1) Color.White else EtdaNavy.copy(alpha = 0.7f)
+                                color = if (tab1) Color.White else EtdaNavy.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -523,32 +528,37 @@ fun RewardsScreen(
         // 3. CONTENIDO SEGÚN PESTAÑA
         if (tabActiva == 0) {
             item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                // ✅ CORREGIDO: En Column para que el globo de Bronce • Plata • Oro nunca se aplaste
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Medallas por Categoría de Evento",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = EtdaNavy,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Surface(
+                        color = EtdaOrange.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            text = "Medallas por Categoría de Evento",
-                            fontSize = 17.sp,
+                            text = "★ Bronce 5   •   ★★ Plata 8   •   ★★★ Oro 12",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = EtdaNavy
+                            color = EtdaOrange,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                         )
-                        Surface(
-                            color = EtdaOrange.copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(50)
-                        ) {
-                            Text(
-                                text = "★ Bronce 5 • ★★ Plata 8 • ★★★ Oro 12",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = EtdaOrange,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
                     }
-                    Spacer(modifier = Modifier.height(3.dp))
+
                     Text(
                         text = "Gana tu primera medalla al cumplir 5 asistencias y evoluciona tu insignia hasta el rango Oro.",
                         fontSize = 12.sp,
@@ -710,7 +720,7 @@ private fun TarjetaEncabezadoYVitrina(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -725,6 +735,8 @@ private fun TarjetaEncabezadoYVitrina(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 0.7.sp,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                         )
                     }
@@ -732,13 +744,17 @@ private fun TarjetaEncabezadoYVitrina(
                     Text(
                         text = "Colección de Insignias",
                         color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "$totalInsignias medallas ganadas • $totalAsistencias asistencias registradas",
                         color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 12.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -748,7 +764,7 @@ private fun TarjetaEncabezadoYVitrina(
                     shadowElevation = 8.dp
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -756,21 +772,25 @@ private fun TarjetaEncabezadoYVitrina(
                                 imageVector = Icons.Default.Stars,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "$puntosAnimados",
                                 color = Color.White,
-                                fontSize = 19.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                         Text(
                             text = "PUNTOS",
                             color = Color.White.copy(alpha = 0.9f),
                             fontSize = 9.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -832,7 +852,9 @@ private fun TarjetaEncabezadoYVitrina(
                                 text = if (desbloqueada) escalafonMedalla.etiquetaCorta else "En curso",
                                 color = if (desbloqueada) Color(0xFFFFE082) else Color.White.copy(alpha = 0.55f),
                                 fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -912,10 +934,10 @@ private fun TarjetaCategoriaConMedalla(
             else -> null
         }
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
@@ -932,16 +954,16 @@ private fun TarjetaCategoriaConMedalla(
                             nivelEstrellas = if (maximoCompletado) 3 else (nivelReclamado + 1),
                             bloqueada = false,
                             destacada = metaAlcanzada,
-                            tamano = 66.dp
+                            tamano = 60.dp
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Surface(
                                 color = item.colorCategoria.copy(alpha = 0.12f),
@@ -949,10 +971,12 @@ private fun TarjetaCategoriaConMedalla(
                             ) {
                                 Text(
                                     text = item.categoria.uppercase(),
-                                    fontSize = 10.sp,
+                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = item.colorCategoria,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
 
@@ -961,11 +985,13 @@ private fun TarjetaCategoriaConMedalla(
                                 shape = RoundedCornerShape(50)
                             ) {
                                 Text(
-                                    text = if (maximoCompletado) "★★★ ORO MASTER" else escalafonActivo.nombreRango.uppercase(),
+                                    text = if (maximoCompletado) "★★★ ORO" else escalafonActivo.nombreRango.uppercase(),
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = escalafonActivo.colorPrimario,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -974,20 +1000,24 @@ private fun TarjetaCategoriaConMedalla(
 
                         Text(
                             text = "Medalla ${item.tituloBaseInsignia}",
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = EtdaNavy
+                            color = EtdaNavy,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = item.subtituloMedalla,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = EtdaBlue
+                            color = EtdaBlue,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                // Contador dinámico 5/5 -> 5/8 -> 8/12
+                // Contador dinámico 5/5 -> 5/8 -> 8/12 (Protegido con softWrap = false)
                 AnimatedContent(
                     targetState = "$asistenciasActuales / $metaActual",
                     label = "contadorMeta"
@@ -1002,14 +1032,16 @@ private fun TarjetaCategoriaConMedalla(
                     ) {
                         Text(
                             text = textoContador,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = when {
                                 maximoCompletado -> BroncePrimario
                                 metaAlcanzada -> EtdaOrange
                                 else -> EtdaNavy
                             },
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
                         )
                     }
                 }
@@ -1036,7 +1068,9 @@ private fun TarjetaCategoriaConMedalla(
                         text = "Insignias ganadas: $rangosGanados",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = EtdaSuccess
+                        color = EtdaSuccess,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1095,7 +1129,9 @@ private fun TarjetaCategoriaConMedalla(
                                 text = "$numSello",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (esHito) EtdaOrange else Color.Gray
+                                color = if (esHito) EtdaOrange else Color.Gray,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -1166,7 +1202,9 @@ private fun TarjetaCategoriaConMedalla(
                         Text(
                             text = if (maximoCompletado) "Ver Medalla" else "¡Reclamar!",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 } else {
@@ -1187,7 +1225,9 @@ private fun TarjetaCategoriaConMedalla(
                         Text(
                             text = "+1 Asist.",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -1256,6 +1296,8 @@ private fun TarjetaRecompensaEstilizada(
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = EtdaNavy,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
@@ -1295,7 +1337,9 @@ private fun TarjetaRecompensaEstilizada(
                             text = "${recompensa.costoPuntos} pts",
                             fontSize = 14.sp,
                             color = EtdaOrange,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
 
@@ -1322,7 +1366,9 @@ private fun TarjetaRecompensaEstilizada(
                             },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (yaCanjeada || alcanza) Color.White else Color.Gray
+                            color = if (yaCanjeada || alcanza) Color.White else Color.Gray,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }

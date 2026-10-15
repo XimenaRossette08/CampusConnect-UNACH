@@ -1279,8 +1279,10 @@ private fun DetalleEventoSheet(
                                 Text(
                                     text = (evento.categoria ?: catInfo.nombre).uppercase(),
                                     color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -1292,8 +1294,10 @@ private fun DetalleEventoSheet(
                             Text(
                                 text = "$diaTxt $mesTxt • $horaTxt hrs",
                                 color = Color.White,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp, // ✅ Letra más pequeña para que encaje siempre
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
@@ -1304,15 +1308,16 @@ private fun DetalleEventoSheet(
                     Text(
                         text = evento.titulo,
                         color = Color.White,
-                        fontSize = 21.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        lineHeight = 26.sp
+                        lineHeight = 24.sp
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // ✅ TARJETAS DE UBICACIÓN Y RECOMPENSA CORREGIDAS
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1323,19 +1328,20 @@ private fun DetalleEventoSheet(
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.LocationOn, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(Icons.Filled.LocationOn, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Column {
-                            Text("Ubicación", fontSize = 10.sp, color = Color.Gray)
+                            Text("Ubicación", fontSize = 10.sp, color = Color.Gray, maxLines = 1, softWrap = false)
                             Text(
                                 text = evento.lugar,
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = EtdaNavy,
-                                maxLines = 1,
+                                maxLines = 2, // ✅ Ahora se ajusta a 2 renglones si no cabe
+                                lineHeight = 14.sp,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
@@ -1348,19 +1354,21 @@ private fun DetalleEventoSheet(
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.WorkspacePremium, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(Icons.Filled.WorkspacePremium, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Column {
-                            Text("Recompensa", fontSize = 10.sp, color = EtdaOrange)
+                            Text("Recompensa", fontSize = 10.sp, color = EtdaOrange, maxLines = 1, softWrap = false)
                             Text(
                                 text = "+1 en ${catInfo.nombre}",
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = EtdaNavy,
-                                maxLines = 1
+                                maxLines = 2, // ✅ Ahora se ajusta a 2 renglones si no cabe
+                                lineHeight = 14.sp,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1371,14 +1379,17 @@ private fun DetalleEventoSheet(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Ocupación del evento", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy)
                 Text(
                     text = if (isInscrito) "86 lugares disponibles" else "87 lugares disponibles",
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = EtdaBlue
+                    color = EtdaBlue,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
@@ -1405,36 +1416,41 @@ private fun DetalleEventoSheet(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(22.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "Estás inscrito",
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF065F46),
-                                        fontSize = 16.sp
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                                 TextButton(
                                     onClick = {
                                         isInscrito = false
                                         onToggleInscripcion(false)
-                                    }
+                                    },
+                                    contentPadding = PaddingValues(0.dp),
+                                    modifier = Modifier.height(24.dp)
                                 ) {
                                     Text("Cancelar", color = Color(0xFFDC2626), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "El administrador confirmará tu asistencia el día del evento. Ya puedes verlo en la pestaña 'Mis Inscritos'.",
                                 color = Color(0xFF047857),
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
                             )
                         }
                     }
@@ -1450,8 +1466,8 @@ private fun DetalleEventoSheet(
                         Text(
                             text = evento.descripcion,
                             color = Color.DarkGray,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
                         )
                     }
                 }
@@ -1462,17 +1478,28 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // ✅ BOTONES INFERIORES PROTEGIDOS PARA QUE NUNCA SE APLASTEN
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 OutlinedButton(
                     onClick = onDismiss,
                     modifier = Modifier
                         .weight(1f)
-                        .height(50.dp),
+                        .height(48.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.5.dp, EtdaNavy),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaNavy)
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaNavy),
+                    contentPadding = PaddingValues(horizontal = 4.dp)
                 ) {
-                    Text("Al calendario", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Al calendario",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false // 🛡️ Prohíbe que el texto salte de renglón
+                    )
                 }
 
                 Button(
@@ -1484,23 +1511,26 @@ private fun DetalleEventoSheet(
                     },
                     modifier = Modifier
                         .weight(1.3f)
-                        .height(50.dp),
+                        .height(48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isInscrito) EtdaSuccess else EtdaOrange
                     ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp)
                 ) {
                     Icon(
                         imageVector = if (isInscrito) Icons.Default.DoneAll else Icons.Default.HowToReg,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (isInscrito) "Inscrito" else "Inscribirme",
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 14.sp
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false // 🛡️ Prohíbe que el texto salte de renglón
                     )
                 }
             }

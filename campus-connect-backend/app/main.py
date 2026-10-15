@@ -33,6 +33,17 @@ try:
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 
+# 1b. Asegurar columnas de Alumnos Egresados y vigencia de 1 mes de 2FA en la tabla usuarios
+try:
+    with engine.begin() as _conn:
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_egresado BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_secundario VARCHAR"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono_principal VARCHAR"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono_secundario VARCHAR"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultima_verificacion_2fa TIMESTAMPTZ"))
+except Exception as e:
+    logger.warning(f"No se pudo alterar la tabla usuarios para egresados/2FA: {e}")
+
 # 2. Sembrar facultades base
 try:
     with engine.begin() as _conn:

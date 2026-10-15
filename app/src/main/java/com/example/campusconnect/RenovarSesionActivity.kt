@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,16 +19,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-// Importa tu tema (asegúrate de que el nombre coincida con tu proyecto)
+import com.example.campusconnect.model.Verificar2FARequest
+import com.example.campusconnect.network.RetrofitClient
 import com.example.campusconnect.ui.theme.CampusConnectTheme
+import kotlinx.coroutines.launch
 
 class RenovarSesionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Aquí simulamos que leemos el correo del TokenManager
-        val correoGuardado = "alumno@unach.mx"
+        val correoGuardado = TokenManager.obtenerEmail(this)
+        if (correoGuardado.isBlank()) {
+            startActivity(Intent(this, ComposeLoginActivity::class.java))
+            finish()
+            return
+        }
 
         setContent {
             CampusConnectTheme {
@@ -36,6 +43,11 @@ class RenovarSesionActivity : ComponentActivity() {
                         correoGuardado = correoGuardado,
                         onNavigateToAlumno = {
                             startActivity(Intent(this@RenovarSesionActivity, EventosDemoActivity::class.java))
+                            finish()
+                        },
+                        onIrALoginCompleto = {
+                            TokenManager.cerrarSesion(this@RenovarSesionActivity)
+                            startActivity(Intent(this@RenovarSesionActivity, ComposeLoginActivity::class.java))
                             finish()
                         }
                     )
@@ -46,39 +58,43 @@ class RenovarSesionActivity : ComponentActivity() {
 }
 
 @Composable
-fun RenovarSesionScreen(correoGuardado: String, onNavigateToAlumno: () -> Unit) {
+fun RenovarSesionScreen(
+    correoGuardado: String,
+    onNavigateToAlumno: () -> Unit,
+    onIrALoginCompleto: () -> Unit
+) {
     var showOtpDialog by remember { mutableStateOf(false) }
     var otpCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFF5F7FA)),
+        modifier = Modifier.fillMaxSize().background(Color(0xFFF4F7FB)),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Encabezado institucional
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
-                .background(Color(0xFF0C2340))
+                .background(Color(0xFF122652))
         ) {
             Text(
-                text = "Seguridad CampusConnect",
+                text = "Seguridad Campus Connect UNACH",
                 color = Color.White,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 21.sp,
+                fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
 
-        // Tarjeta principal
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
                 .offset(y = (-40).dp),
+            shape = RoundedCornerShape(22.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
@@ -86,13 +102,13 @@ fun RenovarSesionScreen(correoGuardado: String, onNavigateToAlumno: () -> Unit) 
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Verificación de cuenta", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
+                Text("Renovación de sesión (${TokenManager.obtenerDescripcionVigencia()})", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF122652))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    "Por tu seguridad, verificamos las sesiones cada 30 días. ¿Sigues utilizando este correo?",
+                    "El periodo de vigencia de tu verificación en 2 pasos ha concluido. Confirma tu cuenta o inicia sesión nuevamente:",
                     color = Color.Gray,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     textAlign = TextAlign.Center
                 )
 
@@ -106,59 +122,17 @@ fun RenovarSesionScreen(correoGuardado: String, onNavigateToAlumno: () -> Unit) 
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Button(
-                    onClick = {
-                        // Aquí llamaremos a Retrofit para que Yasir mande el correo real
-                        showOtpDialog = true
-                    },
+                    onClick = { onIrALoginCompleto() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57C00)),
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading
                 ) {
-                    Text("Sí, enviar código de acceso")
+                    Text("Volver a verificar e iniciar sesión", fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
-        }
-
-        // Ventana emergente del 2FA (Reutilizada de tu Login)
-        if (showOtpDialog) {
-            AlertDialog(
-                onDismissRequest = { },
-                title = { Text("Verificación en 2 pasos") },
-                text = {
-                    Column {
-                        Text("Hemos enviado un código a $correoGuardado. Ingresa el código para continuar.")
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedTextField(
-                            value = otpCode,
-                            onValueChange = { if (it.length <= 6) otpCode = it.trim() },
-                            label = { Text("Código de 6 dígitos") },
-                            singleLine = true
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (otpCode.length == 6) {
-                                // Aquí enviaremos el request a la ruta /auth/verificar-2fa de Yasir
-                                showOtpDialog = false
-                                onNavigateToAlumno()
-                            } else {
-                                Toast.makeText(context, "El código debe tener 6 dígitos", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        Text("Verificar")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showOtpDialog = false }) {
-                        Text("Cancelar")
-                    }
-                }
-            )
         }
     }
 }

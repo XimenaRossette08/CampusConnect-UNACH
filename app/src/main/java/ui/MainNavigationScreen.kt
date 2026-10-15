@@ -1,5 +1,6 @@
 package com.example.campusconnect.ui
 
+import android.content.Intent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
@@ -19,10 +20,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.campusconnect.ComposeLoginActivity
+import com.example.campusconnect.TokenManager
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
+import retrofit2.HttpException
 
-// Paleta Oficial ETDA - UNACH (pública para todas las pantallas)
+// Paleta Oficial ETDA - UNACH (pública para RutasScreen y todas las pantallas)
 object ColorUnach {
     val AzulProfundo = Color(0xFF122652) // NavyBlue Oficial
     val AzulMedio = Color(0xFF0093FF)    // BrightBlue Oficial
@@ -33,7 +37,7 @@ object ColorUnach {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainNavigationScreen() {
+fun MainNavigationScreen(validarSesion: Boolean = true) {
     val context = LocalContext.current
     var pestañaSeleccionada by remember { mutableIntStateOf(0) }
     var puntosUsuario by remember { mutableIntStateOf(250) }
@@ -58,6 +62,16 @@ fun MainNavigationScreen() {
             val respuesta = RetrofitClient.obtenerApi(context).obtenerEventos()
             listaEventosReal = respuesta
             errorEventos = null
+        } catch (e: HttpException) {
+            if (e.code() == 401 || e.code() == 403) {
+                TokenManager.cerrarSesion(context)
+                val intent = Intent(context, ComposeLoginActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
+                context.startActivity(intent)
+            } else {
+                errorEventos = "No se pudieron conectar los eventos del servidor (${e.code()})"
+            }
         } catch (e: Exception) {
             errorEventos = "No se pudieron conectar los eventos del servidor"
         } finally {

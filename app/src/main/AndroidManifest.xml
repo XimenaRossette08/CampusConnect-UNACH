@@ -25,6 +25,13 @@
         </activity>
 
         <activity
+            android:name=".ComposeLoginActivity"
+            android:exported="false"
+            android:label="@string/title_activity_compose_login"
+            android:theme="@style/Theme.CampusConnect"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".AdminFeedActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
@@ -34,12 +41,7 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
-        <activity
-            android:name=".ComposeLoginActivity"
-            android:exported="false"
-            android:label="@string/title_activity_compose_login"
-            android:theme="@style/Theme.CampusConnect"
-            android:windowSoftInputMode="adjustResize" />
+
 
         <activity
             android:name=".EventosDemoActivity"

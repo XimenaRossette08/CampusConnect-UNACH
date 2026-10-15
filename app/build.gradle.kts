@@ -57,6 +57,9 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    implementation("androidx.biometric:biometric:1.1.0")
+    // Si aún no tienes los íconos extendidos de Material (para el ícono de huella):
+
 
     // Iconos extendidos de Material
     implementation("androidx.compose.material:material-icons-extended:1.7.8")

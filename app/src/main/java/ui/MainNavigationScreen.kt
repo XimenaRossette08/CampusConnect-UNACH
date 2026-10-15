@@ -31,7 +31,7 @@ import com.example.campusconnect.network.RetrofitClient
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
-// Paleta Oficial ETDA - UNACH (pública para RutasScreen y todas las pantallas)
+// Paleta Oficial ETDA - UNACH (pública para todas las pantallas)
 object ColorUnach {
     val AzulProfundo = Color(0xFF122652) // NavyBlue Oficial
     val AzulMedio = Color(0xFF0093FF)    // BrightBlue Oficial
@@ -87,8 +87,8 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
     val (tituloBarra, subtituloBarra) = when (pestañaSeleccionada) {
         0 -> "Campus Connect" to "ETDA • Cartelera Universitaria"
         1 -> "Mis Insignias y Rewards" to "ETDA • Sistema de Asistencias"
-        2 -> "Mi Perfil Académico" to "ETDA • Credencial Digital"
-        else -> "Rutas del Ocelobús" to "UNACH • Movilidad Universitaria"
+        else -> "Mi Perfil Académico" to "ETDA • Credencial Digital"
+        // 3 -> "Rutas del Ocelobús" to "UNACH • Movilidad Universitaria" // Oculto
     }
 
     val coloresNavItem = NavigationBarItemDefaults.colors(
@@ -108,7 +108,7 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
 
     CompositionLocalProvider(
         LocalDensity provides Density(
-            density = currentDensity.density * factorEscalaPantalla, // ✅ Con el asterisco de multiplicación correcto
+            density = currentDensity.density * factorEscalaPantalla,
             fontScale = 1.0f // Evita que la letra grande del sistema rompa los botones y tarjetas
         )
     ) {
@@ -240,6 +240,7 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                         },
                         colors = coloresNavItem
                     )
+                    /* Apartado de Rutas oculto temporalmente
                     NavigationBarItem(
                         selected = pestañaSeleccionada == 3,
                         onClick = { pestañaSeleccionada = 3 },
@@ -254,6 +255,7 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                         },
                         colors = coloresNavItem
                     )
+                    */
                 }
             }
         ) { paddingValues ->
@@ -273,8 +275,8 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                             snackbarHostState = snackbarHostState,
                             scope = scope
                         )
-                        2 -> PerfilScreen(puntos = puntosUsuario)
-                        else -> RutasScreen()
+                        else -> PerfilScreen(puntos = puntosUsuario)
+                        // 3 -> RutasScreen() // Oculto temporalmente
                     }
                 }
             }

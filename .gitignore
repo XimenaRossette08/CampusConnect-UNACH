@@ -28,3 +28,5 @@ env/
 node_modules/
 # Archivos subidos desde el panel web
 campus-connect-backend/uploads/
+
+google-services.json

@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Permiso obligatorio en Android 13+ para mostrar notificaciones -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -12,7 +15,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.CampusConnect"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
 
         <!-- EL DIRECTOR DE TRÁFICO AHORA ES LA PANTALLA PRINCIPAL -->
         <activity
@@ -32,24 +35,20 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name=".AdminFeedActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
-            android:name=".AlumnoFeedActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-
-
-
-        <activity
             android:name=".EventosDemoActivity"
             android:exported="false" />
 
         <activity
             android:name=".RenovarSesionActivity"
             android:exported="false" />
+
+        <service
+            android:name=".MyFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
     </application>
 </manifest>

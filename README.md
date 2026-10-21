@@ -22,11 +22,7 @@ El objetivo principal del proyecto es brindar a los estudiantes, docentes y pers
 
 👤 Perfil Estudiantil: Gestión de datos personales, carrera, semestre y preferencias dentro de la aplicación.
 
-📱 Capturas de Pantalla
 
-A continuación se muestran las diferentes vistas e interfaces que componen CampusConnect - UNACH:
-
-💡 Nota para agregar tus imágenes: Guarda las capturas de tu aplicación dentro de una carpeta llamada assets/screenshots/ en tu repositorio y actualiza los nombres de los archivos en la tabla inferior.
 
 Vistas Principales
 

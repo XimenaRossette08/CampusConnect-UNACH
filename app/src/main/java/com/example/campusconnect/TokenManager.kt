@@ -18,36 +18,25 @@ object TokenManager {
     private const val BIOMETRIC_EMAIL_KEY = "biometric_email"
     private const val BIOMETRIC_PASSWORD_KEY = "biometric_password"
 
-    // Prefijos para recordar la verificación 2FA durante 1 mes por usuario en este dispositivo
+    // Prefijos de 2FA (desactivados para pedir el código siempre al iniciar sesión)
     private const val PREFIX_2FA_TIME = "trusted_2fa_time_"
     private const val PREFIX_2FA_TOKEN = "trusted_2fa_token_"
     private const val PREFIX_2FA_REFRESH = "trusted_2fa_refresh_"
     private const val PREFIX_2FA_ROLE = "trusted_2fa_role_"
 
     // =========================================================================
-    // CONFIGURACIÓN DE TIEMPO DE SESIÓN Y 2FA (PRODUCCIÓN VS PRUEBAS)
+    // CONFIGURACIÓN DE TIEMPO DE SESIÓN ACTIVA
     // =========================================================================
-    // Pon MODO_PRUEBAS_TIEMPO = true para probar cómo expira el 2FA en pocos
-    // segundos/minutos. Ponlo en false para dejar el rango oficial de 1 MES (30 días).
     const val MODO_PRUEBAS_TIEMPO = false
 
-    // Duración cuando MODO_PRUEBAS_TIEMPO = true (Ej: 1 minuto = 60,000 ms; o 30 seg = 30,000 ms)
     private const val DURACION_PRUEBA_MS = 1L * 60L * 1000L
-
-    // Duración oficial cuando MODO_PRUEBAS_TIEMPO = false (30 días = 1 mes)
     private const val DURACION_UN_MES_MS = 30L * 24L * 60L * 60L * 1000L
 
-    // Límite activo según el modo seleccionado
     val LIMITE_VIGENCIA_MS: Long
         get() = if (MODO_PRUEBAS_TIEMPO) DURACION_PRUEBA_MS else DURACION_UN_MES_MS
 
     fun obtenerDescripcionVigencia(): String {
-        return if (MODO_PRUEBAS_TIEMPO) {
-            val segs = DURACION_PRUEBA_MS / 1000L
-            "Modo Pruebas (${segs}s)"
-        } else {
-            "30 días (1 mes)"
-        }
+        return "En cada inicio de sesión"
     }
 
     private fun obtenerPreferencias(context: Context): SharedPreferences {
@@ -64,7 +53,7 @@ object TokenManager {
         )
     }
 
-    // Guarda la sesión activa y registra la marca de tiempo de validación 2FA por 30 días
+    // Guarda la sesión activa una vez verificado el código de 6 dígitos
     fun guardarSesion(
         context: Context,
         token: String,
@@ -75,21 +64,17 @@ object TokenManager {
     ) {
         val emailKey = email.trim().lowercase()
         val ahora = System.currentTimeMillis()
-        val editor = obtenerPreferencias(context).edit()
+        obtenerPreferencias(context).edit()
             .putString(TOKEN_KEY, token)
             .putString(REFRESH_KEY, refreshToken)
             .putString(EMAIL_KEY, emailKey)
             .putString(ROL_KEY, rol)
             .putLong(TIMESTAMP_KEY, ahora)
-
-        if (actualizarMarca2FA) {
-            editor.putLong(PREFIX_2FA_TIME + emailKey, ahora)
-        }
-        // Guardamos también el token vigente asociado a este usuario para no pedir 2FA en 30 días
-        editor.putString(PREFIX_2FA_TOKEN + emailKey, token)
-        editor.putString(PREFIX_2FA_REFRESH + emailKey, refreshToken)
-        editor.putString(PREFIX_2FA_ROLE + emailKey, rol)
-        editor.apply()
+            .remove(PREFIX_2FA_TIME + emailKey)
+            .remove(PREFIX_2FA_TOKEN + emailKey)
+            .remove(PREFIX_2FA_REFRESH + emailKey)
+            .remove(PREFIX_2FA_ROLE + emailKey)
+            .apply()
     }
 
     fun guardarToken(context: Context, token: String) {
@@ -111,7 +96,6 @@ object TokenManager {
         return obtenerPreferencias(context).getString(EMAIL_KEY, "") ?: ""
     }
 
-    // ¿Ya pasó el tiempo límite (30 días en producción, o 1 min en modo pruebas)?
     fun requiereRenovacion(context: Context): Boolean {
         val loginTime = obtenerPreferencias(context).getLong(TIMESTAMP_KEY, 0L)
         if (loginTime == 0L) return true
@@ -119,35 +103,14 @@ object TokenManager {
         return tiempoTranscurrido > LIMITE_VIGENCIA_MS
     }
 
-    // Verifica si un correo específico ya validó su código 2FA dentro del último mes (o tiempo de prueba)
+    // Devuelve siempre false para exigir el código de 6 dígitos en cada inicio de sesión
     fun tiene2FAVigenteParaUsuario(context: Context, email: String): Boolean {
-        val emailKey = email.trim().lowercase()
-        val prefs = obtenerPreferencias(context)
-        val ultimo2FA = prefs.getLong(PREFIX_2FA_TIME + emailKey, 0L)
-        val tokenGuardado = prefs.getString(PREFIX_2FA_TOKEN + emailKey, null)
-        if (ultimo2FA == 0L || tokenGuardado.isNullOrBlank()) return false
-
-        val transcurrido = System.currentTimeMillis() - ultimo2FA
-        return transcurrido <= LIMITE_VIGENCIA_MS
+        return false
     }
 
-    // Restaura la sesión de un usuario cuyo 2FA de 30 días sigue vigente sin pedir nuevo código OTP
+    // Devuelve siempre false para que nunca se salte el código OTP de 6 dígitos al iniciar sesión
     fun restaurarSesionCon2FAVigente(context: Context, email: String): Boolean {
-        if (!tiene2FAVigenteParaUsuario(context, email)) return false
-        val emailKey = email.trim().lowercase()
-        val prefs = obtenerPreferencias(context)
-        val token = prefs.getString(PREFIX_2FA_TOKEN + emailKey, null) ?: return false
-        val refresh = prefs.getString(PREFIX_2FA_REFRESH + emailKey, "") ?: ""
-        val rol = prefs.getString(PREFIX_2FA_ROLE + emailKey, "Estudiante") ?: "Estudiante"
-
-        prefs.edit()
-            .putString(TOKEN_KEY, token)
-            .putString(REFRESH_KEY, refresh)
-            .putString(EMAIL_KEY, emailKey)
-            .putString(ROL_KEY, rol)
-            .putLong(TIMESTAMP_KEY, prefs.getLong(PREFIX_2FA_TIME + emailKey, System.currentTimeMillis()))
-            .apply()
-        return true
+        return false
     }
 
     // =========================================================================
@@ -192,13 +155,22 @@ object TokenManager {
         return !token.isNullOrBlank() && email.isNotBlank() && !requiereRenovacion(context)
     }
 
-    // Cierra la sesión activa pero CONSERVA la configuración de huella dactilar y el registro de 30 días de 2FA
+    // Cierra la sesión activa (al volver a iniciar sesión pedirá el código de 6 dígitos)
     fun cerrarSesion(context: Context) {
-        obtenerPreferencias(context).edit()
+        val prefs = obtenerPreferencias(context)
+        val emailActual = (prefs.getString(EMAIL_KEY, "") ?: "").trim().lowercase()
+        val editor = prefs.edit()
             .remove(TOKEN_KEY)
             .remove(REFRESH_KEY)
             .remove(ROL_KEY)
             .remove(TIMESTAMP_KEY)
-            .apply()
+
+        if (emailActual.isNotBlank()) {
+            editor.remove(PREFIX_2FA_TIME + emailActual)
+            editor.remove(PREFIX_2FA_TOKEN + emailActual)
+            editor.remove(PREFIX_2FA_REFRESH + emailActual)
+            editor.remove(PREFIX_2FA_ROLE + emailActual)
+        }
+        editor.apply()
     }
 }

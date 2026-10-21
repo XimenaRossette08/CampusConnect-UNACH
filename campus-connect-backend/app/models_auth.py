@@ -53,9 +53,16 @@ class Usuario(Base):
     id_carrera = Column(String, nullable=True)
     grupos = Column(ARRAY(String), nullable=True)
 
-    # Campos para autenticación de dos factores (2FA)
+    # Campos para Alumnos Egresados (2 correos distintos y 2 teléfonos distintos)
+    es_egresado = Column(Boolean, default=False, nullable=False)
+    email_secundario = Column(String, nullable=True)
+    telefono_principal = Column(String, nullable=True)
+    telefono_secundario = Column(String, nullable=True)
+
+    # Campos para autenticación de dos factores (2FA) y vigencia de 1 mes
     codigo_2fa = Column(String(6), nullable=True)
     codigo_2fa_expiracion = Column(DateTime(timezone=True), nullable=True)
+    ultima_verificacion_2fa = Column(DateTime(timezone=True), nullable=True)
 
 
 class RegistroAuditoria(Base):

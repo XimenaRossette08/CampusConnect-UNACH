@@ -26,3 +26,7 @@ env/
 
 # Dependencias web (en caso de usar Node/React más adelante)
 node_modules/
+# Archivos subidos desde el panel web
+campus-connect-backend/uploads/
+
+google-services.json

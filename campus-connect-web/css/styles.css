@@ -1,0 +1,237 @@
+/* ==========================================================================
+   CAMPUS CONNECT UNACH - PANEL ADMINISTRATIVO INSTITUCIONAL (ETDA)
+   Paleta Oficial sincronizada con la App Móvil (Kotlin / Jetpack Compose)
+   ========================================================================== */
+
+:root {
+    --etda-navy: #122652;
+    --etda-navy-dark: #0C1B3B;
+    --etda-navy-mid: #193773;
+    --etda-blue: #0093FF;
+    --etda-blue-soft: rgba(0, 147, 255, 0.12);
+    --etda-orange: #F57C00;
+    --etda-orange-light: #FFB74D;
+    --etda-orange-soft: rgba(245, 124, 0, 0.14);
+    --etda-bg: #F4F7FB;
+    --etda-surface: #FFFFFF;
+    --etda-success: #10B981;
+    --etda-success-soft: rgba(16, 185, 129, 0.14);
+    --etda-text-main: #122652;
+    --etda-text-sec: #5B6670;
+    --etda-border: #E2E8F0;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--etda-bg);
+    color: var(--etda-text-main);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Gradientes Institucionales UNACH - ETDA */
+.bg-etda-gradient {
+    background: linear-gradient(135deg, var(--etda-navy-dark) 0%, var(--etda-navy) 55%, var(--etda-navy-mid) 100%);
+}
+
+.bg-etda-banner {
+    background: linear-gradient(180deg, var(--etda-navy) 0%, var(--etda-navy-mid) 100%);
+}
+
+.bg-etda-date-badge {
+    background: linear-gradient(180deg, var(--etda-navy) 0%, var(--etda-blue) 100%);
+}
+
+.border-etda-gold {
+    border-color: var(--etda-orange);
+}
+
+/* Píldora institucional superior idéntica a EventosScreen.kt */
+.etda-pill-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background-color: rgba(245, 124, 0, 0.2);
+    border: 1px solid var(--etda-orange);
+    color: var(--etda-orange-light);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 0.2rem 0.75rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+}
+
+/* Navegación de pestañas estilo institucional + móvil */
+.nav-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.15rem;
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: var(--etda-text-sec);
+    border-radius: 0.75rem;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.nav-tab-btn:hover {
+    color: var(--etda-navy);
+    background-color: rgba(18, 38, 82, 0.05);
+}
+
+.nav-tab-btn.active {
+    background-color: var(--etda-navy);
+    color: #FFFFFF;
+    box-shadow: 0 4px 12px rgba(18, 38, 82, 0.18);
+}
+
+.nav-tab-btn.active i {
+    color: var(--etda-orange);
+}
+
+/* Chips de categorías estilo EventosScreen.kt */
+.cat-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.95rem;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background-color: #FFFFFF;
+    color: var(--etda-navy);
+    border: 1px solid rgba(0, 147, 255, 0.25);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(18, 38, 82, 0.05);
+}
+
+.cat-filter-chip i {
+    color: var(--etda-blue);
+}
+
+.cat-filter-chip:hover {
+    border-color: var(--etda-blue);
+    transform: translateY(-1px);
+}
+
+.cat-filter-chip.active {
+    background-color: var(--etda-orange);
+    color: #FFFFFF;
+    border-color: var(--etda-orange);
+    font-weight: 700;
+    box-shadow: 0 4px 10px rgba(245, 124, 0, 0.28);
+}
+
+.cat-filter-chip.active i {
+    color: #FFFFFF;
+}
+
+/* Tarjetas Institucionales */
+.etda-card {
+    background: #FFFFFF;
+    border-radius: 1.15rem;
+    border: 1px solid rgba(18, 38, 82, 0.08);
+    box-shadow: 0 2px 8px rgba(18, 38, 82, 0.05);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.etda-card:hover {
+    box-shadow: 0 8px 20px rgba(18, 38, 82, 0.09);
+}
+
+/* Switch de Permisos Granulares */
+.perm-card-label {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.85rem;
+    padding: 0.85rem 1rem;
+    border-radius: 0.85rem;
+    border: 1px solid var(--etda-border);
+    background-color: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.perm-card-label:hover {
+    border-color: var(--etda-blue);
+    background-color: #F8FAFC;
+}
+
+.perm-card-label.checked {
+    border-color: var(--etda-navy);
+    background-color: rgba(18, 38, 82, 0.03);
+}
+
+.perm-toggle-input {
+    appearance: none;
+    width: 2.5rem;
+    height: 1.4rem;
+    background-color: #CBD5E1;
+    border-radius: 9999px;
+    position: relative;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+}
+
+.perm-toggle-input::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1.15rem;
+    height: 1.15rem;
+    background-color: #FFFFFF;
+    border-radius: 50%;
+    transition: transform 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.perm-toggle-input:checked {
+    background-color: var(--etda-orange);
+}
+
+.perm-toggle-input:checked::after {
+    transform: translateX(1.1rem);
+}
+
+/* Scrollbar limpia */
+::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+}
+
+::-webkit-scrollbar-track {
+    background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #CBD5E1;
+    border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+}
+
+/* Impresión limpia para reportes de estadísticas */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    body {
+        background: #FFFFFF !important;
+    }
+}

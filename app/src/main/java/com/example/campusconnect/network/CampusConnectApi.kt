@@ -3,6 +3,8 @@ package com.example.campusconnect.network
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.model.EventoCreateRequest
 import com.example.campusconnect.model.LoginRequest
+import com.example.campusconnect.model.LoginResponse
+import com.example.campusconnect.model.RegistroRequest
 import com.example.campusconnect.model.TokenResponse
 import com.example.campusconnect.model.Verificar2FARequest
 import okhttp3.ResponseBody
@@ -16,6 +18,11 @@ interface CampusConnectApi {
     @POST("auth/login")
     suspend fun loginUser(
         @Body request: LoginRequest
+    ): Response<LoginResponse>
+
+    @POST("auth/registro")
+    suspend fun registrarUsuario(
+        @Body request: RegistroRequest
     ): Response<ResponseBody>
 
     @POST("auth/verificar-2fa")

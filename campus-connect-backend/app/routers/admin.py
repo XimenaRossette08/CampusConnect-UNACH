@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -12,6 +12,12 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 class CambiarRolRequest(BaseModel):
     rol: str
+
+
+class SegmentacionUsuarioRequest(BaseModel):
+    id_facultad: Optional[str] = Field(default=None, max_length=120)
+    id_carrera: Optional[str] = Field(default=None, max_length=120)
+    grupos: Optional[List[str]] = None
 
 
 @router.get("/usuarios")
@@ -27,6 +33,9 @@ def listar_usuarios(
             "nombre": u.nombre,
             "email": u.email,
             "rol": u.rol.nombre if u.rol else "Usuario Regular",
+            "id_facultad": u.id_facultad,
+            "id_carrera": u.id_carrera,
+            "grupos": u.grupos or [],
         }
         for u in usuarios
     ]
@@ -74,6 +83,25 @@ def _actualizar_rol(usuario_id: int, nombre_rol: str, db: Session):
     return {"mensaje": f"Rol actualizado a {nombre_rol}"}
 
 
+@router.put("/usuarios/{usuario_id}/segmentacion")
+def actualizar_segmentacion_usuario(
+    usuario_id: int,
+    datos: SegmentacionUsuarioRequest,
+    usuario_actual: Usuario = Depends(requiere_permiso("usuarios:gestionar")),
+    db: Session = Depends(get_db),
+):
+    """Define facultad, carrera y grupo(s) de un alumno: de ahí depende qué eventos segmentados ve."""
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    usuario.id_facultad = (datos.id_facultad or "").strip() or None
+    usuario.id_carrera = (datos.id_carrera or "").strip() or None
+    grupos = [g.strip()[:30] for g in (datos.grupos or []) if g and g.strip()]
+    usuario.grupos = grupos[:30] or None
+    db.commit()
+    return {"mensaje": "Datos académicos actualizados."}
+
+
 @router.get("/auditoria")
 def obtener_auditoria(
     usuario_actual: Usuario = Depends(requiere_permiso("auditoria:leer")),
@@ -96,4 +124,4 @@ def obtener_auditoria(
             "exitoso": r.exitoso,
         }
         for r in registros
-    ]
+    ]

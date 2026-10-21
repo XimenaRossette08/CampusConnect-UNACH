@@ -10,10 +10,9 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
-    // Si Yasir sube el backend a un servidor real después, solo cambiaremos esta línea
-    // Usa 10.0.2.2 para que el emulador apunte a tu PC
-// Cambia 10.0.2.2 por 127.0.0.1 para usar el túnel de ADB reverse
-    private const val BASE_URL = "http://127.0.0.1:8000/"
+
+    // ✅ Con 'adb reverse' activo, usamos localhost directamente
+    private const val BASE_URL = "http://localhost:8000/"
     @Volatile
     private var instancia: CampusConnectApi? = null
 

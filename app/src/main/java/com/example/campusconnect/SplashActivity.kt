@@ -8,22 +8,26 @@ class SplashActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Lógica del Director de Tráfico:
-        val intent = if (TokenManager.obtenerToken(this) == null) {
-            // Luz Roja: Nunca ha iniciado sesión o la cerró. Va al Login completo.
-            Intent(this, ComposeLoginActivity::class.java)
-        } else if (TokenManager.requiereRenovacion(this)) {
-            // Luz Amarilla: Ya pasaron 30 días. Va a la pantalla nueva de Renovar.
-            Intent(this, RenovarSesionActivity::class.java)
-        } else {
-            // Luz Verde: Todo está en orden. Pasa directo a la app.
-            Intent(this, EventosDemoActivity::class.java)
+        val token = TokenManager.obtenerToken(this)
+        val email = TokenManager.obtenerEmail(this)
+
+        val intent = when {
+            // 1. Si no hay token válido o no hay correo guardado -> Ir directo a Iniciar Sesión
+            token.isNullOrBlank() || email.isBlank() -> {
+                Intent(this, ComposeLoginActivity::class.java)
+            }
+            // 2. Si ya pasó el límite de tiempo configurado (30 días o tiempo de prueba) -> Renovar Sesión
+            TokenManager.requiereRenovacion(this) -> {
+                Intent(this, RenovarSesionActivity::class.java)
+            }
+            // 3. Sesión válida y dentro de los 30 días -> Entrar a la Cartelera de Eventos
+            else -> {
+                Intent(this, EventosDemoActivity::class.java)
+            }
         }
 
-        // Arrancamos la pantalla decidida
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
-
-        // Cerramos el director de tráfico para que el usuario no pueda "regresar" a él con el botón de atrás
         finish()
     }
 }

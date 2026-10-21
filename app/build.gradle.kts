@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    // Aplicamos el plugin de Google Services
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -57,6 +59,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    implementation("androidx.biometric:biometric:1.1.0")
 
     // Iconos extendidos de Material
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
@@ -68,4 +71,8 @@ dependencies {
 
     // Security Crypto para encriptar el Token JWT
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Firebase Cloud Messaging (Notificaciones Push)
+    implementation(platform("com.google.firebase:firebase-bom:33.4.0"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
 }

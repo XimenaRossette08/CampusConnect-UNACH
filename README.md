@@ -136,7 +136,25 @@ Puedes instalar directamente la versión compilada para Android en tu teléfono 
 - **Control de Versiones y Despliegue:** Git, GitHub Releases.
 
 ---
+## ✒️ Autora
 
+
+
+**Ximena Rossette** - *Desarrollo Frontend* - @luzXimena08
+**Yasir Estrada** - Desarrollo Backend - @YasirEst
+
+
+---
+
+
+
+<div align="center">
+
+  Hecho con ❤️ para la comunidad de la <b>Universidad Autónoma de Chiapas (UNACH)</b><br/>
+
+  <i>"Por la conciencia de la necesidad de servir"</i>
+
+</div>
 ## 📂 Estructura del Proyecto
 
 ```text
@@ -151,3 +169,5 @@ CampusConnect-UNACH/
 ├── build.gradle.kts             # Script de construcción raíz de Gradle
 ├── settings.gradle.kts          # Inclusión de módulos del proyecto
 └── README.md                    # Documentación principal del repositorio
+
+

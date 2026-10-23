@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="assets/images/logo.png" alt="Logo CampusConnect UNACH" width="120" height="120" />
+  <img src="assets/images/iconapp.png" alt="Logo CampusConnect UNACH" width="125" height="125" />
 
   # 🎓 CampusConnect - UNACH
   **Plataforma integral móvil y web para la comunidad universitaria de la Universidad Autónoma de Chiapas**
@@ -26,8 +26,7 @@
     <a href="#-capturas-de-pantalla">Capturas</a> •
     <a href="#-tecnologías-utilizadas">Tecnologías</a> •
     <a href="#-estructura-del-proyecto">Estructura</a> •
-    <a href="#-ejecución-para-desarrolladores">Desarrollo</a> •
-    <a href="#-colaboradores">Colaboradores</a>
+    <a href="#-equipo-de-desarrollo">Equipo</a>
   </p>
 </div>
 
@@ -37,81 +36,98 @@
 
 **CampusConnect - UNACH** es una solución integral diseñada para centralizar la comunicación, los servicios académicos y la interacción estudiantil dentro de la **Universidad Autónoma de Chiapas (UNACH)**.
 
-El sistema vincula un ecosistema móvil y web para estudiantes, docentes y egresados, permitiendo consultar avisos en tiempo real, gestionar perfiles académicos, tramitar insignias y fortalecer la identidad universitaria de manera ágil y segura.
+El sistema vincula un ecosistema móvil y web para estudiantes, docentes y personal administrativo, permitiendo consultar avisos en tiempo real, gestionar perfiles académicos, registrar asistencia a eventos mediante biometría y códigos QR, y dar seguimiento a insignias de participación institucional.
 
 ---
 
 ## 📲 Descarga e Instalación del APK
 
-Puedes instalar directamente la versión compilada para Android en tu teléfono sin pasar por la Play Store:
+Puedes instalar directamente la versión compilada para Android en tu teléfono:
 
-1. **Descargar el archivo:** Haz clic en el botón superior **[Descargar APK Android]** o dirígete al apartado de [Releases](../../releases) del repositorio y descarga el binario `.apk` de la versión más reciente.
+1. **Descargar el archivo:** Haz clic en el botón superior **[Descargar APK Android]** o dirígete al apartado de [Releases](../../releases) del repositorio y descarga el binario `app-debug.apk`.
 2. **Habilitar fuentes desconocidas:**
    * En tu dispositivo Android, dirígete a **Ajustes > Seguridad y privacidad > Instalar aplicaciones desconocidas**.
-   * Activa el permiso para tu navegador o gestor de archivos.
-3. **Instalación:** Abre el `.apk` descargado y confirma la instalación.
+   * Concede el permiso al navegador o administrador de archivos que utilices.
+3. **Instalación:** Abre el archivo descargado y confirma la instalación en el dispositivo.
 
 ---
 
 ## ✨ Características Principales
 
-- 🔐 **Autenticación Segura y 2FA:** Acceso para estudiantes y docentes con soporte para doble factor de autenticación (2FA) y validación biométrica.
-- 🔔 **Notificaciones Push en Tiempo Real:** Alertas y comunicados urgentes sobre eventos y avisos mediante Firebase Cloud Messaging (FCM).
-- 📰 **Muro y Avisos Universitarios:** Noticias oficiales, eventos y publicaciones organizadas por facultades y campus.
-- 🎓 **Módulo de Egresados y Catálogos:** Registro de egresados, catálogos de facultades y sistema de insignias académicas.
-- 🗺️ **Directorio y Ubicación:** Información sobre facultades, aulas, oficinas de atención y servicios universitarios.
-- 👤 **Perfil Estudiantil:** Consulta de datos escolares, trayectoria académica y ajustes de cuenta.
+- 🔐 **Autenticación Institucional y 2FA:** Inicio de sesión seguro con correo UNACH, autenticación en dos factores (código OTP) y acceso biométrico por huella dactilar.
+- 📅 **Cartelera Universitaria y Eventos:** Exploración de eventos académicos y culturales filtrados por sede, facultad o carrera.
+- 🎟️ **Registro y Control de Asistencia:** Inscripción a conferencias y validación presencial ágil.
+- 🏆 **Gamificación e Insignias:** Sistema de méritos, puntos acumulados y distinciones por participación estudiantil.
+- 👤 **Gestión de Perfil:** Consulta de carrera, grupo adscrito, datos de contacto y configuración de privacidad.
 
 ---
 
 ## 📱 Capturas de Pantalla
 
-### Vistas Principales
+### 🏛️ Acceso y Cartelera de Eventos
 
 <div align="center">
   <table>
     <tr>
-      <td align="center"><b>1. Inicio de Sesión / Registro</b></td>
-      <td align="center"><b>2. Pantalla Principal (Feed)</b></td>
+      <th align="center">Inicio de Sesión / 2FA</th>
+      <th align="center">Cartelera de Eventos</th>
+      <th align="center">Detalle del Evento</th>
+      <th align="center">Control de Inscritos</th>
     </tr>
     <tr>
-      <td>
-        <img src="assets/screenshots/login.png" alt="Pantalla de Inicio de Sesión" width="240" />
+      <td align="center">
+        <img src="assets/screenshots/login.jpeg" width="200" alt="Pantalla de Login" />
       </td>
-      <td>
-        <img src="assets/screenshots/home.png" alt="Pantalla Principal" width="240" />
+      <td align="center">
+        <img src="assets/screenshots/eventos.jpeg" width="200" alt="Catálogo de Eventos" />
+      </td>
+      <td align="center">
+        <img src="assets/screenshots/detalleseventos.jpeg" width="200" alt="Detalle del Evento" />
+      </td>
+      <td align="center">
+        <img src="assets/screenshots/inscritos.jpeg" width="200" alt="Lista de Inscritos" />
       </td>
     </tr>
     <tr>
-      <td align="center"><i>Acceso seguro institucional y 2FA</i></td>
-      <td align="center"><i>Agenda de actividades UNACH</i></td>
+      <td align="center"><i>Acceso institucional y biometría</i></td>
+      <td align="center"><i>Eventos y actividades UNACH</i></td>
+      <td align="center"><i>Información, sede y cupo</i></td>
+      <td align="center"><i>Asistencia confirmada</i></td>
     </tr>
   </table>
 </div>
 
 <br />
 
-### Vistas Secundarias y Gestión
+### 👤 Perfil, Méritos y Reconocimientos
 
 <div align="center">
   <table>
     <tr>
-      <td align="center"><b>4.Insignias</b></td>
-      <td align="center"><b>6. Perfil de Usuario</b></td>
+      <th align="center">Perfil Estudiantil</th>
+      <th align="center">Detalles de Perfil</th>
+      <th align="center">Insignias Académicas</th>
+      <th align="center">Puntos y Horas</th>
     </tr>
     <tr>
-      <td>
-        <img src="assets/screenshots/egresados.png" alt="Insignias" width="240" />
+      <td align="center">
+        <img src="assets/screenshots/perfil.jpeg" width="200" alt="Perfil del Estudiante" />
       </td>
-      <td>
+      <td align="center">
+        <img src="assets/screenshots/detallesperfil.jpeg" width="200" alt="Detalle de Perfil" />
       </td>
-      <td>
-        <img src="assets/screenshots/perfil.png" alt="Perfil de Usuario" width="240" />
+      <td align="center">
+        <img src="assets/screenshots/insignias.jpeg" width="200" alt="Catálogo de Insignias" />
+      </td>
+      <td align="center">
+        <img src="assets/screenshots/puntos.jpeg" width="200" alt="Resumen de Puntos" />
       </td>
     </tr>
     <tr>
-      <td align="center"><i>Catálogo e insignias académicas</i></td>
-      <td align="center"><i>Gestión de datos del alumno</i></td>
+      <td align="center"><i>Datos académicos generales</i></td>
+      <td align="center"><i>Seguridad y facultades</i></td>
+      <td align="center"><i>Logros universitarios</i></td>
+      <td align="center"><i>Métricas de participación</i></td>
     </tr>
   </table>
 </div>
@@ -120,44 +136,31 @@ Puedes instalar directamente la versión compilada para Android en tu teléfono 
 
 ## 🛠️ Tecnologías Utilizadas
 
-- **Aplicación Móvil:** Android Nativo, Kotlin, Gradle (Kotlin DSL), Firebase Cloud Messaging (FCM).
-- **Servicios Backend:** Python, Autenticación 2FA, Biometría, API REST.
-- **Plataforma Web:** JavaScript, HTML5, CSS3 responsivo.
-- **Control de Versiones y Despliegue:** Git, GitHub Releases.
-
----
-## ✒️ Autora
-
-
-
-**Ximena Rossette** - *Desarrollo Frontend* - @luzXimena08
-**Yasir Estrada** - Desarrollo Backend - @YasirEst
-
+- **Aplicación Móvil:** Android Nativo, Kotlin, Jetpack Compose, Material Design 3, Coroutines & StateFlow.
+- **Servicios Backend:** Python, FastAPI, Autenticación JWT, Verificación 2FA, PostgreSQL.
+- **Plataforma Web:** JavaScript modular, HTML5 semántico, CSS3 institucional.
+- **Herramientas de Construcción y CI/CD:** Gradle (Kotlin DSL), Git, GitHub Releases.
 
 ---
 
-
-
-<div align="center">
-
-  Hecho con ❤️ para la comunidad de la <b>Universidad Autónoma de Chiapas (UNACH)</b><br/>
-
-  <i>"Por la conciencia de la necesidad de servir"</i>
-
-</div>
 ## 📂 Estructura del Proyecto
 
 ```text
 CampusConnect-UNACH/
-├── app/                         # Módulo principal de la aplicación Android (Kotlin)
-├── campus-connect-backend/      # API y lógica del servidor en Python (Auth, 2FA, FCM)
-├── campus-connect-web/          # Interfaz web de administración y perfiles (JS/HTML/CSS)
-├── gradle/                      # Archivos de configuración del wrapper de Gradle
+├── app/                         # Aplicación móvil en Android Studio (Kotlin)
+├── campus-connect-backend/      # API REST en Python / FastAPI y modelos DB
+├── campus-connect-web/          # Dashboard administrativo en HTML/JS
 ├── assets/
-│   ├── images/                  # Logotipos e identidades gráficas
-│   └── screenshots/             # Capturas de pantalla para documentación
-├── build.gradle.kts             # Script de construcción raíz de Gradle
-├── settings.gradle.kts          # Inclusión de módulos del proyecto
-└── README.md                    # Documentación principal del repositorio
-
-
+│   ├── images/
+│   │   └── iconapp.png          # Ícono principal de la aplicación
+│   └── screenshots/             # Capturas de pantalla en formato JPEG
+│       ├── login.jpeg
+│       ├── eventos.jpeg
+│       ├── detalleseventos.jpeg
+│       ├── inscritos.jpeg
+│       ├── perfil.jpeg
+│       ├── detallesperfil.jpeg
+│       ├── insignias.jpeg
+│       └── puntos.jpeg
+├── build.gradle.kts             # Configuración raíz del build
+└── README.md                    # Documentación principal

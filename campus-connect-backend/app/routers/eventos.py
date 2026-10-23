@@ -12,10 +12,11 @@ from ..database import get_db
 from ..fechas import ahora_utc, evento_finalizado, fecha_corta, fecha_larga
 from ..models import Evento, EventoArchivo, EventoAsistencia
 from ..models_auth import Usuario
+from ..notifications import enviar_notificacion_nuevo_evento, verificar_y_enviar_recordatorios_24h
 from ..pdf_asistencia import generar_pdf_asistencia
 from ..publicaciones import audiencia_texto
 from ..schemas import ArchivoOut, EventoCreate, EventoOut
-from ..security import get_current_user, requiere_permiso
+from ..security import get_current_user, requiere_permiso, verificar_rol_admin
 from ..segmentacion import evento_visible_para
 from ..storage import ArchivoInvalido, borrar_archivo, guardar_archivo, limpiar_nombre_original
 
@@ -51,7 +52,6 @@ def _archivo_out(a: EventoArchivo, base: str) -> ArchivoOut:
 
 def _serializar(evento: Evento, base: str, conteos: Optional[Dict] = None) -> EventoOut:
     archivos = [_archivo_out(a, base) for a in evento.archivos]
-    # Flyer principal: primera imagen de material; si no hay, el enlace legado.
     flyer = next((a.url for a in archivos if a.tipo == "material" and a.es_imagen), None)
     registrados, asistieron = conteos.get(evento.id, (0, 0)) if conteos is not None else (None, None)
     return EventoOut(
@@ -78,7 +78,10 @@ def _conteos(db: Session, ids: List[uuid.UUID]) -> Dict[uuid.UUID, tuple]:
 
 
 def _puede_gestionar(usuario: Usuario) -> bool:
-    return "eventos:escribir" in {p.clave for p in usuario.rol.permisos}
+    nombre_rol = (usuario.rol.nombre if usuario.rol else "").strip().lower()
+    if nombre_rol == "administrador":
+        return True
+    return "eventos:escribir" in {p.clave for p in (usuario.rol.permisos if usuario.rol else [])}
 
 
 def _aplicar_datos(evento: Evento, datos: EventoCreate) -> None:
@@ -96,7 +99,6 @@ def _aplicar_datos(evento: Evento, datos: EventoCreate) -> None:
         evento.id_facultad_destino = datos.id_facultad_destino
         evento.id_carrera_destino = datos.id_carrera_destino
         evento.grupos_destino = datos.grupos_destino
-    # El enlace legado solo cambia si el cliente lo envía explícitamente.
     if "imagen_url" in datos.model_fields_set:
         evento.imagen_url = datos.imagen_url
 
@@ -123,7 +125,7 @@ def obtener_feed(
 @router.get("/pasados", response_model=List[EventoOut])
 def eventos_pasados(
     request: Request,
-    usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
+    usuario: Usuario = Depends(requiere_permiso("eventos:escribir", "estadisticas:leer")),
     db: Session = Depends(get_db),
 ):
     """Eventos finalizados (más recientes primero) con sus archivos de evidencia y conteos."""
@@ -142,7 +144,6 @@ def opciones_segmentacion(
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
     db: Session = Depends(get_db),
 ):
-    """Valores de facultad/carrera/grupo ya usados por alumnos y eventos (para autocompletar)."""
     facultades, carreras, grupos = set(), set(), set()
     for fac, car, grp in db.query(Usuario.id_facultad, Usuario.id_carrera, Usuario.grupos).all():
         if fac: facultades.add(fac)
@@ -157,7 +158,7 @@ def opciones_segmentacion(
     return {"facultades": sorted(facultades), "carreras": sorted(carreras), "grupos": sorted(grupos)}
 
 
-# ---------------------------------------------------------------- CRUD
+# ---------------------------------------------------------------- CRUD (Protegidos con 403 Forbidden)
 
 @router.post("/", response_model=EventoOut, status_code=201)
 def crear_evento(
@@ -166,13 +167,26 @@ def crear_evento(
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
     db: Session = Depends(get_db),
 ):
+    """
+    1. Protegido con requiere_permiso("eventos:escribir") -> devuelve 403 Forbidden si un alumno intenta crear.
+    2. Al guardar en PostgreSQL, dispara automáticamente la notificación push de Firebase:
+       "¡Nuevo evento disponible: [Título del Evento]!".
+    """
     nuevo = Evento(organizador_email=usuario.email)
     _aplicar_datos(nuevo, evento_in)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
+
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento creado: {nuevo.titulo}")
+
+    # Disparar notificación masiva a los tokens FCM registrados en Firebase
+    try:
+        enviar_notificacion_nuevo_evento(db, nuevo)
+    except Exception as exc:
+        print(f"[FCM] Error no bloqueante al enviar push de nuevo evento: {exc}")
+
     return _serializar(nuevo, _base_url(request))
 
 
@@ -200,6 +214,11 @@ def eliminar_evento(
     usuario: Usuario = Depends(requiere_permiso("eventos:eliminar")),
     db: Session = Depends(get_db),
 ):
+    """
+    Vulnerabilidad 1 del Profe:
+    Si un usuario normal intenta borrar un evento enviando DELETE directamente,
+    requiere_permiso("eventos:eliminar") lo rechaza con 403 Forbidden antes de tocar la BD.
+    """
     evento = _buscar_evento(db, evento_id)
     titulo = evento.titulo
     nombres = [a.nombre_guardado for a in evento.archivos]
@@ -210,6 +229,17 @@ def eliminar_evento(
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento eliminado: {titulo}")
     return {"mensaje": "Evento eliminado correctamente."}
+
+
+@router.post("/probar-recordatorios", status_code=200)
+def disparar_recordatorios_manual(
+    usuario: Usuario = Depends(verificar_rol_admin),
+):
+    """
+    Permite probar al instante el Job Scheduler de recordatorios de 24h sin esperar 1 hora.
+    """
+    resultado = verificar_y_enviar_recordatorios_24h()
+    return {"mensaje": "Verificación de recordatorios 24h ejecutada", "resultado": resultado}
 
 
 # ---------------------------------------------------------------- archivos (flyers, materiales, evidencias)
@@ -223,10 +253,6 @@ def subir_archivos(
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
     db: Session = Depends(get_db),
 ):
-    """
-    tipo='material': flyers/archivos que los alumnos ven en la app.
-    tipo='evidencia': fotos/documentos de un evento ya finalizado.
-    """
     if tipo not in TIPOS_ARCHIVO:
         raise HTTPException(status_code=400, detail="Tipo de archivo inválido.")
     if not archivos or len(archivos) > MAX_ARCHIVOS_POR_PETICION:
@@ -298,7 +324,7 @@ def registrar_asistencia(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Inscribe al usuario autenticado en el evento."""
+    """Inscribe al usuario autenticado en el evento (para recibir también recordatorio 24h antes)."""
     evento = _buscar_evento(db, evento_id)
     if evento_finalizado(evento.fecha_hora):
         raise HTTPException(status_code=400, detail="Este evento ya finalizó.")

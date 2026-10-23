@@ -36,9 +36,13 @@ router = APIRouter(prefix="/auth", tags=["autenticación"])
 limiter = Limiter(key_func=get_remote_address)
 
 # ==============================================================================
-# CONFIGURACIÓN DE COOKIES DE SESIÓN
+# CONFIGURACIÓN DEL TIEMPO DE VIGENCIA DEL 2FA Y SESIÓN (1 MES VS PRUEBAS)
 # ==============================================================================
+# Pon MODO_PRUEBAS_2FA = True para que en tus pruebas el 2FA venza en 1 minuto.
+# Déjalo en False para que la sesión y el 2FA duren 30 DÍAS (1 mes) sin pedir código.
 MODO_PRUEBAS_2FA = False
+
+DURACION_VIGENCIA_2FA = timedelta(minutes=1) if MODO_PRUEBAS_2FA else timedelta(days=30)
 
 ACCESS_COOKIE_MAX_AGE = 60 if MODO_PRUEBAS_2FA else (30 * 24 * 60 * 60)
 REFRESH_COOKIE_MAX_AGE = 120 if MODO_PRUEBAS_2FA else (30 * 24 * 60 * 60)
@@ -159,8 +163,27 @@ def iniciar_sesion(
 
     registrar_auditoria(db, usuario_email=usuario.email, ip=ip, accion="login", exitoso=True)
 
-    # Generar siempre un nuevo código 2FA de 6 dígitos en cada inicio de sesión
+    # Verificar si el usuario ya validó su 2FA dentro del rango configurado (1 mes o 1 min en pruebas)
     ahora = datetime.now(timezone.utc)
+    ultima_2fa = getattr(usuario, "ultima_verificacion_2fa", None)
+    if ultima_2fa is not None:
+        if ultima_2fa.tzinfo is None:
+            ultima_2fa = ultima_2fa.replace(tzinfo=timezone.utc)
+        if (ahora - ultima_2fa) <= DURACION_VIGENCIA_2FA:
+            access_token = crear_access_token(usuario.email)
+            refresh_token = crear_refresh_token(usuario.email)
+            _set_cookies_de_sesion(response, access_token, refresh_token)
+            rol_nombre = usuario.rol.nombre if usuario.rol else "Usuario Regular"
+            return {
+                "requiere_2fa": False,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "role": rol_nombre,
+                "mensaje": "Sesión iniciada directamente (2FA vigente)",
+                "email": usuario.email,
+            }
+
+    # Si es la primera vez o ya venció el mes (o el minuto de prueba), generar nuevo código 2FA
     codigo_6_digitos = f"{random.randint(100000, 999999)}"
     usuario.codigo_2fa = codigo_6_digitos
     usuario.codigo_2fa_expiracion = ahora + timedelta(minutes=5)
@@ -206,7 +229,7 @@ def verificar_2fa(
         if ahora > expiracion:
             raise HTTPException(status_code=400, detail="El código ha expirado, solicita uno nuevo")
 
-    # Limpiar código tras verificación exitosa
+    # Limpiar código tras verificación exitosa y guardar fecha de verificación 2FA por 1 mes
     usuario.codigo_2fa = None
     usuario.codigo_2fa_expiracion = None
     usuario.ultima_verificacion_2fa = ahora

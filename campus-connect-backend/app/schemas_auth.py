@@ -9,15 +9,10 @@ class UsuarioCreate(BaseModel):
     nombre: str
     email: EmailStr
     password: str = Field(min_length=8)
-
-    @field_validator("email")
-    @classmethod
-    def validar_estructura_correo(cls, valor: str) -> str:
-        # Patrón: letras . letras + 2 números @ unach.mx
-        patron = r"^[a-zA-Z]+\.[a-zA-Z]+[0-9]{2}@unach\.mx$"
-        if not re.match(patron, str(valor)):
-            raise ValueError("El correo debe tener la estructura: nombre.apellido##@unach.mx")
-        return valor
+    es_egresado: bool = False
+    email_secundario: Optional[EmailStr] = None
+    telefono_principal: Optional[str] = None
+    telefono_secundario: Optional[str] = None
 
     @field_validator("password")
     @classmethod
@@ -33,23 +28,30 @@ class UsuarioOut(BaseModel):
     email: str
     activo: bool
     rol: str
+    permisos: List[str] = []
+    es_egresado: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
     def desde_usuario(cls, usuario) -> "UsuarioOut":
+        claves = [p.clave for p in (usuario.rol.permisos if usuario.rol else [])]
         return cls(
             id=usuario.id,
             nombre=usuario.nombre,
             email=usuario.email,
             activo=usuario.activo,
-            rol=usuario.rol.nombre,
+            rol=usuario.rol.nombre if usuario.rol else "Usuario Regular",
+            permisos=claves,
+            es_egresado=bool(getattr(usuario, "es_egresado", False)),
         )
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    dispositivo_confiable: bool = False
+    fcm_token: Optional[str] = None
 
 
 class TokenPair(BaseModel):
@@ -57,10 +59,15 @@ class TokenPair(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     role: str
+    permisos: List[str] = []
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: Optional[str] = None
+
+
+class FCMTokenRequest(BaseModel):
+    fcm_token: str = Field(..., min_length=10, description="Token FCM del dispositivo Android")
 
 
 class CambiarPasswordRequest(BaseModel):
@@ -79,6 +86,7 @@ class RestablecerPasswordRequest(BaseModel):
 
 class RolCreate(BaseModel):
     nombre: str
+    claves_permisos: List[str] = []
 
 
 class RolOut(BaseModel):
@@ -100,7 +108,9 @@ class AsignarPermisosRequest(BaseModel):
 
 
 class AsignarRolRequest(BaseModel):
-    rol_id: int
+    rol_id: Optional[int] = None
+    rol: Optional[str] = None
+    permisos: Optional[List[str]] = None
 
 
 class RegistroAuditoriaOut(BaseModel):

@@ -30,3 +30,5 @@ node_modules/
 campus-connect-backend/uploads/
 
 google-services.json
+serviceAccountKey*.json
+.idea/deploymentTargetSelector.xml

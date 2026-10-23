@@ -9,8 +9,8 @@ from .database import Base
 rol_permiso = Table(
     "rol_permiso",
     Base.metadata,
-    Column("rol_id", Integer, ForeignKey("roles.id"), primary_key=True),
-    Column("permiso_id", Integer, ForeignKey("permisos.id"), primary_key=True),
+    Column("rol_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+    Column("permiso_id", Integer, ForeignKey("permisos.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
@@ -47,35 +47,35 @@ class Usuario(Base):
     rol_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
     rol = relationship("Rol", back_populates="usuarios")
 
-    # Campos propios de Campus Connect, para la segmentación de eventos
-    # (Facultad -> Carrera -> Grupo). Nulos para usuarios que no los necesiten.
+    # Segmentación de eventos (Facultad -> Carrera -> Grupo)
     id_facultad = Column(String, nullable=True)
     id_carrera = Column(String, nullable=True)
     grupos = Column(ARRAY(String), nullable=True)
 
-    # Campos para Alumnos Egresados (2 correos distintos y 2 teléfonos distintos)
+    # Registro diferenciado para Alumnos Egresados (2 correos y 2 teléfonos)
     es_egresado = Column(Boolean, default=False, nullable=False)
     email_secundario = Column(String, nullable=True)
     telefono_principal = Column(String, nullable=True)
     telefono_secundario = Column(String, nullable=True)
 
-    # Campos para autenticación de dos factores (2FA) y vigencia de 1 mes
+    # Autenticación de dos factores (2FA) y memoria de confianza de 30 días
     codigo_2fa = Column(String(6), nullable=True)
     codigo_2fa_expiracion = Column(DateTime(timezone=True), nullable=True)
     ultima_verificacion_2fa = Column(DateTime(timezone=True), nullable=True)
 
+    # Token de Firebase Cloud Messaging (FCM) enviado por la App Android
+    fcm_token = Column(String, nullable=True)
+
 
 class RegistroAuditoria(Base):
     """
-    Solo se inserta y se lee (ver routers/admin.py). No existe ningún
-    endpoint de edición ni borrado: el caso práctico exige que este
-    historial no pueda modificarse desde la propia aplicación.
+    Tabla inmutable de auditoría: solo permite inserción y lectura.
     """
 
     __tablename__ = "registro_auditoria"
 
     id = Column(Integer, primary_key=True)
-    usuario_email = Column(String, nullable=True)  # null si el intento de login no correspondía a ninguna cuenta
+    usuario_email = Column(String, nullable=True)
     fecha_hora = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     direccion_ip = Column(String, nullable=False)
     accion = Column(String, nullable=False)

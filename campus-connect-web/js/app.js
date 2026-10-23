@@ -13,7 +13,6 @@ function cargarPerfilYSistema() {
     mostrarVista("dashboard");
     configurarPermisosInterfaz();
 
-    // Si el usuario tiene únicamente permiso de Seguridad o de Estadísticas, abrir esa pestaña o mantener Eventos
     const activos = obtenerPermisosSesionActiva();
     if (activos.length === 1 && activos[0] === "seguridad.auditoria") {
         cambiarPestaña("auditoria");
@@ -45,6 +44,26 @@ function cambiarPestaña(tab) {
     if (tab === "auditoria") cargarAuditoriaAdmin();
 }
 
+async function restaurarSesionDesdeCookieHttpOnly() {
+    try {
+        const perfil = await api("/auth/me");
+        if (perfil && perfil.email) {
+            userState.email = perfil.email;
+            userState.role = perfil.rol || "Usuario Regular";
+            if (typeof traducirPermisosBackendAPanel === "function" && Array.isArray(perfil.permisos)) {
+                const mapaLocal = obtenerMapaPermisosLocal();
+                const guardados = mapaLocal[`email:${perfil.email.toLowerCase().trim()}`];
+                userState.permisos = Array.isArray(guardados) ? guardados : traducirPermisosBackendAPanel(perfil.permisos, userState.role);
+            }
+            cargarPerfilYSistema();
+            return;
+        }
+    } catch (_) {
+        /* Sin cookie activa o sesión expirada */
+    }
+    mostrarVista("auth");
+}
+
 window.addEventListener("DOMContentLoaded", () => {
     activarDropzone("ev-dropzone", "ev-archivos", (lista) => {
         estadoModalEvento.nuevos.push(...validarArchivos(lista));
@@ -67,9 +86,5 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    if (userState.token) {
-        cargarPerfilYSistema();
-    } else {
-        mostrarVista("auth");
-    }
+    restaurarSesionDesdeCookieHttpOnly();
 });

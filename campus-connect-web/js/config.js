@@ -4,6 +4,13 @@
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
+// Limpieza automática de cualquier token legado en localStorage para cumplir al 100%
+// con la prohibición de guardar JWT en localStorage (prevención de XSS)
+try {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+} catch (_) {}
+
 // Paleta Oficial sincronizada con MainNavigationScreen.kt y EventosScreen.kt
 const PALETA_ETDA = [
     "#122652", // EtdaNavy (Azul Profundo Oficial)
@@ -27,10 +34,11 @@ const CATEGORIAS_ETDA = [
     { nombre: "Académicos", icono: "fa-book-open", color: "#122652" }
 ];
 
-// Catálogo de Permisos Individuales (Reemplaza a los roles rígidos)
+// Catálogo de Permisos Individuales del Panel Web
 const CATALOGO_PERMISOS = [
     {
         id: "catalogos.gestionar",
+        claveBackend: "eventos:escribir",
         grupo: "Cartelera y Difusión",
         titulo: "Configurar Facultad, Carreras y Auditorios",
         etiquetaCorta: "Catálogos Facultad",
@@ -40,6 +48,7 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "eventos.publicar",
+        claveBackend: "eventos:escribir",
         grupo: "Cartelera y Difusión",
         titulo: "Publicar y Editar Eventos",
         etiquetaCorta: "Publicar/Editar",
@@ -49,6 +58,7 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "eventos.eliminar",
+        claveBackend: "eventos:eliminar",
         grupo: "Cartelera y Difusión",
         titulo: "Eliminar Eventos",
         etiquetaCorta: "Eliminar Eventos",
@@ -58,6 +68,7 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "redes.compartir",
+        claveBackend: "eventos:escribir",
         grupo: "Cartelera y Difusión",
         titulo: "Difusión en Redes Sociales",
         etiquetaCorta: "Redes Sociales",
@@ -67,6 +78,7 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "asistencia.gestionar",
+        claveBackend: "eventos:escribir",
         grupo: "Seguimiento y Archivo",
         titulo: "Control de Asistencia y Listas PDF",
         etiquetaCorta: "Asistencia y PDF",
@@ -76,6 +88,7 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "pasados.ver",
+        claveBackend: "eventos:leer",
         grupo: "Seguimiento y Archivo",
         titulo: "Ver Eventos Pasados",
         etiquetaCorta: "Eventos Pasados",
@@ -85,15 +98,17 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "evidencias.gestionar",
+        claveBackend: "eventos:escribir",
         grupo: "Seguimiento y Archivo",
         titulo: "Subir y Gestionar Evidencias",
         etiquetaCorta: "Evidencias",
         descripcion: "Subir o eliminar fotografías y documentos probatorios en eventos finalizados.",
         icono: "fa-images",
-        colorBadge: "bg-blue-50 text-blue-800 border-blue-200"
+        colorBadge: "bg-blue-50 text-blue-200 text-blue-800"
     },
     {
         id: "estadisticas.ver",
+        claveBackend: "estadisticas:leer",
         grupo: "Inteligencia y Seguridad",
         titulo: "Ver y Descargar Estadísticas",
         etiquetaCorta: "Estadísticas",
@@ -103,6 +118,7 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "seguridad.auditoria",
+        claveBackend: "auditoria:leer",
         grupo: "Inteligencia y Seguridad",
         titulo: "Ver Seguridad y Auditoría",
         etiquetaCorta: "Seguridad",
@@ -112,13 +128,26 @@ const CATALOGO_PERMISOS = [
     },
     {
         id: "usuarios.permisos",
+        claveBackend: "usuarios:gestionar",
         grupo: "Inteligencia y Seguridad",
-        titulo: "Administrar Usuarios y Permisos",
+        titulo: "Administrar Usuarios, Roles y Permisos",
         etiquetaCorta: "Admin Permisos",
-        descripcion: "Gestionar cuentas registradas y configurar los permisos individuales de cada usuario.",
+        descripcion: "Gestionar cuentas registradas, crear roles en BD y configurar permisos individuales.",
         icono: "fa-user-shield",
         colorBadge: "bg-[#122652]/10 text-[#122652] border-[#122652]/20"
     }
+];
+
+// Catálogo de permisos de la tabla 'permisos' de PostgreSQL para la creación explícita de Roles (Exigencia 6 del PDF)
+const PERMISOS_BACKEND_ROLES = [
+    { clave: "eventos:leer", titulo: "Leer Eventos (eventos:leer)", desc: "Consultar cartelera de eventos publicados" },
+    { clave: "eventos:escribir", titulo: "Crear y Editar Eventos (eventos:escribir)", desc: "Publicar, modificar eventos, subir flyers/evidencias y gestionar asistencia" },
+    { clave: "eventos:eliminar", titulo: "Eliminar Eventos (eventos:eliminar)", desc: "Borrar eventos y archivos permanentemente" },
+    { clave: "estadisticas:leer", titulo: "Ver Estadísticas (estadisticas:leer)", desc: "Consultar métricas e indicadores de participación" },
+    { clave: "usuarios:leer", titulo: "Ver Usuarios y Roles (usuarios:leer)", desc: "Consultar el directorio de usuarios registrados" },
+    { clave: "usuarios:gestionar", titulo: "Gestionar Usuarios (usuarios:gestionar)", desc: "Asignar o revocar roles a usuarios" },
+    { clave: "roles:gestionar", titulo: "Crear y Gestionar Roles (roles:gestionar)", desc: "Crear nuevos roles en BD y asignarles permisos" },
+    { clave: "auditoria:leer", titulo: "Consultar Auditoría (auditoria:leer)", desc: "Ver bitácora inmutable de accesos e IPs" }
 ];
 
 // Combinaciones rápidas de un clic para facilitar la asignación al administrador
@@ -143,7 +172,7 @@ const PLANTILLAS_RAPIDAS_PERMISOS = [
     },
     {
         id: "coordinacion_eventos",
-        nombre: "Logística de Eventos y Evidencias",
+        nombre: "Auxiliar / Logística de Eventos",
         icono: "fa-calendar-check",
         permisos: ["eventos.publicar", "asistencia.gestionar", "pasados.ver", "evidencias.gestionar"]
     },
@@ -161,12 +190,13 @@ const PLANTILLAS_RAPIDAS_PERMISOS = [
     }
 ];
 
-// Estado global de sesión del usuario autenticado
+// Estado global de sesión en MEMORIA RAM (NUNCA guarda el JWT en localStorage para evitar XSS)
 let userState = {
-    token: localStorage.getItem("access_token") || null,
-    email: localStorage.getItem("user_email") || null,
-    role: localStorage.getItem("user_role") || null,
-    permisos: JSON.parse(localStorage.getItem("user_permisos") || "null"),
-    simulandoPermisos: null, // Permite al admin previsualizar cómo ve el sistema otro usuario
+    token: null,        // Solo en RAM durante la sesión activa; la persistencia viaja en Cookie HttpOnly
+    refreshToken: null, // Solo en RAM como respaldo para /auth/refresh
+    email: null,
+    role: null,
+    permisos: null,
+    simulandoPermisos: null,
     temp2FAEmail: null
 };

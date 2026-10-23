@@ -33,6 +33,9 @@ class Evento(Base):
     id_carrera_destino = Column(String, nullable=True)
     grupos_destino = Column(ARRAY(String), nullable=True)
 
+    # Control para el Job Scheduler (APScheduler) de recordatorios 24h antes
+    recordatorio_enviado = Column(Boolean, default=False, nullable=False)
+
     archivos = relationship(
         "EventoArchivo", back_populates="evento", cascade="all, delete-orphan",
         order_by="EventoArchivo.creado_en",

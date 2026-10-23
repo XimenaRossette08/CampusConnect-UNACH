@@ -1,5 +1,5 @@
 // ============================================================================
-// MÓDULO DE AUTENTICACIÓN: LOGIN, 2FA, REGISTRO, RECUPERACIÓN Y CONTRASEÑA
+// MÓDULO DE AUTENTICACIÓN: LOGIN, 2FA, COOKIES HTTPONLY Y REFRESH TOKEN
 // ============================================================================
 
 function mostrarVista(vista) {
@@ -44,6 +44,7 @@ async function procesarLogin(e) {
     try {
         const res = await fetch(`${API_BASE_URL}/auth/login`, {
             method: "POST",
+            credentials: "include", // Recibe la Cookie HttpOnly si el 2FA sigue vigente
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email, password })
         });
@@ -74,6 +75,7 @@ async function validarCodigo2FA() {
     try {
         const res = await fetch(`${API_BASE_URL}/auth/verificar-2fa`, {
             method: "POST",
+            credentials: "include", // Recibe y almacena las Cookies HttpOnly 'access_token' y 'refresh_token'
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email: userState.temp2FAEmail, codigo })
         });
@@ -90,24 +92,57 @@ async function validarCodigo2FA() {
 }
 
 function establecerSesionAutenticada(email, data) {
-    userState.token = data.access_token;
-    userState.role = data.role || "Usuario Regular";
+    // Exigencia 2 del PDF: PROHIBIDO guardar access_token o refresh_token en localStorage.
+    // Solo se mantienen en memoria RAM de la pestaña actual y en la Cookie HttpOnly del navegador.
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+
+    userState.token = data.access_token || null;
+    userState.refreshToken = data.refresh_token || null;
+    userState.role = data.role || data.rol || "Usuario Regular";
     userState.email = email;
     userState.simulandoPermisos = null;
 
-    if (Array.isArray(data.permisos)) {
-        userState.permisos = data.permisos;
-        localStorage.setItem("user_permisos", JSON.stringify(data.permisos));
+    if (Array.isArray(data.permisos) && data.permisos.length > 0) {
+        // Traducir claves de backend (ej. eventos:escribir) o conservar permisos granulares del usuario
+        const mapaLocal = obtenerMapaPermisosLocal();
+        const guardados = email ? mapaLocal[`email:${email.toLowerCase().trim()}`] : null;
+        userState.permisos = Array.isArray(guardados) ? guardados : traducirPermisosBackendAPanel(data.permisos, userState.role);
     } else {
         userState.permisos = null;
-        localStorage.removeItem("user_permisos");
     }
 
-    localStorage.setItem("access_token", data.access_token);
-    localStorage.setItem("user_email", userState.email);
-    localStorage.setItem("user_role", userState.role);
-
     cargarPerfilYSistema();
+}
+
+function traducirPermisosBackendAPanel(clavesBackend, nombreRol) {
+    const r = String(nombreRol || "").toLowerCase().trim();
+    if (r === "administrador") return CATALOGO_PERMISOS.map(p => p.id);
+    if (!Array.isArray(clavesBackend)) return permisosPorDefectoSegunRol(nombreRol);
+
+    const resultado = new Set();
+    if (clavesBackend.includes("eventos:escribir")) {
+        resultado.add("eventos.publicar");
+        resultado.add("redes.compartir");
+        resultado.add("asistencia.gestionar");
+        resultado.add("pasados.ver");
+        resultado.add("evidencias.gestionar");
+        resultado.add("catalogos.gestionar");
+    }
+    if (clavesBackend.includes("eventos:eliminar")) {
+        resultado.add("eventos.eliminar");
+    }
+    if (clavesBackend.includes("estadisticas:leer")) {
+        resultado.add("estadisticas.ver");
+        resultado.add("pasados.ver");
+    }
+    if (clavesBackend.includes("auditoria:leer")) {
+        resultado.add("seguridad.auditoria");
+    }
+    if (clavesBackend.includes("usuarios:gestionar") || clavesBackend.includes("roles:gestionar")) {
+        resultado.add("usuarios.permisos");
+    }
+    return [...resultado];
 }
 
 function cerrarModal2FA() {
@@ -124,6 +159,7 @@ async function procesarRegistro(e) {
     try {
         const res = await fetch(`${API_BASE_URL}/auth/registro`, {
             method: "POST",
+            credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ nombre, email, password })
         });
@@ -153,6 +189,7 @@ async function procesarRecuperacion(e) {
     try {
         const res = await fetch(`${API_BASE_URL}/auth/recuperar-password`, {
             method: "POST",
+            credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email })
         });
@@ -191,13 +228,24 @@ async function procesarCambioPassword(e) {
     }
 }
 
-function cerrarSesion() {
+async function cerrarSesion() {
+    // Solicitar al backend borrar las Cookies HttpOnly
+    try {
+        await fetch(`${API_BASE_URL}/auth/logout`, {
+            method: "POST",
+            credentials: "include"
+        });
+    } catch (_) {}
+
     localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
     localStorage.removeItem("user_email");
     localStorage.removeItem("user_role");
     localStorage.removeItem("user_permisos");
+
     userState = {
         token: null,
+        refreshToken: null,
         email: null,
         role: null,
         permisos: null,

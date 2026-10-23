@@ -473,7 +473,12 @@
                             Asigna a cada persona exactamente las funciones que necesita sin depender de roles rígidos ni grupos: puedes autorizar a un usuario únicamente para <b>compartir en redes sociales</b>, a otro solo para <b>seguridad y auditoría</b>, o combinar <b>estadísticas y eventos pasados</b> a tu conveniencia.
                         </p>
                     </div>
-                    <div class="shrink-0">
+                    <div class="shrink-0 flex flex-wrap items-center gap-2.5">
+                        <button type="button" onclick="abrirModalGestionRoles()"
+                            class="bg-white/15 hover:bg-white/25 border border-white/30 text-white text-xs sm:text-sm font-extrabold px-4 py-3 rounded-2xl shadow-lg transition flex items-center gap-2">
+                            <i class="fa-solid fa-user-tag text-[#FFB74D]"></i>
+                            <span>+ Crear / Gestionar Roles (BD)</span>
+                        </button>
                         <button type="button" onclick="abrirModalCrearUsuarioAdmin()"
                             class="bg-[#F57C00] hover:bg-amber-600 text-white text-xs sm:text-sm font-extrabold px-5 py-3 rounded-2xl shadow-lg transition flex items-center gap-2">
                             <i class="fa-solid fa-user-plus"></i>
@@ -1164,6 +1169,60 @@
                         Listo, volver al evento
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- MODAL 10: CREACIÓN EXPLÍCITA DE ROLES Y ASIGNACIÓN DE PERMISOS EN POSTGRESQL (EXIGENCIA 6 DEL PDF) -->
+    <div id="modal-gestion-roles" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
+            <div class="flex items-center justify-between border-b pb-3 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-[#122652] text-[#F57C00] flex items-center justify-center text-base font-extrabold">
+                        <i class="fa-solid fa-user-tag"></i>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#0093FF]">Tablas 'roles' y 'rol_permiso' en PostgreSQL</span>
+                        <h3 class="text-lg font-extrabold text-[#122652] leading-tight">Crear Nuevos Roles y Asignarles Permisos</h3>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModalGestionRoles()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto space-y-5 pr-1">
+                <form onsubmit="guardarRolEnBD(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                        <div class="sm:col-span-2">
+                            <label class="block text-xs font-extrabold text-[#122652] mb-1">Nombre del Rol Institucional (Ej. Auxiliar, Coordinador Cultural)</label>
+                            <input type="text" id="nuevo-rol-nombre-input" required placeholder="Escribe el nombre del nuevo rol (ej. Auxiliar)"
+                                class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold text-[#122652] outline-none focus:ring-2 focus:ring-[#0093FF]">
+                        </div>
+                        <button type="submit"
+                            class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2.5 rounded-xl shadow transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-floppy-disk text-[#F57C00]"></i>
+                            <span id="btn-guardar-rol-texto">Crear Rol y Asignar Permisos en BD</span>
+                        </button>
+                    </div>
+
+                    <div>
+                        <span class="block text-xs font-extrabold text-[#122652] mb-2">Selecciona los permisos que tendrá este Rol en la Base de Datos:</span>
+                        <div id="lista-permisos-nuevo-rol" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+                    </div>
+                </form>
+
+                <div>
+                    <span class="block text-xs font-extrabold text-[#122652] mb-2">Roles registrados actualmente en PostgreSQL (`GET /admin/roles`):</span>
+                    <div id="lista-roles-existentes-bd" class="space-y-2"></div>
+                </div>
+            </div>
+
+            <div class="border-t pt-3 mt-3 flex justify-end">
+                <button type="button" onclick="cerrarModalGestionRoles()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-2 rounded-xl">
+                    Cerrar
+                </button>
             </div>
         </div>
     </div>

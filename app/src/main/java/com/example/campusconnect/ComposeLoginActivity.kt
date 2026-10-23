@@ -61,7 +61,7 @@ class ComposeLoginActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Si ya tiene una sesión activa y vigente (dentro de los 30 días), pasar directo
+        // Si ya tiene una sesión activa, pasar directo
         if (TokenManager.haySesionActiva(this)) {
             startActivity(Intent(this, EventosDemoActivity::class.java))
             finish()
@@ -200,7 +200,6 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
             return
         }
 
-        val yaTiene2FAVigente = TokenManager.tiene2FAVigenteParaUsuario(context, correoLimpio)
         isLoading = true
 
         scope.launch {
@@ -209,43 +208,14 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                     LoginRequest(
                         correo = correoLimpio,
                         contrasena = passwordLimpia,
-                        dispositivoConfiable = yaTiene2FAVigente
+                        dispositivoConfiable = false
                     )
                 )
 
                 if (respuesta.isSuccessful) {
-                    val body = respuesta.body()
-                    // Caso 1: El backend ya devuelve access_token directo (no requiere 2FA)
-                    val tokenDirecto = body?.accessToken
-                    if (body != null && !body.requiere2fa && !tokenDirecto.isNullOrBlank()) {
-                        TokenManager.guardarSesion(
-                            context = context,
-                            token = tokenDirecto,
-                            refreshToken = body.refreshToken ?: "",
-                            email = correoLimpio,
-                            rol = body.role ?: "Estudiante",
-                            actualizarMarca2FA = false
-                        )
-                        Toast.makeText(
-                            context,
-                            "Sesión iniciada (2FA vigente por ${TokenManager.obtenerDescripcionVigencia()})",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        finalizarAccesoOVincularHuella(correoLimpio, passwordLimpia)
-                    }
-                    // Caso 2: El usuario ya verificó su 2FA en este dispositivo hace menos de 1 mes (o tiempo de prueba)
-                    else if (TokenManager.restaurarSesionCon2FAVigente(context, correoLimpio)) {
-                        Toast.makeText(
-                            context,
-                            "Acceso rápido: tu verificación de 2 pasos sigue activa (${TokenManager.obtenerDescripcionVigencia()})",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        finalizarAccesoOVincularHuella(correoLimpio, passwordLimpia)
-                    }
-                    // Caso 3: Primera vez o ya pasó 1 mes -> pedir código de 6 dígitos
-                    else {
-                        showOtpDialog = true
-                    }
+                    // Pedir siempre el código de 6 dígitos al iniciar sesión
+                    otpCode = ""
+                    showOtpDialog = true
                 } else {
                     Toast.makeText(context, "Correo o contraseña incorrectos", Toast.LENGTH_SHORT).show()
                 }
@@ -276,7 +246,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                 // Autorrellenamos los campos en pantalla y disparamos el inicio de sesión
                 correo = creds.first
                 password = creds.second
-                Toast.makeText(context, "Huella reconocida. Iniciando sesión...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Huella reconocida. Enviando código de verificación...", Toast.LENGTH_SHORT).show()
                 ejecutarLogin(creds.first, creds.second)
             },
             alFallar = { msg ->
@@ -870,7 +840,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
 
         // Pie de página institucional con indicador del modo de vigencia 2FA
         Text(
-            text = "UNACH • ETDA  |  Vigencia 2FA: ${TokenManager.obtenerDescripcionVigencia()}",
+            text = "UNACH • ETDA  |  Verificación 2FA: ${TokenManager.obtenerDescripcionVigencia()}",
             color = NavyBlue.copy(alpha = 0.55f),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
@@ -919,7 +889,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                 text = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "Ingresa el código de 6 dígitos enviado a tu correo. Una vez verificado, tu sesión se mantendrá activa por ${TokenManager.obtenerDescripcionVigencia()} sin volver a pedirlo:",
+                            text = "Ingresa el código de 6 dígitos enviado a tu correo institucional para verificar tu identidad e iniciar sesión:",
                             fontSize = 13.sp,
                             color = Color.Gray,
                             textAlign = TextAlign.Center
@@ -972,7 +942,7 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                                     if (respuesta2FA.isSuccessful && respuesta2FA.body() != null) {
                                         val tokenData = respuesta2FA.body()!!
 
-                                        // Guardamos sesión y activamos el sello de confianza 2FA por 30 días
+                                        // Guardamos la sesión activa
                                         TokenManager.guardarSesion(
                                             context = context,
                                             token = tokenData.accessToken,

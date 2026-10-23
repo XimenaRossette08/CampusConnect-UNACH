@@ -1,23 +1,32 @@
+import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from . import models  # noqa: F401
 from . import models_auth  # noqa: F401
-from .database import Base, SessionLocal, engine
-from .models_auth import Permiso, Rol
+from .database import Base, SessionLocal, engine, get_db
+from .models_auth import Permiso, Rol, Usuario
+from .notifications import (
+    detener_scheduler_recordatorios,
+    inicializar_firebase,
+    iniciar_scheduler_recordatorios,
+)
 from .routers import admin, auth, estadisticas, eventos, social
+from .security import get_current_user, requiere_permiso, verificar_rol_admin
 from .storage import UPLOADS_DIR
 
 # Configuración de registro de errores
@@ -26,14 +35,15 @@ logger = logging.getLogger("uvicorn.error")
 # Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
 
-# 1. Asegurar columna categoria en la tabla eventos
+# 1. Asegurar columnas categoria y recordatorio_enviado en la tabla eventos
 try:
     with engine.begin() as _conn:
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS categoria VARCHAR"))
+        _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS recordatorio_enviado BOOLEAN NOT NULL DEFAULT FALSE"))
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 
-# 1b. Asegurar columnas de Alumnos Egresados y vigencia de 1 mes de 2FA en la tabla usuarios
+# 1b. Asegurar columnas de Alumnos Egresados, vigencia de 2FA y Token FCM de Firebase en usuarios
 try:
     with engine.begin() as _conn:
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_egresado BOOLEAN NOT NULL DEFAULT FALSE"))
@@ -41,24 +51,22 @@ try:
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono_principal VARCHAR"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono_secundario VARCHAR"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultima_verificacion_2fa TIMESTAMPTZ"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS fcm_token VARCHAR"))
 except Exception as e:
-    logger.warning(f"No se pudo alterar la tabla usuarios para egresados/2FA: {e}")
+    logger.warning(f"No se pudo alterar la tabla usuarios para egresados/2FA/FCM: {e}")
 
-# 2. Sembrar facultades base
+# 2. Sembrar únicamente la facultad ETDA
 try:
     with engine.begin() as _conn:
         _conn.execute(text("""
             INSERT INTO facultades (id, nombre) 
-            VALUES 
-                ('ETDA', 'Escuela de Tecnologías y Desarrollo Adaptativo'),
-                ('FCA', 'Facultad de Contaduría y Administración'),
-                ('FI', 'Facultad de Ingeniería')
+            VALUES ('ETDA', 'Escuela de Tecnologías Digitales Aplicadas (ETDA)')
             ON CONFLICT (id) DO NOTHING;
         """))
 except Exception as e:
     logger.warning(f"No se pudieron sembrar facultades iniciales: {e}")
 
-# 3. Sembrar carreras base (usando solo id y nombre)
+# 3. Sembrar carreras base
 try:
     with engine.begin() as _conn:
         _conn.execute(text("""
@@ -75,7 +83,8 @@ except Exception as e:
 
 def sembrar_datos_iniciales() -> None:
     """
-    Crea, si no existen, los permisos básicos y los tres roles predeterminados.
+    Crea los permisos base y los roles iniciales (incluyendo 'Auxiliar' para cumplir
+    con el Punto 6 de la rúbrica de roles y permisos).
     """
     permisos_necesarios = {
         "eventos:leer": "Ver los eventos publicados",
@@ -90,6 +99,7 @@ def sembrar_datos_iniciales() -> None:
     roles_necesarios = {
         "Administrador": list(permisos_necesarios.keys()),
         "Editor": ["eventos:leer", "eventos:escribir", "eventos:eliminar", "estadisticas:leer"],
+        "Auxiliar": ["eventos:leer", "eventos:escribir", "estadisticas:leer"],
         "Usuario Regular": ["eventos:leer"],
     }
 
@@ -119,30 +129,43 @@ def sembrar_datos_iniciales() -> None:
 
 sembrar_datos_iniciales()
 
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    # Inicializar Firebase Admin SDK y el Job Scheduler (APScheduler) de recordatorios 24h
+    inicializar_firebase()
+    iniciar_scheduler_recordatorios()
+    yield
+    detener_scheduler_recordatorios()
+
+
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="Campus Connect API")
+app = FastAPI(title="Campus Connect API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# ==============================================================================
+# EXIGENCIA 5 DEL PDF: CORS ESTRICTO (SIN COMODÍN '*' NI REGEX GLOBAL)
+# ==============================================================================
 origenes_defecto = (
     "http://localhost:8080,http://127.0.0.1:8080,"
     "http://localhost:5500,http://127.0.0.1:5500,"
-    "http://localhost:3000,http://127.0.0.1:3000"
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "http://localhost:8000,http://127.0.0.1:8000"
 )
 origenes_permitidos = [
     origen.strip()
     for origen in os.getenv("CORS_ORIGINS", origenes_defecto).split(",")
-    if origen.strip()
+    if origen.strip() and origen.strip() != "*"
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origenes_permitidos,
-    allow_origin_regex=r"http://.*",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
 
@@ -150,6 +173,7 @@ app.add_middleware(
 async def cabeceras_seguras(request: Request, call_next):
     respuesta = await call_next(request)
     respuesta.headers["X-Content-Type-Options"] = "nosniff"
+    respuesta.headers["X-Frame-Options"] = "DENY"
     return respuesta
 
 
@@ -164,12 +188,15 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
+# ==============================================================================
+# EXIGENCIA 5 DEL PDF: MANEJO DE ERRORES 500 SIN FILTRAR DETALLES DE BD NI CÓDIGO
+# ==============================================================================
 @app.exception_handler(Exception)
 async def manejador_errores_genericos(request: Request, exc: Exception):
     logger.error(f"Error no controlado en {request.method} {request.url}: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Ocurrió un error interno"}
+        content={"detail": "Ocurrió un error interno en el servidor. Intenta más tarde."}
     )
 
 
@@ -178,40 +205,9 @@ def health_check():
     return {"status": "ok"}
 
 
-# Endpoint administrativo para eliminar usuarios/empleados desde el panel web
-from fastapi import Depends, HTTPException
-from sqlalchemy.orm import Session
-from .database import get_db
-from .models_auth import Usuario
-from .security import get_current_user
-
-@app.delete("/admin/usuarios/{usuario_id}")
-def eliminar_usuario_administrativo(
-    usuario_id: int,
-    db: Session = Depends(get_db),
-    usuario_actual: Usuario = Depends(get_current_user),
-):
-    rol_actual = usuario_actual.rol.nombre if usuario_actual.rol else ""
-    if rol_actual != "Administrador":
-        raise HTTPException(status_code=403, detail="Solo un administrador puede eliminar usuarios")
-
-    if usuario_actual.id == usuario_id:
-        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta activa")
-
-    objetivo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
-    if objetivo is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-    db.delete(objetivo)
-    db.commit()
-    return {"mensaje": f"Usuario {objetivo.email} eliminado correctamente"}
-
-
 # ==============================================================================
 # PERSISTENCIA DEL CATÁLOGO DE FACULTAD, CARRERAS, GRUPOS Y AUDITORIOS (ASIENTOS)
 # ==============================================================================
-import json
-
 try:
     with engine.begin() as _conn:
         _conn.execute(text("""
@@ -239,8 +235,9 @@ def obtener_catalogos_facultad():
 @app.put("/catalogos/facultad")
 async def guardar_catalogos_facultad(
     request: Request,
-    usuario_actual: Usuario = Depends(get_current_user),
+    usuario_actual: Usuario = Depends(requiere_permiso("eventos:escribir", "usuarios:gestionar")),
 ):
+    """Protegido con requiere_permiso -> devuelve 403 Forbidden si un alumno intenta alterar catálogos."""
     datos = await request.json()
     payload_str = json.dumps(datos, ensure_ascii=False)
     with engine.begin() as conn:

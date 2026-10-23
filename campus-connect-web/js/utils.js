@@ -1,5 +1,5 @@
 // ============================================================================
-// UTILIDADES COMPARTIDAS, CLIENTE API REST Y MANEJO DE ARCHIVOS
+// UTILIDADES COMPARTIDAS, CLIENTE API REST (COOKIES HTTPONLY + REFRESH TOKEN)
 // ============================================================================
 
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({
@@ -18,20 +18,77 @@ function mensajeDeError(data, porDefecto) {
     return data.detail || porDefecto;
 }
 
+// Exigencia 3 del PDF: Renueva automáticamente la sesión cuando expira el JWT (20 min)
+let _renovandoTokenPromesa = null;
+
+async function intentarRenovarSesionConRefreshToken() {
+    if (_renovandoTokenPromesa) return _renovandoTokenPromesa;
+
+    _renovandoTokenPromesa = (async () => {
+        try {
+            const payload = userState.refreshToken ? { refresh_token: userState.refreshToken } : {};
+            const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+                method: "POST",
+                credentials: "include", // Envía automáticamente la cookie HttpOnly 'refresh_token'
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) return false;
+            const data = await res.json();
+            if (data.access_token) {
+                userState.token = data.access_token;
+            }
+            if (data.refresh_token) {
+                userState.refreshToken = data.refresh_token;
+            }
+            if (data.role) {
+                userState.role = data.role;
+            }
+            return true;
+        } catch (_) {
+            return false;
+        } finally {
+            _renovandoTokenPromesa = null;
+        }
+    })();
+
+    return _renovandoTokenPromesa;
+}
+
 async function api(ruta, opciones = {}) {
     const headers = {
-        "Authorization": `Bearer ${userState.token}`,
         ...(opciones.headers || {})
     };
+    // Si el token está en memoria RAM de la pestaña actual, también se adjunta por compatibilidad local
+    if (userState.token) {
+        headers["Authorization"] = `Bearer ${userState.token}`;
+    }
     if (opciones.json !== undefined) {
         headers["Content-Type"] = "application/json";
         opciones.body = JSON.stringify(opciones.json);
     }
-    const res = await fetch(`${API_BASE_URL}${ruta}`, {
+
+    const ejecutarFetch = () => fetch(`${API_BASE_URL}${ruta}`, {
         method: opciones.method || "GET",
-        headers,
+        credentials: "include", // Exigencia 2 del PDF: Uso de Cookies HttpOnly seguras
+        headers: {
+            ...headers,
+            ...(userState.token ? { "Authorization": `Bearer ${userState.token}` } : {})
+        },
         body: opciones.body
     });
+
+    let res = await ejecutarFetch();
+
+    // Si el access_token de 20 minutos expiró (401), intentar renovarlo con el Refresh Token automáticamente
+    if (res.status === 401 && !opciones._reintentado && !ruta.startsWith("/auth/login") && !ruta.startsWith("/auth/refresh")) {
+        const renovado = await intentarRenovarSesionConRefreshToken();
+        if (renovado) {
+            opciones._reintentado = true;
+            res = await ejecutarFetch();
+        }
+    }
+
     if (opciones.blob && res.ok) return res;
     let data = null;
     try {
@@ -73,7 +130,6 @@ function aInputLocal(iso) {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// Extrae mes, día y hora igual que extraerFechaVisual() en EventosScreen.kt
 function extraerFechaVisualWeb(fechaHora) {
     if (!fechaHora) return { mes: "OCT", dia: "15", hora: "10:00", completo: "Próximamente" };
     try {
@@ -94,7 +150,6 @@ function extraerFechaVisualWeb(fechaHora) {
     }
 }
 
-// Detecta categoría visual igual que detectarCategoriaEvento() en EventosScreen.kt
 function detectarCategoriaEventoWeb(ev) {
     const texto = `${ev.categoria || ""} ${ev.titulo || ""} ${ev.descripcion || ""}`.toLowerCase();
     if (texto.includes("tutor") || texto.includes("asesor")) return CATEGORIAS_ETDA[1];

@@ -496,3 +496,182 @@ async function guardarPermisosDeUsuario() {
         btn.classList.remove("opacity-60");
     }
 }
+
+
+// ============================================================================
+// EXIGENCIA 6 DEL PDF: CREACIÓN EXPLÍCITA DE ROLES Y ASIGNACIÓN DE PERMISOS A ROLES
+// Se conecta directamente a las tablas 'roles', 'permisos' y 'rol_permiso' en PostgreSQL
+// ============================================================================
+let rolesSistemaLista = [];
+let rolEditandoId = null;
+let setPermisosRolModal = new Set(["eventos:leer", "eventos:escribir", "estadisticas:leer"]);
+
+async function abrirModalGestionRoles() {
+    if (!tienePermiso("usuarios.permisos")) {
+        toast("No tienes permiso para gestionar roles.", "alerta");
+        return;
+    }
+    rolEditandoId = null;
+    const inp = document.getElementById("nuevo-rol-nombre-input");
+    if (inp) inp.value = "";
+    setPermisosRolModal = new Set(["eventos:leer", "eventos:escribir", "estadisticas:leer"]);
+
+    renderizarCasillasPermisosRol();
+    document.getElementById("modal-gestion-roles")?.classList.remove("hidden");
+    await cargarRolesDesdeServidor();
+}
+
+function cerrarModalGestionRoles() {
+    document.getElementById("modal-gestion-roles")?.classList.add("hidden");
+}
+
+function alternarPermisoDeRolNuevo(clave, checked) {
+    if (checked) setPermisosRolModal.add(clave);
+    else setPermisosRolModal.delete(clave);
+    renderizarCasillasPermisosRol();
+}
+
+function renderizarCasillasPermisosRol() {
+    const cont = document.getElementById("lista-permisos-nuevo-rol");
+    if (!cont) return;
+    cont.innerHTML = PERMISOS_BACKEND_ROLES.map(p => {
+        const activo = setPermisosRolModal.has(p.clave);
+        return `
+            <label class="perm-card-label ${activo ? 'checked' : ''}">
+                <div class="flex items-start gap-2.5">
+                    <div class="w-7 h-7 rounded-lg ${activo ? 'bg-[#122652] text-[#F57C00]' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+                        <i class="fa-solid fa-key text-xs"></i>
+                    </div>
+                    <div>
+                        <span class="block text-xs font-extrabold text-[#122652]">${esc(p.titulo)}</span>
+                        <span class="block text-[10px] text-[#5B6670] leading-tight mt-0.5">${esc(p.desc)}</span>
+                    </div>
+                </div>
+                <input type="checkbox" class="perm-toggle-input"
+                    ${activo ? "checked" : ""}
+                    onchange="alternarPermisoDeRolNuevo('${esc(p.clave)}', this.checked)">
+            </label>
+        `;
+    }).join("");
+}
+
+async function cargarRolesDesdeServidor() {
+    const cont = document.getElementById("lista-roles-existentes-bd");
+    if (!cont) return;
+    cont.innerHTML = `<div class="p-4 text-center text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i> Consultando tabla 'roles' en PostgreSQL...</div>`;
+
+    try {
+        rolesSistemaLista = await api("/admin/roles");
+        renderizarListaRolesBD();
+    } catch (err) {
+        cont.innerHTML = `<div class="p-4 text-center text-xs text-red-500 font-semibold">${esc(err.message)}</div>`;
+    }
+}
+
+function renderizarListaRolesBD() {
+    const cont = document.getElementById("lista-roles-existentes-bd");
+    if (!cont) return;
+    if (!rolesSistemaLista.length) {
+        cont.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">No hay roles registrados.</div>`;
+        return;
+    }
+
+    cont.innerHTML = rolesSistemaLista.map(r => {
+        const esBase = ["Administrador", "Editor", "Usuario Regular"].includes(r.nombre);
+        const chips = (r.permisos || []).map(c =>
+            `<span class="px-2 py-0.5 rounded-md bg-sky-50 text-[#122652] border border-sky-200 text-[10px] font-mono font-bold">${esc(c)}</span>`
+        ).join(" ");
+
+        return `
+            <div class="p-3.5 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-extrabold text-[#122652]"><i class="fa-solid fa-user-tag text-[#F57C00] mr-1.5"></i>${esc(r.nombre)}</span>
+                        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">ID #${Number(r.id)}</span>
+                        ${esBase ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Rol del Sistema</span>` : `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Rol Personalizado</span>`}
+                    </div>
+                    <div class="flex flex-wrap gap-1 pt-0.5">${chips || '<span class="text-[10px] text-slate-400">Sin permisos asignados</span>'}</div>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <button type="button" onclick="cargarRolEnFormulario(${Number(r.id)})"
+                        class="text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#122652] transition">
+                        <i class="fa-solid fa-pen-to-square mr-1"></i>Editar Permisos
+                    </button>
+                    ${!esBase ? `
+                        <button type="button" onclick="eliminarRolDeBD(${Number(r.id)}, '${esc(r.nombre)}')"
+                            class="text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    ` : ""}
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
+function cargarRolEnFormulario(rolId) {
+    const r = rolesSistemaLista.find(x => x.id === rolId);
+    if (!r) return;
+    rolEditandoId = r.id;
+    const inp = document.getElementById("nuevo-rol-nombre-input");
+    if (inp) inp.value = r.nombre;
+    setPermisosRolModal = new Set(r.permisos || []);
+    renderizarCasillasPermisosRol();
+    const btnTxt = document.getElementById("btn-guardar-rol-texto");
+    if (btnTxt) btnTxt.innerText = `Actualizar Permisos del Rol "${r.nombre}"`;
+}
+
+async function guardarRolEnBD(e) {
+    e.preventDefault();
+    const nombre = (document.getElementById("nuevo-rol-nombre-input")?.value || "").trim();
+    const claves = [...setPermisosRolModal];
+    if (!nombre) {
+        toast("Escribe un nombre para el rol (ej. Auxiliar).", "alerta");
+        return;
+    }
+
+    try {
+        const existente = rolesSistemaLista.find(r => r.id === rolEditandoId || r.nombre.toLowerCase() === nombre.toLowerCase());
+        if (existente) {
+            await api(`/admin/roles/${existente.id}/permisos`, {
+                method: "PUT",
+                json: { claves_permisos: claves }
+            });
+            toast(`Permisos del rol "${existente.nombre}" actualizados en PostgreSQL.`, "exito");
+        } else {
+            const creado = await api("/admin/roles", {
+                method: "POST",
+                json: { nombre, claves_permisos: claves }
+            });
+            // Asegurar también por PUT si el backend original separa creación y asignación
+            if (creado && creado.id && claves.length > 0) {
+                try {
+                    await api(`/admin/roles/${creado.id}/permisos`, {
+                        method: "PUT",
+                        json: { claves_permisos: claves }
+                    });
+                } catch (_) {}
+            }
+            toast(`Nuevo rol "${nombre}" creado y guardado en PostgreSQL.`, "exito");
+        }
+
+        rolEditandoId = null;
+        document.getElementById("nuevo-rol-nombre-input").value = "";
+        const btnTxt = document.getElementById("btn-guardar-rol-texto");
+        if (btnTxt) btnTxt.innerText = "Crear Rol y Asignar Permisos en BD";
+        await cargarRolesDesdeServidor();
+    } catch (err) {
+        toast(err.message || "Error al guardar el rol en la base de datos.", "error");
+    }
+}
+
+async function eliminarRolDeBD(rolId, nombre) {
+    if (!confirm(`¿Deseas eliminar el rol "${nombre}" de la base de datos?`)) return;
+    try {
+        await api(`/admin/roles/${rolId}`, { method: "DELETE" });
+        toast(`Rol "${nombre}" eliminado.`, "exito");
+        await cargarRolesDesdeServidor();
+    } catch (err) {
+        toast(err.message || "No se pudo eliminar el rol.", "error");
+    }
+}

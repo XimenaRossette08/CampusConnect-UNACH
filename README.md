@@ -66,8 +66,6 @@ Puedes instalar directamente la versión compilada para Android en tu teléfono 
 
 ## 📱 Capturas de Pantalla
 
-> 💡 **Nota:** Guarda las imágenes dentro de `assets/screenshots/` en tu repositorio para visualizarlas en las tablas inferiores (o arrástralas directamente en el editor web de GitHub).
-
 ### Vistas Principales
 
 <div align="center">
@@ -75,7 +73,6 @@ Puedes instalar directamente la versión compilada para Android en tu teléfono 
     <tr>
       <td align="center"><b>1. Inicio de Sesión / Registro</b></td>
       <td align="center"><b>2. Pantalla Principal (Feed)</b></td>
-      <td align="center"><b>3. Eventos y Avisos</b></td>
     </tr>
     <tr>
       <td>
@@ -84,13 +81,9 @@ Puedes instalar directamente la versión compilada para Android en tu teléfono 
       <td>
         <img src="assets/screenshots/home.png" alt="Pantalla Principal" width="240" />
       </td>
-      <td>
-        <img src="assets/screenshots/eventos.png" alt="Pantalla de Eventos" width="240" />
-      </td>
     </tr>
     <tr>
       <td align="center"><i>Acceso seguro institucional y 2FA</i></td>
-      <td align="center"><i>Noticias y comunicados oficiales</i></td>
       <td align="center"><i>Agenda de actividades UNACH</i></td>
     </tr>
   </table>
@@ -103,16 +96,14 @@ Puedes instalar directamente la versión compilada para Android en tu teléfono 
 <div align="center">
   <table>
     <tr>
-      <td align="center"><b>4. Egresados e Insignias</b></td>
-      <td align="center"><b>5. Directorio del Campus</b></td>
+      <td align="center"><b>4.Insignias</b></td>
       <td align="center"><b>6. Perfil de Usuario</b></td>
     </tr>
     <tr>
       <td>
-        <img src="assets/screenshots/egresados.png" alt="Egresados e Insignias" width="240" />
+        <img src="assets/screenshots/egresados.png" alt="Insignias" width="240" />
       </td>
       <td>
-        <img src="assets/screenshots/mapa.png" alt="Directorio del Campus" width="240" />
       </td>
       <td>
         <img src="assets/screenshots/perfil.png" alt="Perfil de Usuario" width="240" />
@@ -120,7 +111,6 @@ Puedes instalar directamente la versión compilada para Android en tu teléfono 
     </tr>
     <tr>
       <td align="center"><i>Catálogo e insignias académicas</i></td>
-      <td align="center"><i>Ubicación de facultades y áreas</i></td>
       <td align="center"><i>Gestión de datos del alumno</i></td>
     </tr>
   </table>

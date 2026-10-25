@@ -212,10 +212,23 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                     )
                 )
 
-                if (respuesta.isSuccessful) {
-                    // Pedir siempre el código de 6 dígitos al iniciar sesión
-                    otpCode = ""
-                    showOtpDialog = true
+                if (respuesta.isSuccessful && respuesta.body() != null) {
+                    val body = respuesta.body()!!
+                    if (body.requiere2fa) {
+                        otpCode = ""
+                        showOtpDialog = true
+                    } else if (!body.accessToken.isNullOrBlank()) {
+                        // El 2FA sigue vigente: guardamos sesión y entramos directo
+                        TokenManager.guardarSesion(
+                            context = context,
+                            token = body.accessToken!!,
+                            refreshToken = body.refreshToken ?: "",
+                            email = correoLimpio,
+                            rol = body.role ?: "Usuario Regular",
+                            actualizarMarca2FA = false
+                        )
+                        finalizarAccesoOVincularHuella(correoLimpio, passwordLimpia)
+                    }
                 } else {
                     Toast.makeText(context, "Correo o contraseña incorrectos", Toast.LENGTH_SHORT).show()
                 }

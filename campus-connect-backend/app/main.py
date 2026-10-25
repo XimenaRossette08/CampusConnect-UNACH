@@ -148,24 +148,29 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ==============================================================================
 # EXIGENCIA 5 DEL PDF: CORS ESTRICTO (SIN COMODÍN '*' NI REGEX GLOBAL)
 # ==============================================================================
-origenes_defecto = (
-    "http://localhost:8080,http://127.0.0.1:8080,"
-    "http://localhost:5500,http://127.0.0.1:5500,"
-    "http://localhost:3000,http://127.0.0.1:3000,"
-    "http://localhost:8000,http://127.0.0.1:8000"
-)
-origenes_permitidos = [
-    origen.strip()
-    for origen in os.getenv("CORS_ORIGINS", origenes_defecto).split(",")
+origenes_defecto = [
+    "http://localhost:8080", "http://127.0.0.1:8080",
+    "http://localhost:5500", "http://127.0.0.1:5500",
+    "http://localhost:5501", "http://127.0.0.1:5501",
+    "http://localhost:5502", "http://127.0.0.1:5502",
+    "http://localhost:3000", "http://127.0.0.1:3000",
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "http://localhost:8000", "http://127.0.0.1:8000",
+]
+origenes_env = [
+    origen.strip().rstrip("/")
+    for origen in os.getenv("CORS_ORIGINS", "").split(",")
     if origen.strip() and origen.strip() != "*"
 ]
+# Combinar siempre los orígenes locales por defecto con los del .env para no bloquear Live Server (:5500)
+origenes_permitidos = list(dict.fromkeys(origenes_defecto + origenes_env))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origenes_permitidos,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

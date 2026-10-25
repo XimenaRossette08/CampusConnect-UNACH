@@ -37,7 +37,7 @@ router = APIRouter(prefix="/auth", tags=["autenticación"])
 limiter = Limiter(key_func=get_remote_address)
 # Pon MODO_PRUEBAS_2FA = True para que en tus pruebas el 2FA venza en 1 minuto.
 # Déjalo en False para que la sesión y el 2FA duren 30 DÍAS (1 mes) sin pedir código.
-MODO_PRUEBAS_2FA = True
+MODO_PRUEBAS_2FA = False
 DURACION_VIGENCIA_2FA = timedelta(minutes=1) if MODO_PRUEBAS_2FA else timedelta(days=30)
 
 ACCESS_COOKIE_MAX_AGE = 20 * 60

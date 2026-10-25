@@ -2,28 +2,42 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 
+from dotenv import load_dotenv
 
-
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "").strip()
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
-SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USER
+# Cargar variables del archivo .env en la raíz del backend
+_BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(_BASE_DIR / ".env", override=True)
+load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 
 def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
-    if not SMTP_USER or not SMTP_PASSWORD:
-        print("[SMTP] ERROR: Faltan credenciales en .env (SMTP_USER y SMTP_PASSWORD).")
+    # Recargar .env por si se editó mientras el servidor estaba corriendo
+    load_dotenv(_BASE_DIR / ".env", override=True)
+
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587").strip())
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    # Quitamos espacios internos por si la contraseña de aplicación de Google tiene espacios
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip().replace(" ", "")
+    smtp_from = os.getenv("SMTP_FROM", "").strip() or smtp_user
+
+    if not smtp_user or not smtp_password:
+        print(f"[SMTP] ERROR: Faltan SMTP_USER y SMTP_PASSWORD en {_BASE_DIR / '.env'}")
         print(f"[SMTP] Para pruebas locales tu código es: {codigo}")
         return False
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Tu código de acceso es {codigo} — Campus Connect UNACH"
-    msg["From"] = f"Campus Connect UNACH <{SMTP_FROM}>"
+    msg["From"] = f"Campus Connect UNACH <{smtp_from}>"
     msg["To"] = destinatario
 
-    texto_plano = f"Campus Connect UNACH\n\nTu código de verificación es: {codigo}\n\nVálido por 5 minutos."
+    texto_plano = (
+        f"Campus Connect UNACH\n\n"
+        f"Tu código de verificación es: {codigo}\n\n"
+        f"Este código y tu verificación tienen una vigencia de 1 mes (30 días)."
+    )
     html_contenido = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -53,9 +67,9 @@ def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
             <p class="instruction">Hola. Estás iniciando sesión en <b>Campus Connect UNACH</b>.<br>Ingresa este código en tu aplicación para continuar:</p>
             <div class="code-box">
                 <div class="code">{codigo}</div>
-                <div class="validity">Válido durante 5 minutos</div>
+                <div class="validity">Vigencia de verificación: 30 días (1 mes)</div>
             </div>
-            <p class="security-note">Al verificar tu código en este dispositivo, tu sesión se mantendrá activa por <b>30 días</b>.</p>
+            <p class="security-note">Al verificar tu código en este dispositivo, no se te volverá a solicitar otro código durante <b>1 mes (30 días)</b>.</p>
         </div>
         <div class="footer">“Por la conciencia de la necesidad de servir” — UNACH</div>
     </div>
@@ -65,17 +79,17 @@ def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
     msg.attach(MIMEText(texto_plano, "plain", "utf-8"))
     msg.attach(MIMEText(html_contenido, "html", "utf-8"))
 
-    if SMTP_PORT == 465:
-        server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15)
+    if smtp_port == 465:
+        server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
     else:
-        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
         server.ehlo()
         server.starttls()
         server.ehlo()
 
     try:
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_FROM, [destinatario], msg.as_string())
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_from, [destinatario], msg.as_string())
         print(f"[SMTP] Correo 2FA enviado exitosamente a {destinatario}")
         return True
     except Exception as e:

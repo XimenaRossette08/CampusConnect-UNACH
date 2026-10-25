@@ -1,6 +1,7 @@
 import os
 import random
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
@@ -14,12 +15,10 @@ from ..email_utils import enviar_correo_codigo_2fa
 from ..models_auth import Rol, Usuario
 from ..schemas_auth import (
     CambiarPasswordRequest,
-    LoginRequest,
     RefreshRequest,
     RestablecerPasswordRequest,
     SolicitarRecuperacionRequest,
     TokenPair,
-    UsuarioCreate,
     UsuarioOut,
 )
 from ..security import (
@@ -35,13 +34,34 @@ from ..security import (
 
 router = APIRouter(prefix="/auth", tags=["autenticación"])
 limiter = Limiter(key_func=get_remote_address)
+
+# ==============================================================================
+# CONFIGURACIÓN DEL TIEMPO DE VIGENCIA DEL 2FA Y SESIÓN (1 MES VS PRUEBAS)
+# ==============================================================================
 # Pon MODO_PRUEBAS_2FA = True para que en tus pruebas el 2FA venza en 1 minuto.
 # Déjalo en False para que la sesión y el 2FA duren 30 DÍAS (1 mes) sin pedir código.
 MODO_PRUEBAS_2FA = False
+
 DURACION_VIGENCIA_2FA = timedelta(minutes=1) if MODO_PRUEBAS_2FA else timedelta(days=30)
 
-ACCESS_COOKIE_MAX_AGE = 20 * 60
-REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60
+ACCESS_COOKIE_MAX_AGE = 60 if MODO_PRUEBAS_2FA else (30 * 24 * 60 * 60)
+REFRESH_COOKIE_MAX_AGE = 120 if MODO_PRUEBAS_2FA else (30 * 24 * 60 * 60)
+
+
+class RegistroUsuarioInput(BaseModel):
+    nombre: str
+    email: EmailStr
+    password: str
+    es_egresado: bool = False
+    email_secundario: Optional[EmailStr] = None
+    telefono_principal: Optional[str] = None
+    telefono_secundario: Optional[str] = None
+
+
+class LoginUsuarioInput(BaseModel):
+    email: EmailStr
+    password: str
+    dispositivo_confiable: bool = False
 
 
 class Verificar2FARequest(BaseModel):
@@ -75,20 +95,44 @@ def _set_cookies_de_sesion(response: Response, access_token: str, refresh_token:
 
 
 @router.post("/registro", response_model=UsuarioOut, status_code=status.HTTP_201_CREATED)
-def registrar_usuario(datos: UsuarioCreate, db: Session = Depends(get_db)):
-    ya_existe = db.query(Usuario).filter(Usuario.email == datos.email).first()
+def registrar_usuario(datos: RegistroUsuarioInput, db: Session = Depends(get_db)):
+    email_principal = datos.email.strip().lower()
+    ya_existe = db.query(Usuario).filter(Usuario.email == email_principal).first()
     if ya_existe:
-        raise HTTPException(status_code=400, detail="No fue posible completar el registro")
+        raise HTTPException(status_code=400, detail="El correo electrónico ya está registrado")
+
+    email_sec = None
+    tel_1 = None
+    tel_2 = None
+
+    # Validaciones específicas cuando se registra un Alumno Egresado
+    if datos.es_egresado:
+        if not datos.email_secundario:
+            raise HTTPException(status_code=400, detail="Los alumnos egresados deben proporcionar dos correos electrónicos")
+        email_sec = datos.email_secundario.strip().lower()
+        if email_sec == email_principal:
+            raise HTTPException(status_code=400, detail="Los dos correos electrónicos del alumno egresado deben ser diferentes")
+
+        tel_1 = (datos.telefono_principal or "").strip()
+        tel_2 = (datos.telefono_secundario or "").strip()
+        if len(tel_1) < 10 or len(tel_2) < 10:
+            raise HTTPException(status_code=400, detail="Los alumnos egresados deben proporcionar dos números telefónicos de 10 dígitos")
+        if tel_1 == tel_2:
+            raise HTTPException(status_code=400, detail="Los dos números telefónicos del alumno egresado deben ser diferentes")
 
     rol_por_defecto = db.query(Rol).filter(Rol.nombre == "Usuario Regular").first()
     if rol_por_defecto is None:
         raise HTTPException(status_code=500, detail="No fue posible completar el registro")
 
     nuevo_usuario = Usuario(
-        nombre=datos.nombre,
-        email=datos.email,
+        nombre=datos.nombre.strip(),
+        email=email_principal,
         password_hash=hash_password(datos.password),
         rol_id=rol_por_defecto.id,
+        es_egresado=datos.es_egresado,
+        email_secundario=email_sec,
+        telefono_principal=tel_1,
+        telefono_secundario=tel_2,
     )
     db.add(nuevo_usuario)
     db.commit()
@@ -97,14 +141,15 @@ def registrar_usuario(datos: UsuarioCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 def iniciar_sesion(
     request: Request,
-    datos: LoginRequest,
+    response: Response,
+    datos: LoginUsuarioInput,
     db: Session = Depends(get_db),
 ):
     ip = _ip_del_request(request)
-    usuario = db.query(Usuario).filter(Usuario.email == datos.email).first()
+    usuario = db.query(Usuario).filter(Usuario.email == datos.email.strip().lower()).first()
 
     credenciales_validas = (
         usuario is not None
@@ -118,18 +163,37 @@ def iniciar_sesion(
 
     registrar_auditoria(db, usuario_email=usuario.email, ip=ip, accion="login", exitoso=True)
 
-    # Generar código de 6 dígitos y expiración a 5 minutos
+    # Verificar si el usuario ya validó su 2FA y sigue vigente dentro del mes (30 días)
+    ahora = datetime.now(timezone.utc)
+    ultima_2fa = getattr(usuario, "ultima_verificacion_2fa", None)
+    if ultima_2fa is not None and bool(usuario.codigo_2fa):
+        if ultima_2fa.tzinfo is None:
+            ultima_2fa = ultima_2fa.replace(tzinfo=timezone.utc)
+        if (ahora - ultima_2fa) <= DURACION_VIGENCIA_2FA:
+            access_token = crear_access_token(usuario.email)
+            refresh_token = crear_refresh_token(usuario.email)
+            _set_cookies_de_sesion(response, access_token, refresh_token)
+            rol_nombre = usuario.rol.nombre if usuario.rol else "Usuario Regular"
+            return {
+                "requiere_2fa": False,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "role": rol_nombre,
+                "mensaje": "Sesión iniciada directamente (2FA vigente por 1 mes)",
+                "email": usuario.email,
+            }
+
+    # Si es la primera vez o ya venció el mes (30 días), generar código con vigencia de 1 mes
     codigo_6_digitos = f"{random.randint(100000, 999999)}"
     usuario.codigo_2fa = codigo_6_digitos
-    usuario.codigo_2fa_expiracion = datetime.now(timezone.utc) + timedelta(minutes=5)
+    usuario.codigo_2fa_expiracion = ahora + DURACION_VIGENCIA_2FA
+    usuario.ultima_verificacion_2fa = None
     db.commit()
 
-    # Muestra el código en la consola de Uvicorn para facilitar las pruebas locales
     print("\n==========================================")
-    print(f"[2FA] CÓDIGO GENERADO PARA {usuario.email}: {codigo_6_digitos}")
+    print(f"[2FA] CÓDIGO GENERADO PARA {usuario.email}: {codigo_6_digitos} (Vigente por 30 días)")
     print("==========================================\n")
 
-    # Envío del correo por SMTP
     try:
         enviar_correo_codigo_2fa(usuario.email, codigo_6_digitos)
     except Exception as e:
@@ -143,14 +207,14 @@ def iniciar_sesion(
 
 
 @router.post("/verificar-2fa", response_model=TokenPair)
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 def verificar_2fa(
     request: Request,
     response: Response,
     datos: Verificar2FARequest,
     db: Session = Depends(get_db),
 ):
-    usuario = db.query(Usuario).filter(Usuario.email == datos.email).first()
+    usuario = db.query(Usuario).filter(Usuario.email == datos.email.strip().lower()).first()
 
     if not usuario or not usuario.activo or not usuario.codigo_2fa:
         raise HTTPException(status_code=400, detail="Petición de verificación inválida")
@@ -166,12 +230,11 @@ def verificar_2fa(
         if ahora > expiracion:
             raise HTTPException(status_code=400, detail="El código ha expirado, solicita uno nuevo")
 
-    # Limpiar código tras verificación exitosa
-    usuario.codigo_2fa = None
-    usuario.codigo_2fa_expiracion = None
+    # Conservar el código y la marca de verificación vigentes durante 1 mes (30 días)
+    usuario.codigo_2fa_expiracion = ahora + DURACION_VIGENCIA_2FA
+    usuario.ultima_verificacion_2fa = ahora
     db.commit()
 
-    # Emitir tokens y configurar cookies
     access_token = crear_access_token(usuario.email)
     refresh_token = crear_refresh_token(usuario.email)
     _set_cookies_de_sesion(response, access_token, refresh_token)

@@ -215,10 +215,11 @@ fun LoginScreen(onNavigateToAlumno: () -> Unit) {
                 if (respuesta.isSuccessful && respuesta.body() != null) {
                     val body = respuesta.body()!!
                     if (body.requiere2fa) {
+                        // Solo pide el código de 6 dígitos si es la primera vez o ya pasó 1 mes
                         otpCode = ""
                         showOtpDialog = true
                     } else if (!body.accessToken.isNullOrBlank()) {
-                        // El 2FA sigue vigente: guardamos sesión y entramos directo
+                        // El código de verificación de 1 mes sigue vigente: entrar directo
                         TokenManager.guardarSesion(
                             context = context,
                             token = body.accessToken!!,

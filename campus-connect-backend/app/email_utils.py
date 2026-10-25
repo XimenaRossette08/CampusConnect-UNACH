@@ -1,7 +1,10 @@
 import os
 import smtplib
+import ssl
+from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,16 +15,20 @@ load_dotenv(_BASE_DIR / ".env", override=True)
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 
+def _limpiar_env(valor: str) -> str:
+    return (valor or "").strip().strip('"').strip("'")
+
+
 def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
     # Recargar .env por si se editó mientras el servidor estaba corriendo
     load_dotenv(_BASE_DIR / ".env", override=True)
 
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "587").strip())
-    smtp_user = os.getenv("SMTP_USER", "").strip()
-    # Quitamos espacios internos por si la contraseña de aplicación de Google tiene espacios
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip().replace(" ", "")
-    smtp_from = os.getenv("SMTP_FROM", "").strip() or smtp_user
+    smtp_host = _limpiar_env(os.getenv("SMTP_HOST", "smtp.gmail.com")) or "smtp.gmail.com"
+    smtp_port_cfg = int(_limpiar_env(os.getenv("SMTP_PORT", "465")) or "465")
+    smtp_user = _limpiar_env(os.getenv("SMTP_USER", ""))
+    # Quitamos comillas y espacios internos de la Contraseña de Aplicación de Google (16 letras)
+    smtp_password = _limpiar_env(os.getenv("SMTP_PASSWORD", "")).replace(" ", "")
+    smtp_from = _limpiar_env(os.getenv("SMTP_FROM", "")) or smtp_user
 
     if not smtp_user or not smtp_password:
         print(f"[SMTP] ERROR: Faltan SMTP_USER y SMTP_PASSWORD en {_BASE_DIR / '.env'}")
@@ -29,8 +36,8 @@ def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
         return False
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Tu código de acceso es {codigo} — Campus Connect UNACH"
-    msg["From"] = f"Campus Connect UNACH <{smtp_from}>"
+    msg["Subject"] = Header(f"Tu código de acceso es {codigo} - Campus Connect UNACH", "utf-8")
+    msg["From"] = formataddr((str(Header("Campus Connect UNACH", "utf-8")), smtp_from))
     msg["To"] = destinatario
 
     texto_plano = (
@@ -79,24 +86,41 @@ def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
     msg.attach(MIMEText(texto_plano, "plain", "utf-8"))
     msg.attach(MIMEText(html_contenido, "html", "utf-8"))
 
-    if smtp_port == 465:
-        server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
-    else:
-        server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
+    # Probar primero por SSL directo (puerto 465) y, si la red o antivirus bloquea, probar STARTTLS (puerto 587)
+    puertos_a_probar = [465, 587] if smtp_port_cfg == 465 else [smtp_port_cfg, 465, 587]
+    puertos_a_probar = list(dict.fromkeys(puertos_a_probar))
 
-    try:
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_from, [destinatario], msg.as_string())
-        print(f"[SMTP] Correo 2FA enviado exitosamente a {destinatario}")
-        return True
-    except Exception as e:
-        print(f"[SMTP] ERROR al autenticar o enviar correo: {e}")
-        raise
-    finally:
+    ultimo_error = None
+    contexto_ssl = ssl.create_default_context()
+
+    for puerto in puertos_a_probar:
+        server = None
         try:
-            server.quit()
-        except Exception:
-            pass
+            if puerto == 465:
+                server = smtplib.SMTP_SSL(smtp_host, 465, timeout=20, context=contexto_ssl)
+                server.ehlo()
+            else:
+                server = smtplib.SMTP(smtp_host, puerto, timeout=20)
+                server.ehlo()
+                server.starttls(context=contexto_ssl)
+                server.ehlo()
+
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_from, [destinatario], msg.as_string())
+            print(f"[SMTP] Correo 2FA enviado exitosamente a {destinatario} (puerto {puerto})")
+            return True
+        except Exception as e:
+            ultimo_error = e
+            print(f"[SMTP] Intento por puerto {puerto} falló ({type(e).__name__}: {e}). Probando alternativa...")
+        finally:
+            if server is not None:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
+
+    print(
+        f"[SMTP] ERROR FINAL al enviar correo con usuario '{smtp_user}' "
+        f"(longitud password={len(smtp_password)}): {ultimo_error}"
+    )
+    return False

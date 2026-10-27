@@ -55,7 +55,6 @@ private val EtdaOrange = Color(0xFFF57C00)
 private val EtdaBg = Color(0xFFF4F7FB)
 private val EtdaSuccess = Color(0xFF10B981)
 
-// Zona horaria oficial de México para evitar desfase UTC en el emulador
 private val zonaHorariaMx: TimeZone = TimeZone.getTimeZone("America/Mexico_City")
 private val localeMx = Locale("es", "MX")
 
@@ -63,7 +62,6 @@ private fun obtenerCalendarioLocalMx(): Calendar {
     return Calendar.getInstance(zonaHorariaMx, localeMx)
 }
 
-// Modelo de datos compatible con todas las versiones de Android
 private data class DiaMesContext(
     val dia: Int,
     val mes: Int,
@@ -74,7 +72,6 @@ private data class DiaMesContext(
     fun esValido() = dia > 0
 }
 
-// Configuración visual por categoría conectada con el backend de Yasir y el sistema de Insignias
 private data class InfoCategoria(
     val nombre: String,
     val icono: ImageVector,
@@ -91,7 +88,6 @@ private val listaCategorias = listOf(
     InfoCategoria("Académicos", Icons.Default.MenuBook, EtdaNavy)
 )
 
-// Usa primero el campo `evento.categoria` que agregó Yasir en el backend, o lo detecta del texto
 private fun detectarCategoriaEvento(evento: Evento): InfoCategoria {
     val catBackend = (evento.categoria ?: "").lowercase()
     val texto = "$catBackend ${evento.titulo} ${evento.descripcion}".lowercase()
@@ -105,7 +101,6 @@ private fun detectarCategoriaEvento(evento: Evento): InfoCategoria {
     }
 }
 
-// Conserva el 15 de Octubre por defecto o extrae la fecha real del servidor
 private fun extraerFechaVisual(fechaHora: String?): Triple<String, String, String> {
     if (fechaHora.isNullOrBlank()) return Triple("OCT", "15", "10:00")
     return try {
@@ -135,11 +130,9 @@ fun EventosScreen(
     var eventoSeleccionado by remember { mutableStateOf<Evento?>(null) }
     var calendarioExpandido by remember { mutableStateOf(true) }
 
-    // 0 = Próximos Eventos, 1 = Mis Inscritos
     var tabVistaEventos by remember { mutableIntStateOf(0) }
     val eventosInscritos = remember { mutableStateListOf<String>() }
 
-    // Estado del Motor del Calendario con zona horaria de México
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
     var fechaSeleccionada by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
 
@@ -204,7 +197,6 @@ fun EventosScreen(
             .background(EtdaBg),
         contentPadding = PaddingValues(bottom = 32.dp)
     ) {
-        // 1. BANNER SUPERIOR CON BUSCADOR
         item {
             Box(
                 modifier = Modifier
@@ -304,7 +296,6 @@ fun EventosScreen(
             }
         }
 
-        // 2. CARRUSEL DE CATEGORÍAS ANIMADO
         item {
             Column(modifier = Modifier.padding(top = 14.dp, bottom = 6.dp)) {
                 Text(
@@ -371,7 +362,6 @@ fun EventosScreen(
             }
         }
 
-        // 3. TARJETA DEL CALENDARIO INTERACTIVO (DESPLEGABLE)
         item {
             Card(
                 modifier = Modifier
@@ -468,7 +458,6 @@ fun EventosScreen(
             }
         }
 
-        // 4. SELECTOR DE PESTAÑAS: "PRÓXIMOS EVENTOS" VS "MIS INSCRITOS"
         item {
             Column(
                 modifier = Modifier
@@ -608,7 +597,6 @@ fun EventosScreen(
             }
         }
 
-        // 5. LISTADO DE TARJETAS CON ANIMACIÓN DE ENTRADA
         when {
             cargando -> item {
                 Box(
@@ -718,7 +706,6 @@ fun EventosScreen(
         }
     }
 
-    // 6. MODAL BOTTOM SHEET CON FLYER + ARCHIVOS PDF DE YASIR + DISEÑO ETDA
     eventoSeleccionado?.let { evento ->
         val yaInscrito = eventosInscritos.contains(evento.titulo)
         DetalleEventoSheet(
@@ -1206,6 +1193,7 @@ private fun DetalleEventoSheet(
     onDismiss: () -> Unit,
     onToggleInscripcion: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var isInscrito by remember(estaInscrito) { mutableStateOf(estaInscrito) }
     val catInfo = detectarCategoriaEvento(evento)
@@ -1230,7 +1218,6 @@ private fun DetalleEventoSheet(
                 .padding(horizontal = 22.dp)
                 .padding(bottom = 32.dp)
         ) {
-            // FLYER DEL EVENTO (Integración de Yasir con Coil AsyncImage)
             if (!evento.imagenUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = evento.imagenUrl,
@@ -1292,9 +1279,9 @@ private fun DetalleEventoSheet(
                             shape = RoundedCornerShape(50)
                         ) {
                             Text(
-                                text = "$diaTxt $mesTxt • $horaTxt hrs",
+                                text = "$diaTxt $mesTxt | $horaTxt hrs",
                                 color = Color.White,
-                                fontSize = 10.sp, // ✅ Letra más pequeña para que encaje siempre
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 softWrap = false,
@@ -1317,15 +1304,36 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ✅ TARJETAS DE UBICACIÓN Y RECOMPENSA CORREGIDAS
+            // TARJETAS DE UBICACIÓN CON LÓGICA HÍBRIDA
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Surface(
-                    modifier = Modifier.weight(1f),
-                    color = EtdaBg,
-                    shape = RoundedCornerShape(14.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable {
+                            if (!evento.urlMaps.isNullOrBlank()) {
+                                // Si Yasir guardó el link exacto, lo abre directo
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(evento.urlMaps))
+                                context.startActivity(intent)
+                            } else {
+                                // Si no hay link, busca por texto con el prefijo
+                                val query = Uri.encode("UNACH ETDA-CI ${evento.lugar}")
+                                val uri = Uri.parse("geo:0,0?q=$query")
+                                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                    setPackage("com.google.android.apps.maps")
+                                }
+                                if (intent.resolveActivity(context.packageManager) != null) {
+                                    context.startActivity(intent)
+                                } else {
+                                    val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query")
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+                                }
+                            }
+                        },
+                    color = EtdaBg
                 ) {
                     Row(
                         modifier = Modifier.padding(10.dp),
@@ -1340,10 +1348,25 @@ private fun DetalleEventoSheet(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = EtdaNavy,
-                                maxLines = 2, // ✅ Ahora se ajusta a 2 renglones si no cabe
-                                lineHeight = 14.sp,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Toca para abrir Maps",
+                                    fontSize = 9.sp,
+                                    color = EtdaBlue,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = null,
+                                    tint = EtdaBlue,
+                                    modifier = Modifier.size(9.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1366,7 +1389,7 @@ private fun DetalleEventoSheet(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = EtdaNavy,
-                                maxLines = 2, // ✅ Ahora se ajusta a 2 renglones si no cabe
+                                maxLines = 2,
                                 lineHeight = 14.sp,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1447,7 +1470,7 @@ private fun DetalleEventoSheet(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "El administrador confirmará tu asistencia el día del evento. Ya puedes verlo en la pestaña 'Mis Inscritos'.",
+                                text = "¡Inscripción confirmada automáticamente! Tu lugar está asegurado. Ya puedes verlo en la pestaña 'Mis Inscritos'.",
                                 color = Color(0xFF047857),
                                 fontSize = 12.sp,
                                 lineHeight = 16.sp
@@ -1473,12 +1496,10 @@ private fun DetalleEventoSheet(
                 }
             }
 
-            // SECCIÓN DE ARCHIVOS ADJUNTOS (IMÁGENES Y PDFs DE YASIR)
             ArchivosDelEvento(evento.materiales)
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ✅ BOTONES INFERIORES PROTEGIDOS PARA QUE NUNCA SE APLASTEN
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1498,7 +1519,7 @@ private fun DetalleEventoSheet(
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
                         maxLines = 1,
-                        softWrap = false // 🛡️ Prohíbe que el texto salte de renglón
+                        softWrap = false
                     )
                 }
 
@@ -1530,7 +1551,7 @@ private fun DetalleEventoSheet(
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 13.sp,
                         maxLines = 1,
-                        softWrap = false // 🛡️ Prohíbe que el texto salte de renglón
+                        softWrap = false
                     )
                 }
             }
@@ -1538,7 +1559,6 @@ private fun DetalleEventoSheet(
     }
 }
 
-/** Lista de archivos adjuntos (imágenes y PDFs) del evento creada por Yasir, estilizada con la paleta ETDA */
 @Composable
 private fun ArchivosDelEvento(archivos: List<ArchivoEvento>) {
     if (archivos.isEmpty()) return
@@ -1547,7 +1567,6 @@ private fun ArchivosDelEvento(archivos: List<ArchivoEvento>) {
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(archivo.url)))
         } catch (_: ActivityNotFoundException) {
-            // Sin app que abra este tipo de archivo
         }
     }
 

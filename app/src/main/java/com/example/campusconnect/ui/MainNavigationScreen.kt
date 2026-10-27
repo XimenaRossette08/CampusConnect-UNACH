@@ -28,7 +28,6 @@ import com.example.campusconnect.ComposeLoginActivity
 import com.example.campusconnect.TokenManager
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
-import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
 // Paleta Oficial ETDA - UNACH (pública para todas las pantallas)

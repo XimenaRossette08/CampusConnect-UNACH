@@ -7,9 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.campusconnect"
-    compileSdk {
-        version = release(37)
-    }
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.campusconnect"
@@ -23,9 +21,7 @@ android {
 
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = false
         }
     }
     compileOptions {
@@ -75,4 +71,19 @@ dependencies {
     // Firebase Cloud Messaging (Notificaciones Push)
     implementation(platform("com.google.firebase:firebase-bom:33.4.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
+
+    // ======== NUEVAS LIBRERÍAS PARA ASISTENCIA (CÁMARA Y GPS) ========
+
+    // CameraX para controlar la cámara de forma nativa
+    val cameraxVersion = "1.3.1"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+
+    // Google ML Kit para leer el código QR al instante
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+
+    // Play Services para obtener las coordenadas GPS exactas
+    implementation("com.google.android.gms:play-services-location:21.1.0")
 }

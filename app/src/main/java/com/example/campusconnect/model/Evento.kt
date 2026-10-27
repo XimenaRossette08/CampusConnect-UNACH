@@ -23,6 +23,8 @@ data class Evento(
     val lugar: String,
     @SerializedName(value = "imagenUrl", alternate = ["imagen_url"]) val imagenUrl: String? = null,
     val categoria: String? = null,
+    // NUEVO CAMPO PARA GOOGLE MAPS
+    @SerializedName(value = "urlMaps", alternate = ["url_maps"]) val urlMaps: String? = null,
     val archivos: List<ArchivoEvento>? = null
 ) {
     /** Archivos que deben ver los alumnos (las evidencias son solo para el panel de administración). */
@@ -39,4 +41,4 @@ data class EventoCreateRequest(
     val idFacultadDestino: String? = null,
     val idCarreraDestino: String? = null,
     val gruposDestino: List<String>? = null
-)
+)

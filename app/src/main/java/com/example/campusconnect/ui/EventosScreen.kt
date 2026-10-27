@@ -125,6 +125,9 @@ fun EventosScreen(
     snackbarHostState: SnackbarHostState,
     scope: CoroutineScope
 ) {
+    // ESTADO PARA CONTROLAR LA CÁMARA
+    var mostrarEscaner by remember { mutableStateOf(false) }
+
     var searchQuery by remember { mutableStateOf("") }
     var filtroSeleccionado by remember { mutableStateOf("Todos") }
     var eventoSeleccionado by remember { mutableStateOf<Evento?>(null) }
@@ -191,548 +194,557 @@ fun EventosScreen(
         dias
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(EtdaBg),
-        contentPadding = PaddingValues(bottom = 32.dp)
-    ) {
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(EtdaNavy, Color(0xFF1A3673))
-                        ),
-                        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
-                    )
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Surface(
-                                color = EtdaOrange.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(50),
-                                border = BorderStroke(1.dp, EtdaOrange)
-                            ) {
-                                Text(
-                                    text = "ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS",
-                                    color = Color(0xFFFFB74D),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 0.6.sp,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Cartelera de Eventos",
-                                color = Color.White,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Text(
-                                text = "Participa, consulta materiales y suma asistencias",
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        Surface(
-                            shape = CircleShape,
-                            color = EtdaBlue.copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.5f)),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Eventos",
-                                tint = EtdaOrange,
-                                modifier = Modifier.padding(10.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = {
-                            Text(
-                                "Buscar talleres, conferencias, tutorías...",
-                                fontSize = 13.sp,
-                                color = Color.Gray
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Default.Search, contentDescription = "Buscar", tint = EtdaBlue)
-                        },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = Color.Gray)
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.White,
-                            unfocusedContainerColor = Color.White,
-                            focusedBorderColor = EtdaOrange,
-                            unfocusedBorderColor = Color.Transparent,
-                            cursorColor = EtdaOrange
+    // RUTEO: MUESTRA EL ESCÁNER O LA LISTA DE EVENTOS
+    if (mostrarEscaner) {
+        EscanerQrScreen(onVolver = { mostrarEscaner = false })
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(EtdaBg),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(EtdaNavy, Color(0xFF1A3673))
+                            ),
+                            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
                         )
-                    )
-                }
-            }
-        }
-
-        item {
-            Column(modifier = Modifier.padding(top = 14.dp, bottom = 6.dp)) {
-                Text(
-                    text = "Categorías de participación",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = EtdaNavy.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                )
-
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
                 ) {
-                    itemsIndexed(listaCategorias) { _, cat ->
-                        val seleccionado = filtroSeleccionado == cat.nombre
-                        val bgColor by animateColorAsState(
-                            targetValue = if (seleccionado) EtdaOrange else Color.White,
-                            animationSpec = tween(250),
-                            label = "chipBg"
-                        )
-                        val contentColor by animateColorAsState(
-                            targetValue = if (seleccionado) Color.White else EtdaNavy,
-                            animationSpec = tween(250),
-                            label = "chipContent"
-                        )
-                        val chipScale by animateFloatAsState(
-                            targetValue = if (seleccionado) 1.05f else 1f,
-                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                            label = "chipScale"
-                        )
-
-                        Surface(
-                            modifier = Modifier
-                                .scale(chipScale)
-                                .clickable { filtroSeleccionado = cat.nombre },
-                            shape = RoundedCornerShape(50),
-                            color = bgColor,
-                            shadowElevation = if (seleccionado) 6.dp else 2.dp,
-                            border = if (seleccionado) null else BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.25f))
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = cat.icono,
-                                    contentDescription = cat.nombre,
-                                    tint = if (seleccionado) Color.White else EtdaBlue,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = cat.nombre,
-                                    color = contentColor,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { calendarioExpandido = !calendarioExpandido },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = EtdaBlue.copy(alpha = 0.12f),
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CalendarMonth,
-                                    contentDescription = "Calendario",
-                                    tint = EtdaBlue,
-                                    modifier = Modifier.padding(8.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Agenda Académica",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = EtdaNavy
-                                )
-                                val formatDia = SimpleDateFormat("EEEE d 'de' MMMM", localeMx).apply {
-                                    timeZone = zonaHorariaMx
-                                }
-                                Text(
-                                    text = formatDia.format(fechaSeleccionada.time).replaceFirstChar { it.uppercase() },
-                                    fontSize = 12.sp,
-                                    color = EtdaOrange,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-
-                        IconButton(onClick = { calendarioExpandido = !calendarioExpandido }) {
-                            Icon(
-                                imageVector = if (calendarioExpandido) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = "Expandir/Contraer",
-                                tint = EtdaNavy
-                            )
-                        }
-                    }
-
-                    AnimatedVisibility(
-                        visible = calendarioExpandido,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        Column {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 12.dp),
-                                color = Color(0xFFEEF2F6)
-                            )
-                            CalendarioMesGrid(
-                                mesActual = mesActual,
-                                diasDelMes = diasDelMes,
-                                onMesAnterior = {
-                                    val nuevo = mesActual.clone() as Calendar
-                                    nuevo.add(Calendar.MONTH, -1)
-                                    mesActual = nuevo
-                                },
-                                onMesSiguiente = {
-                                    val nuevo = mesActual.clone() as Calendar
-                                    nuevo.add(Calendar.MONTH, 1)
-                                    mesActual = nuevo
-                                },
-                                onDiaSeleccionado = { diaContext ->
-                                    if (diaContext.esValido()) {
-                                        val nuevo = obtenerCalendarioLocalMx()
-                                        nuevo.set(diaContext.anio, diaContext.mes, diaContext.dia)
-                                        fechaSeleccionada = nuevo
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White,
-                    shadowElevation = 2.dp,
-                    border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.08f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(5.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val tab0Activa = tabVistaEventos == 0
-                        val bgTab0 by animateColorAsState(
-                            targetValue = if (tab0Activa) EtdaNavy else Color.Transparent,
-                            animationSpec = tween(250),
-                            label = "bgTab0"
-                        )
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { tabVistaEventos = 0 },
-                            color = bgTab0,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.EventAvailable,
-                                    contentDescription = null,
-                                    tint = if (tab0Activa) EtdaOrange else EtdaNavy.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Próximos Eventos",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (tab0Activa) Color.White else EtdaNavy.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-
-                        val tab1Activa = tabVistaEventos == 1
-                        val bgTab1 by animateColorAsState(
-                            targetValue = if (tab1Activa) EtdaNavy else Color.Transparent,
-                            animationSpec = tween(250),
-                            label = "bgTab1"
-                        )
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { tabVistaEventos = 1 },
-                            color = bgTab1,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.HowToReg,
-                                    contentDescription = null,
-                                    tint = if (tab1Activa) EtdaOrange else EtdaBlue,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Mis Inscritos",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (tab1Activa) Color.White else EtdaNavy.copy(alpha = 0.7f)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Surface(
-                                    shape = CircleShape,
-                                    color = if (tab1Activa) EtdaOrange else EtdaOrange.copy(alpha = 0.15f)
+                                    color = EtdaOrange.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, EtdaOrange)
                                 ) {
                                     Text(
-                                        text = "${eventosInscritos.size}",
-                                        fontSize = 11.sp,
+                                        text = "ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS",
+                                        color = Color(0xFFFFB74D),
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = if (tab1Activa) Color.White else EtdaOrange,
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp)
+                                        letterSpacing = 0.6.sp,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Cartelera de Eventos",
+                                    color = Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "Participa, consulta materiales y suma asistencias",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Surface(
+                                shape = CircleShape,
+                                color = EtdaBlue.copy(alpha = 0.2f),
+                                border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.5f)),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Eventos",
+                                    tint = EtdaOrange,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = {
+                                Text(
+                                    "Buscar talleres, conferencias, tutorías...",
+                                    fontSize = 13.sp,
+                                    color = Color.Gray
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, contentDescription = "Buscar", tint = EtdaBlue)
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = Color.Gray)
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedBorderColor = EtdaOrange,
+                                unfocusedBorderColor = Color.Transparent,
+                                cursorColor = EtdaOrange
+                            )
+                        )
+                    }
+                }
+            }
+
+            item {
+                Column(modifier = Modifier.padding(top = 14.dp, bottom = 6.dp)) {
+                    Text(
+                        text = "Categorías de participación",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = EtdaNavy.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        itemsIndexed(listaCategorias) { _, cat ->
+                            val seleccionado = filtroSeleccionado == cat.nombre
+                            val bgColor by animateColorAsState(
+                                targetValue = if (seleccionado) EtdaOrange else Color.White,
+                                animationSpec = tween(250),
+                                label = "chipBg"
+                            )
+                            val contentColor by animateColorAsState(
+                                targetValue = if (seleccionado) Color.White else EtdaNavy,
+                                animationSpec = tween(250),
+                                label = "chipContent"
+                            )
+                            val chipScale by animateFloatAsState(
+                                targetValue = if (seleccionado) 1.05f else 1f,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                label = "chipScale"
+                            )
+
+                            Surface(
+                                modifier = Modifier
+                                    .scale(chipScale)
+                                    .clickable { filtroSeleccionado = cat.nombre },
+                                shape = RoundedCornerShape(50),
+                                color = bgColor,
+                                shadowElevation = if (seleccionado) 6.dp else 2.dp,
+                                border = if (seleccionado) null else BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.25f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = cat.icono,
+                                        contentDescription = cat.nombre,
+                                        tint = if (seleccionado) Color.White else EtdaBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = cat.nombre,
+                                        color = contentColor,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Medium
                                     )
                                 }
                             }
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = when {
-                            tabVistaEventos == 1 -> "Eventos en los que participas"
-                            filtroSeleccionado == "Todos" -> "Cartelera general disponible"
-                            else -> "Categoría: $filtroSeleccionado"
-                        },
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = EtdaNavy
-                    )
-                    Surface(
-                        color = EtdaNavy.copy(alpha = 0.08f),
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = if (tabVistaEventos == 1) "${eventosFiltrados.size} inscritos" else "${eventosFiltrados.size} disponibles",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = EtdaNavy,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
             }
-        }
 
-        when {
-            cargando -> item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(48.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = EtdaOrange, strokeWidth = 3.dp)
-                }
-            }
-            error != null -> item {
+            item {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFDC2626))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(error, color = Color(0xFF991B1B), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
-            eventosFiltrados.isEmpty() -> item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    shape = RoundedCornerShape(20.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = EtdaBlue.copy(alpha = 0.1f),
-                            modifier = Modifier.size(64.dp)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { calendarioExpandido = !calendarioExpandido },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = if (tabVistaEventos == 1) Icons.Default.AssignmentLate else Icons.Default.EventBusy,
-                                contentDescription = null,
-                                tint = EtdaBlue,
-                                modifier = Modifier.padding(16.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = if (tabVistaEventos == 1)
-                                "Aún no te has inscrito a ningún evento"
-                            else
-                                "No se encontraron eventos en esta categoría",
-                            color = EtdaNavy,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 16.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (tabVistaEventos == 1)
-                                "Explora la pestaña 'Próximos Eventos', inscríbete y aquí aparecerá tu agenda personal."
-                            else
-                                "Prueba cambiando el filtro de categoría o buscando otro término.",
-                            color = Color.Gray,
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 17.sp
-                        )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = EtdaBlue.copy(alpha = 0.12f),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarMonth,
+                                        contentDescription = "Calendario",
+                                        tint = EtdaBlue,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Agenda Académica",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = EtdaNavy
+                                    )
+                                    val formatDia = SimpleDateFormat("EEEE d 'de' MMMM", localeMx).apply {
+                                        timeZone = zonaHorariaMx
+                                    }
+                                    Text(
+                                        text = formatDia.format(fechaSeleccionada.time).replaceFirstChar { it.uppercase() },
+                                        fontSize = 12.sp,
+                                        color = EtdaOrange,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
 
-                        if (tabVistaEventos == 1) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(
-                                onClick = { tabVistaEventos = 0 },
-                                colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Explorar Eventos", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            IconButton(onClick = { calendarioExpandido = !calendarioExpandido }) {
+                                Icon(
+                                    imageVector = if (calendarioExpandido) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = "Expandir/Contraer",
+                                    tint = EtdaNavy
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = calendarioExpandido,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 12.dp),
+                                    color = Color(0xFFEEF2F6)
+                                )
+                                CalendarioMesGrid(
+                                    mesActual = mesActual,
+                                    diasDelMes = diasDelMes,
+                                    onMesAnterior = {
+                                        val nuevo = mesActual.clone() as Calendar
+                                        nuevo.add(Calendar.MONTH, -1)
+                                        mesActual = nuevo
+                                    },
+                                    onMesSiguiente = {
+                                        val nuevo = mesActual.clone() as Calendar
+                                        nuevo.add(Calendar.MONTH, 1)
+                                        mesActual = nuevo
+                                    },
+                                    onDiaSeleccionado = { diaContext ->
+                                        if (diaContext.esValido()) {
+                                            val nuevo = obtenerCalendarioLocalMx()
+                                            nuevo.set(diaContext.anio, diaContext.mes, diaContext.dia)
+                                            fechaSeleccionada = nuevo
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
                 }
             }
-            else -> itemsIndexed(
-                items = eventosFiltrados,
-                key = { index, ev -> "${ev.titulo}_$index" }
-            ) { index, evento ->
-                val yaInscrito = eventosInscritos.contains(evento.titulo)
-                TarjetaEventoAnimada(
-                    evento = evento,
-                    index = index,
-                    estaInscrito = yaInscrito,
-                    onClick = { eventoSeleccionado = evento }
-                )
-            }
-        }
-    }
 
-    eventoSeleccionado?.let { evento ->
-        val yaInscrito = eventosInscritos.contains(evento.titulo)
-        DetalleEventoSheet(
-            evento = evento,
-            estaInscrito = yaInscrito,
-            onDismiss = { eventoSeleccionado = null },
-            onToggleInscripcion = { inscribir ->
-                val cat = detectarCategoriaEvento(evento)
-                if (inscribir) {
-                    if (!eventosInscritos.contains(evento.titulo)) {
-                        eventosInscritos.add(evento.titulo)
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White,
+                        shadowElevation = 2.dp,
+                        border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.08f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val tab0Activa = tabVistaEventos == 0
+                            val bgTab0 by animateColorAsState(
+                                targetValue = if (tab0Activa) EtdaNavy else Color.Transparent,
+                                animationSpec = tween(250),
+                                label = "bgTab0"
+                            )
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { tabVistaEventos = 0 },
+                                color = bgTab0,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.EventAvailable,
+                                        contentDescription = null,
+                                        tint = if (tab0Activa) EtdaOrange else EtdaNavy.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Próximos Eventos",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (tab0Activa) Color.White else EtdaNavy.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+
+                            val tab1Activa = tabVistaEventos == 1
+                            val bgTab1 by animateColorAsState(
+                                targetValue = if (tab1Activa) EtdaNavy else Color.Transparent,
+                                animationSpec = tween(250),
+                                label = "bgTab1"
+                            )
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { tabVistaEventos = 1 },
+                                color = bgTab1,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.HowToReg,
+                                        contentDescription = null,
+                                        tint = if (tab1Activa) EtdaOrange else EtdaBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Mis Inscritos",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (tab1Activa) Color.White else EtdaNavy.copy(alpha = 0.7f)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (tab1Activa) EtdaOrange else EtdaOrange.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = "${eventosInscritos.size}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (tab1Activa) Color.White else EtdaOrange,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            "¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = when {
+                                tabVistaEventos == 1 -> "Eventos en los que participas"
+                                filtroSeleccionado == "Todos" -> "Cartelera general disponible"
+                                else -> "Categoría: $filtroSeleccionado"
+                            },
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = EtdaNavy
                         )
-                    }
-                } else {
-                    eventosInscritos.remove(evento.titulo)
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            "Inscripción cancelada para: ${evento.titulo}"
-                        )
+                        Surface(
+                            color = EtdaNavy.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text(
+                                text = if (tabVistaEventos == 1) "${eventosFiltrados.size} inscritos" else "${eventosFiltrados.size} disponibles",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EtdaNavy,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }
-        )
+
+            when {
+                cargando -> item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = EtdaOrange, strokeWidth = 3.dp)
+                    }
+                }
+                error != null -> item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFDC2626))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(error, color = Color(0xFF991B1B), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+                eventosFiltrados.isEmpty() -> item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = EtdaBlue.copy(alpha = 0.1f),
+                                modifier = Modifier.size(64.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (tabVistaEventos == 1) Icons.Default.AssignmentLate else Icons.Default.EventBusy,
+                                    contentDescription = null,
+                                    tint = EtdaBlue,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (tabVistaEventos == 1)
+                                    "Aún no te has inscrito a ningún evento"
+                                else
+                                    "No se encontraron eventos en esta categoría",
+                                color = EtdaNavy,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (tabVistaEventos == 1)
+                                    "Explora la pestaña 'Próximos Eventos', inscríbete y aquí aparecerá tu agenda personal."
+                                else
+                                    "Prueba cambiando el filtro de categoría o buscando otro término.",
+                                color = Color.Gray,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 17.sp
+                            )
+
+                            if (tabVistaEventos == 1) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { tabVistaEventos = 0 },
+                                    colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Explorar Eventos", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                else -> itemsIndexed(
+                    items = eventosFiltrados,
+                    key = { index, ev -> "${ev.titulo}_$index" }
+                ) { index, evento ->
+                    val yaInscrito = eventosInscritos.contains(evento.titulo)
+                    TarjetaEventoAnimada(
+                        evento = evento,
+                        index = index,
+                        estaInscrito = yaInscrito,
+                        onClick = { eventoSeleccionado = evento }
+                    )
+                }
+            }
+        }
+
+        eventoSeleccionado?.let { evento ->
+            val yaInscrito = eventosInscritos.contains(evento.titulo)
+            DetalleEventoSheet(
+                evento = evento,
+                estaInscrito = yaInscrito,
+                onDismiss = { eventoSeleccionado = null },
+                onAbrirEscaner = {
+                    eventoSeleccionado = null // Cerramos el detalle
+                    mostrarEscaner = true     // Abrimos la cámara
+                },
+                onToggleInscripcion = { inscribir ->
+                    val cat = detectarCategoriaEvento(evento)
+                    if (inscribir) {
+                        if (!eventosInscritos.contains(evento.titulo)) {
+                            eventosInscritos.add(evento.titulo)
+                        }
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                "¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
+                            )
+                        }
+                    } else {
+                        eventosInscritos.remove(evento.titulo)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                "Inscripción cancelada para: ${evento.titulo}"
+                            )
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -1191,6 +1203,7 @@ private fun DetalleEventoSheet(
     evento: Evento,
     estaInscrito: Boolean,
     onDismiss: () -> Unit,
+    onAbrirEscaner: () -> Unit, // NUEVO PARÁMETRO
     onToggleInscripcion: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
@@ -1433,6 +1446,7 @@ private fun DetalleEventoSheet(
                 label = "estadoInscripcion"
             ) { inscrito ->
                 if (inscrito) {
+                    // NUEVA TARJETA CON EL BOTÓN DEL ESCÁNER QR
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)),
                         border = BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.4f)),
@@ -1449,7 +1463,7 @@ private fun DetalleEventoSheet(
                                     Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Estás inscrito",
+                                        text = "Lugar asegurado",
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF065F46),
                                         fontSize = 15.sp,
@@ -1468,13 +1482,54 @@ private fun DetalleEventoSheet(
                                     Text("Cancelar", color = Color(0xFFDC2626), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "¡Inscripción confirmada automáticamente! Tu lugar está asegurado. Ya puedes verlo en la pestaña 'Mis Inscritos'.",
+                                text = "Para validar tu asistencia y recibir la recompensa, el sistema requerirá:",
                                 color = Color(0xFF047857),
                                 fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 lineHeight = 16.sp
                             )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(verticalAlignment = Alignment.Top) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp).padding(top = 2.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Escanear el código QR oficial del evento al llegar.",
+                                    color = Color(0xFF064E3B),
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(verticalAlignment = Alignment.Top) {
+                                Icon(Icons.Default.ShareLocation, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp).padding(top = 2.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Mantener tu ubicación GPS dentro de la sala desde el inicio hasta el fin del evento.",
+                                    color = Color(0xFF064E3B),
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Button(
+                                onClick = onAbrirEscaner,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Escanear QR de Asistencia", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
                         }
                     }
                 } else {

@@ -37,4 +37,7 @@ interface CampusConnectApi {
     suspend fun crearEvento(
         @Body evento: EventoCreateRequest
     ): Evento
+
+    @POST("/api/login")
+    suspend fun iniciarSesion(@Body request: LoginRequest): Response<LoginResponse>
 }

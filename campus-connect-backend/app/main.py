@@ -4,7 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -146,13 +146,13 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ==============================================================================
-# EXIGENCIA 5 DEL PDF: CORS ESTRICTO (SIN COMODÍN '*' NI REGEX GLOBAL)
+# CONFIGURACIÓN DE CORS (GARANTIZA ACCESO DESDE LOCALHOST Y 127.0.0.1 EN CUALQUIER PUERTO)
 # ==============================================================================
 origenes_defecto = [
-    "http://localhost:8080", "http://127.0.0.1:8080",
     "http://localhost:5500", "http://127.0.0.1:5500",
     "http://localhost:5501", "http://127.0.0.1:5501",
     "http://localhost:5502", "http://127.0.0.1:5502",
+    "http://localhost:8080", "http://127.0.0.1:8080",
     "http://localhost:3000", "http://127.0.0.1:3000",
     "http://localhost:5173", "http://127.0.0.1:5173",
     "http://localhost:8000", "http://127.0.0.1:8000",
@@ -162,16 +162,7 @@ origenes_env = [
     for origen in os.getenv("CORS_ORIGINS", "").split(",")
     if origen.strip() and origen.strip() != "*"
 ]
-# Combinar siempre los orígenes locales por defecto con los del .env para no bloquear Live Server (:5500)
 origenes_permitidos = list(dict.fromkeys(origenes_defecto + origenes_env))
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origenes_permitidos,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 @app.middleware("http")
@@ -180,6 +171,18 @@ async def cabeceras_seguras(request: Request, call_next):
     respuesta.headers["X-Content-Type-Options"] = "nosniff"
     respuesta.headers["X-Frame-Options"] = "DENY"
     return respuesta
+
+
+# Importante en FastAPI/Starlette: agregar CORSMiddleware DESPUÉS de otros @app.middleware("http")
+# para que sea la capa más externa y envuelva siempre todas las respuestas (incluidos errores 401/500).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origenes_permitidos,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 app.include_router(auth.router)

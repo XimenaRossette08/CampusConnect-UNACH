@@ -12,7 +12,9 @@ import java.util.concurrent.TimeUnit
 object RetrofitClient {
 
     // ✅ Con 'adb reverse' activo, usamos localhost directamente
+    // CORRECTO (apunta a tu PC desde el emulador):
     private const val BASE_URL = "http://localhost:8000/"
+
     @Volatile
     private var instancia: CampusConnectApi? = null
 

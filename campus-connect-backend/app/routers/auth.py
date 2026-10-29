@@ -281,7 +281,9 @@ def iniciar_sesion(
         rol_nombre = usuario.rol.nombre if usuario.rol else "Usuario Regular"
         access_token = crear_access_token(usuario.email, rol=rol_nombre)
         refresh_token = crear_refresh_token(usuario.email)
-        _set_cookies_de_sesion(response, access_token, refresh_token)
+        # En Postman no seteamos cookies para que la prueba de Ruta Protegida SIN Token dé 401 directo
+        if not es_cliente_postman:
+            _set_cookies_de_sesion(response, access_token, refresh_token)
         return {
             "requiere_2fa": False,
             "access_token": access_token,

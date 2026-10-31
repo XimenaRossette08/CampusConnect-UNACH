@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
 from ..auditoria import registrar_auditoria
@@ -32,22 +32,14 @@ router = APIRouter(prefix="/eventos", tags=["eventos"])
 
 
 class EventoCreateConVigencia(EventoCreate):
-    disponible_desde: Optional[datetime] = Field(
-        default=None,
-        alias="disponibleDesde",
-        validation_alias=AliasChoices("disponibleDesde", "disponible_desde"),
-    )
-    fecha_fin: Optional[datetime] = Field(
-        default=None,
-        alias="fechaFin",
-        validation_alias=AliasChoices("fechaFin", "fecha_fin"),
-    )
+    disponible_desde: Optional[datetime] = Field(default=None, alias="disponibleDesde")
+    fecha_fin: Optional[datetime] = Field(default=None, alias="fechaFin")
 
 
 class EventoOutConVigencia(EventoOut):
-    disponible_desde: Optional[datetime] = Field(default=None, serialization_alias="disponibleDesde")
-    fecha_fin: Optional[datetime] = Field(default=None, serialization_alias="fechaFin")
-    disponible_ahora: bool = Field(default=True, serialization_alias="disponibleAhora")
+    disponible_desde: Optional[datetime] = Field(default=None, alias="disponibleDesde", serialization_alias="disponibleDesde")
+    fecha_fin: Optional[datetime] = Field(default=None, alias="fechaFin", serialization_alias="fechaFin")
+    disponible_ahora: bool = Field(default=True, alias="disponibleAhora", serialization_alias="disponibleAhora")
 
 
 def _evento_ha_finalizado(evento: Evento) -> bool:

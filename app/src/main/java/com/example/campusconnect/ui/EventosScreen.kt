@@ -210,8 +210,6 @@ fun EventosScreen(
         }
     }
 
-    var pulsoReloj by remember { mutableLongStateOf(System.currentTimeMillis()) }
-
     // Sincronización automática al abrir la pantalla y actualización periódica cada 15 segundos
     LaunchedEffect(Unit) {
         while (true) {
@@ -224,15 +222,14 @@ fun EventosScreen(
                 errorServidor = null
             } catch (_: Exception) {
             }
-            pulsoReloj = System.currentTimeMillis()
             delay(15_000L)
         }
     }
 
-    // Mostrar únicamente los eventos que ya cumplieron 'disponibleDesde' y NO han superado 'fechaFin'
-    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor, pulsoReloj) {
+    // Mostrar los eventos devueltos por GET /eventos/feed (descartando solo los marcados como finalizados)
+    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor) {
         val base = if (yaSincronizoConServidor) eventosServidor else eventos
-        base.filter { it.estaVigenteEnTiempoReal() }
+        base.filter { it.finalizado != true && it.disponibleAhora != false }
     }
 
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }

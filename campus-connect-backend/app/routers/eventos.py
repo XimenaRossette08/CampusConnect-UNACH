@@ -5,8 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
-from sqlalchemy import text
+from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
 from ..auditoria import registrar_auditoria
@@ -33,81 +32,22 @@ router = APIRouter(prefix="/eventos", tags=["eventos"])
 
 
 class EventoCreateConVigencia(EventoCreate):
-    model_config = ConfigDict(populate_by_name=True)
-
     disponible_desde: Optional[datetime] = Field(
         default=None,
+        alias="disponibleDesde",
         validation_alias=AliasChoices("disponibleDesde", "disponible_desde"),
-        serialization_alias="disponibleDesde",
     )
     fecha_fin: Optional[datetime] = Field(
         default=None,
+        alias="fechaFin",
         validation_alias=AliasChoices("fechaFin", "fecha_fin"),
-        serialization_alias="fechaFin",
     )
 
 
 class EventoOutConVigencia(EventoOut):
-    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
-
     disponible_desde: Optional[datetime] = Field(default=None, serialization_alias="disponibleDesde")
     fecha_fin: Optional[datetime] = Field(default=None, serialization_alias="fechaFin")
     disponible_ahora: bool = Field(default=True, serialization_alias="disponibleAhora")
-
-
-def _cargar_vigencias_sql(db: Session, eventos: List[Evento]) -> None:
-    """
-    Garantiza que `disponible_desde` y `fecha_fin` se lean desde PostgreSQL incluso si
-    en `models.py` aún no están declaradas como Column() dentro de la clase Evento.
-    """
-    if not eventos:
-        return
-    ids = [e.id for e in eventos if e.id is not None]
-    if not ids:
-        return
-    try:
-        filas = db.execute(
-            text("SELECT id, disponible_desde, fecha_fin FROM eventos WHERE id = ANY(:ids)"),
-            {"ids": ids},
-        ).fetchall()
-        mapa = {fila[0]: (fila[1], fila[2]) for fila in filas}
-        for ev in eventos:
-            if ev.id in mapa:
-                disp, fin = mapa[ev.id]
-                setattr(ev, "disponible_desde", disp)
-                setattr(ev, "fecha_fin", fin)
-    except Exception as exc:
-        print(f"[EVENTOS] Aviso al leer vigencias SQL: {exc}")
-
-
-def _guardar_vigencias_sql(
-    db: Session,
-    evento_id: uuid.UUID,
-    disponible_desde: Optional[datetime],
-    fecha_fin: Optional[datetime],
-) -> None:
-    """
-    Persiste `disponible_desde` y `fecha_fin` directamente en PostgreSQL para asegurar
-    que nunca queden en NULL si `models.py` no tenía mapeadas las columnas.
-    """
-    try:
-        db.execute(
-            text("""
-                UPDATE eventos
-                SET disponible_desde = :disp,
-                    fecha_fin = :fin
-                WHERE id = :id
-            """),
-            {
-                "disp": asegurar_utc(disponible_desde),
-                "fin": asegurar_utc(fecha_fin),
-                "id": evento_id,
-            },
-        )
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        print(f"[EVENTOS] Error al guardar vigencias SQL: {exc}")
 
 
 def _evento_ha_finalizado(evento: Evento) -> bool:
@@ -122,8 +62,8 @@ def _evento_ha_finalizado(evento: Evento) -> bool:
 
 def _evento_esta_disponible_ahora(evento: Evento) -> bool:
     """
-    Verifica si ya llegó la fecha/hora configurada en `disponible_desde`.
-    Si `disponible_desde` es NULL, está disponible de inmediato.
+    Verifica si ya llegó la fecha/hora configurada en `disponible_desde` para este evento específico.
+    Si `disponible_desde` es NULL, está disponible desde el momento de su creación.
     """
     disp = getattr(evento, "disponible_desde", None)
     return evento_disponible(disp, ahora=ahora_utc())
@@ -147,7 +87,6 @@ def _buscar_evento(db: Session, evento_id: uuid.UUID) -> Evento:
     evento = db.query(Evento).filter(Evento.id == evento_id).first()
     if not evento:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado.")
-    _cargar_vigencias_sql(db, [evento])
     return evento
 
 
@@ -166,9 +105,9 @@ def _serializar(evento: Evento, base: str, conteos: Optional[Dict] = None) -> Ev
         id=evento.id,
         titulo=evento.titulo,
         descripcion=evento.descripcion,
-        disponible_desde=asegurar_utc(getattr(evento, "disponible_desde", None)),
+        disponible_desde=asegurar_utc(evento.disponible_desde),
         fecha_hora=asegurar_utc(evento.fecha_hora),
-        fecha_fin=asegurar_utc(getattr(evento, "fecha_fin", None)),
+        fecha_fin=asegurar_utc(evento.fecha_fin),
         disponible_ahora=_evento_esta_disponible_ahora(evento),
         lugar=evento.lugar,
         categoria=evento.categoria,
@@ -236,31 +175,25 @@ def obtener_feed(
     db: Session = Depends(get_db),
 ):
     """
-    Devuelve los eventos vigentes:
-    - Oculta siempre los eventos cuya `fecha_fin` ya pasó (a menos que `incluir_todos=True` desde web admin).
-    - Oculta los eventos cuya `disponible_desde` aún NO llega, salvo que un administrador en el panel web
-      solicite `incluir_programados=True` para poder verlos/editarlos antes de su hora de publicación.
+    Devuelve los eventos vigentes (evaluando evento por evento su propio `disponible_desde` y `fecha_fin`):
+    - En la App Android (`okhttp`) SIEMPRE filtra eventos que ya expiraron o cuya hora `disponible_desde` aún no llega.
+    - En el Panel Web Admin (`incluir_programados=True`), devuelve también los programados para que el
+      administrador pueda editarlos individualmente antes de su hora de salida.
     """
     eventos = (
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.asc()).all()
     )
-    _cargar_vigencias_sql(db, eventos)
-
     user_agent = (request.headers.get("user-agent") or "").lower()
     es_app_android = "okhttp" in user_agent
     es_gestor = _puede_gestionar(usuario)
 
-    # 1. Filtrar eventos ya finalizados
     if es_app_android or not (incluir_todos and es_gestor):
         eventos = [e for e in eventos if not _evento_ha_finalizado(e)]
 
-    # 2. Filtrar eventos programados cuya hora 'disponible_desde' aún no llega
-    # En la App Android SIEMPRE se respetan los horarios de publicación (incluso si el usuario es admin).
     if es_app_android or not (incluir_programados and es_gestor):
         eventos = [e for e in eventos if _evento_esta_disponible_ahora(e)]
 
-    # 3. Segmentación por carrera/facultad/grupo para alumnos
     if not es_gestor:
         tiene_perfil_segmentado = bool(usuario.id_facultad or usuario.id_carrera or usuario.grupos)
         if tiene_perfil_segmentado:
@@ -281,7 +214,6 @@ def eventos_pasados(
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.desc()).all()
     )
-    _cargar_vigencias_sql(db, eventos)
     eventos = [e for e in eventos if _evento_ha_finalizado(e)]
     conteos = _conteos(db, [e.id for e in eventos])
     base = _base_url(request)
@@ -322,14 +254,9 @@ def crear_evento(
     db.commit()
     db.refresh(nuevo)
 
-    # Asegurar persistencia de disponible_desde y fecha_fin en BD
-    _guardar_vigencias_sql(db, nuevo.id, evento_in.disponible_desde, evento_in.fecha_fin)
-    _cargar_vigencias_sql(db, [nuevo])
-
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento creado: {nuevo.titulo}")
 
-    # Enviar push inmediato solo si ya está disponible ahora
     if _evento_esta_disponible_ahora(nuevo):
         try:
             enviar_notificacion_nuevo_evento(db, nuevo)
@@ -351,11 +278,6 @@ def editar_evento(
     _aplicar_datos(evento, evento_in)
     db.commit()
     db.refresh(evento)
-
-    # Asegurar persistencia de disponible_desde y fecha_fin en BD
-    _guardar_vigencias_sql(db, evento.id, evento_in.disponible_desde, evento_in.fecha_fin)
-    _cargar_vigencias_sql(db, [evento])
-
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento editado: {evento.titulo}")
     return _serializar(evento, _base_url(request))
@@ -470,7 +392,6 @@ def registrar_asistencia(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Inscribe al usuario autenticado en el evento."""
     evento = _buscar_evento(db, evento_id)
     if not _evento_esta_disponible_ahora(evento) and not _puede_gestionar(usuario):
         raise HTTPException(status_code=400, detail="Este evento aún no está abierto para inscripciones.")

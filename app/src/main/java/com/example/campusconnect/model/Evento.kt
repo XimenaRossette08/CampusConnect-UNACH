@@ -1,8 +1,6 @@
 package com.example.campusconnect.model
 
 import com.google.gson.annotations.SerializedName
-import java.time.Instant
-import java.time.OffsetDateTime
 
 /** Archivo adjunto a un evento (flyer, PDF, etc.) que el organizador subió desde el panel web. */
 data class ArchivoEvento(
@@ -17,6 +15,8 @@ data class ArchivoEvento(
 
 // El backend (FastAPI) responde con alias camelCase: fechaHora, disponibleDesde, fechaFin, imagenUrl...
 // Se aceptan también las variantes snake_case por compatibilidad.
+// NOTA IMPORTANTE PARA GSON: Los booleanos opcionales deben ser Boolean? = null para que Gson
+// no los inicialice en false cuando el JSON no incluya el campo.
 data class Evento(
     val id: String,
     val titulo: String,
@@ -24,8 +24,8 @@ data class Evento(
     @SerializedName(value = "fechaHora", alternate = ["fecha_hora"]) val fechaHora: String,
     @SerializedName(value = "disponibleDesde", alternate = ["disponible_desde"]) val disponibleDesde: String? = null,
     @SerializedName(value = "fechaFin", alternate = ["fecha_fin"]) val fechaFin: String? = null,
-    @SerializedName(value = "disponibleAhora", alternate = ["disponible_ahora"]) val disponibleAhora: Boolean = true,
-    val finalizado: Boolean = false,
+    @SerializedName(value = "disponibleAhora", alternate = ["disponible_ahora"]) val disponibleAhora: Boolean? = null,
+    @SerializedName(value = "finalizado") val finalizado: Boolean? = null,
     val lugar: String,
     @SerializedName(value = "imagenUrl", alternate = ["imagen_url"]) val imagenUrl: String? = null,
     val categoria: String? = null,
@@ -36,38 +36,13 @@ data class Evento(
     val materiales: List<ArchivoEvento> get() = archivos.orEmpty().filter { it.tipo == "material" }
 
     /**
-     * Verifica en tiempo real en el teléfono si el evento ya alcanzó `disponibleDesde`
-     * y aún no supera `fechaFin`.
+     * El servidor (GET /eventos/feed) ya filtra la vigencia en hora oficial de Chiapas.
+     * En la app solo descartamos si el servidor marcó explícitamente finalizado=true o disponibleAhora=false.
      */
     fun estaVigenteEnTiempoReal(): Boolean {
-        if (finalizado || !disponibleAhora) return false
-        val ahora = Instant.now()
-
-        disponibleDesde?.takeIf { it.isNotBlank() }?.let { raw ->
-            parsearInstante(raw)?.let { disp ->
-                if (ahora.isBefore(disp)) return false
-            }
-        }
-
-        fechaFin?.takeIf { it.isNotBlank() }?.let { raw ->
-            parsearInstante(raw)?.let { fin ->
-                if (!ahora.isBefore(fin)) return false
-            }
-        }
-
+        if (finalizado == true) return false
+        if (disponibleAhora == false) return false
         return true
-    }
-
-    private fun parsearInstante(iso: String): Instant? {
-        return try {
-            OffsetDateTime.parse(iso).toInstant()
-        } catch (_: Exception) {
-            try {
-                Instant.parse(iso)
-            } catch (_: Exception) {
-                null
-            }
-        }
     }
 }
 

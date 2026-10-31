@@ -59,9 +59,13 @@ def crear_token_recuperacion(email: str) -> str:
 
 def _decodificar(token: str, tipo_esperado: str) -> str:
     """Devuelve el email (sub) si el token es válido y del tipo correcto; si no, 401."""
+    # Evita que un token nulo o vacío rompa jose.jwt con AttributeError
+    if not token or not isinstance(token, str) or not token.strip():
+        raise _CREDENCIALES_INVALIDAS
+
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except JWTError:
+    except Exception:
         raise _CREDENCIALES_INVALIDAS
 
     if payload.get("type") != tipo_esperado:

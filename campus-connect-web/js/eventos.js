@@ -7,6 +7,45 @@ let eventosLista = [];
 let filtroCategoriaEvento = "Todos";
 let busquedaEventoTexto = "";
 
+// Localiza los inputs de Término (2) y Disponible desde (3) por ID o por orden en #modal-evento
+function _inputFechaFinModal() {
+    const ids = ["ev-fecha-fin", "ev-fin", "ev-termino", "ev-expiracion", "ev-fecha-termino"];
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el) return el;
+    }
+    const dtInputs = document.querySelectorAll('#modal-evento input[type="datetime-local"]');
+    return dtInputs.length >= 2 ? dtInputs[1] : null;
+}
+
+function _inputDisponibleDesdeModal() {
+    const ids = ["ev-disponible-desde", "ev-disponible", "ev-publicacion", "ev-fecha-publicacion"];
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el) return el;
+    }
+    const dtInputs = document.querySelectorAll('#modal-evento input[type="datetime-local"]');
+    return dtInputs.length >= 3 ? dtInputs[2] : null;
+}
+
+function _eventoDisponibleAhoraWeb(ev) {
+    const raw = ev.disponibleDesde || ev.disponible_desde;
+    if (!raw) return true;
+    const t = new Date(raw).getTime();
+    return Number.isNaN(t) ? true : Date.now() >= t;
+}
+
+function _eventoExpiradoAhoraWeb(ev) {
+    if (ev.finalizado) return true;
+    const rawFin = ev.fechaFin || ev.fecha_fin;
+    if (rawFin) {
+        const tFin = new Date(rawFin).getTime();
+        if (!Number.isNaN(tFin)) return Date.now() >= tFin;
+    }
+    return false;
+}
+
+
 function inicializarFiltrosCategorias() {
     const contenedor = document.getElementById("contenedor-chips-categorias");
     if (!contenedor) return;
@@ -56,7 +95,9 @@ async function cargarEventos() {
         </div>`;
 
     try {
-        const todos = await api("/eventos/feed");
+        const esGestor = typeof tienePermiso === "function" && tienePermiso("eventos.publicar");
+        const endpoint = esGestor ? "/eventos/feed?incluir_programados=true" : "/eventos/feed";
+        const todos = await api(endpoint);
         eventosLista = todos || [];
         eventosLista.forEach(e => { eventosCache[e.id] = e; });
         renderizarTarjetasEventos();
@@ -73,7 +114,12 @@ function renderizarTarjetasEventos() {
     const container = document.getElementById("eventos-container");
     if (!container) return;
 
-    const activos = eventosLista.filter(e => !e.finalizado);
+    const esGestor = typeof tienePermiso === "function" && tienePermiso("eventos.publicar");
+    const activos = eventosLista.filter(e => {
+        if (_eventoExpiradoAhoraWeb(e)) return false;
+        if (!esGestor && !_eventoDisponibleAhoraWeb(e)) return false;
+        return true;
+    });
     const filtrados = activos.filter(ev => {
         const catDetectada = detectarCategoriaEventoWeb(ev);
         const coincideCat = filtroCategoriaEvento === "Todos" ||
@@ -160,6 +206,11 @@ function renderizarTarjetasEventos() {
                             </span>
                             ${etiquetaAudiencia(ev)}
                         </div>
+                        ${(!_eventoDisponibleAhoraWeb(ev) && (ev.disponibleDesde || ev.disponible_desde)) ? `
+                            <div class="mb-2 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 text-[11px] font-bold flex items-center gap-1.5">
+                                <i class="fa-regular fa-clock"></i>
+                                <span>Programado · Se mostrará a alumnos el ${esc(new Date(ev.disponibleDesde || ev.disponible_desde).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" }))}</span>
+                            </div>` : ''}
 
                         <h3 class="text-base font-extrabold text-[#122652] leading-snug">${esc(ev.titulo)}</h3>
                         <p class="text-xs text-[#5B6670] mt-2 line-clamp-3 leading-relaxed">${esc(ev.descripcion)}</p>
@@ -290,6 +341,16 @@ async function abrirModalEvento(id = null) {
     if (ev && ev.categoria) document.getElementById("ev-categoria").value = ev.categoria;
     document.getElementById("ev-descripcion").value = ev ? ev.descripcion : "";
     document.getElementById("ev-fecha-hora").value = ev ? aInputLocal(ev.fechaHora) : "";
+    const inpFin = _inputFechaFinModal();
+    if (inpFin) {
+        const valFin = ev ? (ev.fechaFin || ev.fecha_fin || "") : "";
+        inpFin.value = valFin ? aInputLocal(valFin) : "";
+    }
+    const inpDisp = _inputDisponibleDesdeModal();
+    if (inpDisp) {
+        const valDisp = ev ? (ev.disponibleDesde || ev.disponible_desde || "") : "";
+        inpDisp.value = valDisp ? aInputLocal(valDisp) : "";
+    }
     if (ev && ev.lugar) {
         document.getElementById("ev-lugar").value = ev.lugar;
         if (typeof actualizarBadgeAsientosModal === "function") actualizarBadgeAsientosModal();
@@ -334,10 +395,21 @@ async function guardarEvento(e) {
         return;
     }
 
+    const rawInicio = document.getElementById("ev-fecha-hora")?.value || "";
+    const rawFin = _inputFechaFinModal()?.value || "";
+    const rawDisp = _inputDisponibleDesdeModal()?.value || "";
+
+    if (rawFin && rawInicio && new Date(rawFin) <= new Date(rawInicio)) {
+        toast("La fecha de término/expiración debe ser posterior al inicio del evento.", "alerta");
+        return;
+    }
+
     const payload = {
         titulo: document.getElementById("ev-titulo").value.trim(),
         descripcion: document.getElementById("ev-descripcion").value.trim(),
-        fechaHora: new Date(document.getElementById("ev-fecha-hora").value).toISOString(),
+        fechaHora: new Date(rawInicio).toISOString(),
+        fechaFin: rawFin ? new Date(rawFin).toISOString() : null,
+        disponibleDesde: rawDisp ? new Date(rawDisp).toISOString() : null,
         lugar: document.getElementById("ev-lugar").value.trim(),
         categoria: document.getElementById("ev-categoria").value.trim() || null,
         esGeneral: !segmentado,

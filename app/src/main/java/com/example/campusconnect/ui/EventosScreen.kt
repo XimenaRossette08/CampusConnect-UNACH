@@ -48,6 +48,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
@@ -105,10 +110,43 @@ private fun detectarCategoriaEvento(evento: Evento): InfoCategoria {
     }
 }
 
+private val zoneIdMx: ZoneId = ZoneId.of("America/Mexico_City")
+
+private fun parsearZonedDateTimeMx(raw: String?): ZonedDateTime? {
+    if (raw.isNullOrBlank()) return null
+    val limpio = raw.trim()
+    return try {
+        OffsetDateTime.parse(limpio).atZoneSameInstant(zoneIdMx)
+    } catch (_: Exception) {
+        try {
+            Instant.parse(limpio).atZone(zoneIdMx)
+        } catch (_: Exception) {
+            try {
+                val norm = limpio.replace(" ", "T").take(19)
+                val padded = if (norm.length == 16) "$norm:00" else norm
+                LocalDateTime.parse(padded).atZone(zoneIdMx)
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+}
+
+private fun fechaIsoLocalMx(raw: String?): String {
+    val zdt = parsearZonedDateTimeMx(raw) ?: return (raw ?: "").take(10)
+    return String.format(Locale.US, "%04d-%02d-%02d", zdt.year, zdt.monthValue, zdt.dayOfMonth)
+}
+
 private fun extraerFechaVisual(fechaHora: String?): Triple<String, String, String> {
     if (fechaHora.isNullOrBlank()) return Triple("OCT", "15", "10:00")
+    val meses = listOf("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
+    parsearZonedDateTimeMx(fechaHora)?.let { zdt ->
+        val mesTxt = meses.getOrElse(zdt.monthValue - 1) { "OCT" }
+        val diaTxt = String.format(Locale.US, "%02d", zdt.dayOfMonth)
+        val horaTxt = String.format(Locale.US, "%02d:%02d", zdt.hour, zdt.minute)
+        return Triple(mesTxt, diaTxt, horaTxt)
+    }
     return try {
-        val meses = listOf("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
         val partes = fechaHora.split("T", " ")
         val fechaPartes = partes[0].split("-")
         val mesIdx = (fechaPartes.getOrNull(1)?.toIntOrNull() ?: 10) - 1
@@ -172,6 +210,8 @@ fun EventosScreen(
         }
     }
 
+    var pulsoReloj by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
     // Sincronización automática al abrir la pantalla y actualización periódica cada 15 segundos
     LaunchedEffect(Unit) {
         while (true) {
@@ -184,13 +224,15 @@ fun EventosScreen(
                 errorServidor = null
             } catch (_: Exception) {
             }
+            pulsoReloj = System.currentTimeMillis()
             delay(15_000L)
         }
     }
 
-    // Mostrar siempre los eventos reales del servidor una vez sincronizado
-    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor) {
-        if (yaSincronizoConServidor) eventosServidor else eventos
+    // Mostrar únicamente los eventos que ya cumplieron 'disponibleDesde' y NO han superado 'fechaFin'
+    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor, pulsoReloj) {
+        val base = if (yaSincronizoConServidor) eventosServidor else eventos
+        base.filter { it.estaVigenteEnTiempoReal() }
     }
 
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
@@ -245,7 +287,7 @@ fun EventosScreen(
             val diaStr = String.format(Locale.getDefault(), "%02d", dia)
             val fechaStr = "$anioInt-$mesStr-$diaStr"
 
-            val diaTieneEvento = listaEventosActiva.any { (it.fechaHora ?: "").startsWith(fechaStr) }
+            val diaTieneEvento = listaEventosActiva.any { fechaIsoLocalMx(it.fechaHora) == fechaStr }
             dias.add(DiaMesContext(dia, mesInt, anioInt, diaTieneEvento, esSeleccionado))
         }
         dias

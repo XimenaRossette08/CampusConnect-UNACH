@@ -1,16 +1,24 @@
 import re
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
 from ..auditoria import registrar_auditoria
 from ..database import get_db
-from ..fechas import ahora_utc, evento_finalizado, fecha_corta, fecha_larga
+from ..fechas import (
+    ahora_utc,
+    asegurar_utc,
+    evento_disponible,
+    evento_finalizado,
+    fecha_corta,
+    fecha_larga,
+)
 from ..models import Evento, EventoArchivo, EventoAsistencia
 from ..models_auth import Usuario
 from ..notifications import enviar_notificacion_nuevo_evento, verificar_y_enviar_recordatorios_24h
@@ -23,43 +31,102 @@ from ..storage import ArchivoInvalido, borrar_archivo, guardar_archivo, limpiar_
 
 router = APIRouter(prefix="/eventos", tags=["eventos"])
 
+
 class EventoCreateConVigencia(EventoCreate):
-    disponible_desde: Optional[datetime] = Field(default=None, alias="disponibleDesde")
-    fecha_fin: Optional[datetime] = Field(default=None, alias="fechaFin")
+    model_config = ConfigDict(populate_by_name=True)
+
+    disponible_desde: Optional[datetime] = Field(
+        default=None,
+        validation_alias=AliasChoices("disponibleDesde", "disponible_desde"),
+        serialization_alias="disponibleDesde",
+    )
+    fecha_fin: Optional[datetime] = Field(
+        default=None,
+        validation_alias=AliasChoices("fechaFin", "fecha_fin"),
+        serialization_alias="fechaFin",
+    )
 
 
 class EventoOutConVigencia(EventoOut):
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
     disponible_desde: Optional[datetime] = Field(default=None, serialization_alias="disponibleDesde")
     fecha_fin: Optional[datetime] = Field(default=None, serialization_alias="fechaFin")
+    disponible_ahora: bool = Field(default=True, serialization_alias="disponibleAhora")
 
 
-def _asegurar_utc(dt: Optional[datetime]) -> Optional[datetime]:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+def _cargar_vigencias_sql(db: Session, eventos: List[Evento]) -> None:
+    """
+    Garantiza que `disponible_desde` y `fecha_fin` se lean desde PostgreSQL incluso si
+    en `models.py` aún no están declaradas como Column() dentro de la clase Evento.
+    """
+    if not eventos:
+        return
+    ids = [e.id for e in eventos if e.id is not None]
+    if not ids:
+        return
+    try:
+        filas = db.execute(
+            text("SELECT id, disponible_desde, fecha_fin FROM eventos WHERE id = ANY(:ids)"),
+            {"ids": ids},
+        ).fetchall()
+        mapa = {fila[0]: (fila[1], fila[2]) for fila in filas}
+        for ev in eventos:
+            if ev.id in mapa:
+                disp, fin = mapa[ev.id]
+                setattr(ev, "disponible_desde", disp)
+                setattr(ev, "fecha_fin", fin)
+    except Exception as exc:
+        print(f"[EVENTOS] Aviso al leer vigencias SQL: {exc}")
+
+
+def _guardar_vigencias_sql(
+    db: Session,
+    evento_id: uuid.UUID,
+    disponible_desde: Optional[datetime],
+    fecha_fin: Optional[datetime],
+) -> None:
+    """
+    Persiste `disponible_desde` y `fecha_fin` directamente en PostgreSQL para asegurar
+    que nunca queden en NULL si `models.py` no tenía mapeadas las columnas.
+    """
+    try:
+        db.execute(
+            text("""
+                UPDATE eventos
+                SET disponible_desde = :disp,
+                    fecha_fin = :fin
+                WHERE id = :id
+            """),
+            {
+                "disp": asegurar_utc(disponible_desde),
+                "fin": asegurar_utc(fecha_fin),
+                "id": evento_id,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"[EVENTOS] Error al guardar vigencias SQL: {exc}")
 
 
 def _evento_ha_finalizado(evento: Evento) -> bool:
     """
     Un evento se considera finalizado/expirado si:
-    - Tiene fecha_fin configurada y la hora actual ya alcanzó o superó fecha_fin.
-    - O si no tiene fecha_fin y la hora actual ya alcanzó o superó fecha_hora.
+    - Tiene `fecha_fin` configurada y la hora actual ya alcanzó o superó `fecha_fin` (exacta, sin sumar 4h).
+    - O si no tiene `fecha_fin` y ya pasaron DURACION_EVENTO_HORAS desde `fecha_hora`.
     """
-    limite = getattr(evento, "fecha_fin", None) or evento.fecha_hora
-    return evento_finalizado(limite)
+    fin = getattr(evento, "fecha_fin", None)
+    return evento_finalizado(evento.fecha_hora, ahora=ahora_utc(), fecha_fin=fin)
 
 
 def _evento_esta_disponible_ahora(evento: Evento) -> bool:
     """
-    Verifica si ya llegó la fecha/hora configurada en disponible_desde.
-    Si disponible_desde es NULL, está disponible desde el momento de su creación.
+    Verifica si ya llegó la fecha/hora configurada en `disponible_desde`.
+    Si `disponible_desde` es NULL, está disponible de inmediato.
     """
-    disp = _asegurar_utc(getattr(evento, "disponible_desde", None))
-    if disp is None:
-        return True
-    return ahora_utc() >= disp
+    disp = getattr(evento, "disponible_desde", None)
+    return evento_disponible(disp, ahora=ahora_utc())
 
 
 TIPOS_ARCHIVO = {"material", "evidencia"}
@@ -80,6 +147,7 @@ def _buscar_evento(db: Session, evento_id: uuid.UUID) -> Evento:
     evento = db.query(Evento).filter(Evento.id == evento_id).first()
     if not evento:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado.")
+    _cargar_vigencias_sql(db, [evento])
     return evento
 
 
@@ -95,16 +163,25 @@ def _serializar(evento: Evento, base: str, conteos: Optional[Dict] = None) -> Ev
     flyer = next((a.url for a in archivos if a.tipo == "material" and a.es_imagen), None)
     registrados, asistieron = conteos.get(evento.id, (0, 0)) if conteos is not None else (None, None)
     return EventoOutConVigencia(
-        id=evento.id, titulo=evento.titulo, descripcion=evento.descripcion,
-        disponible_desde=getattr(evento, "disponible_desde", None),
-        fecha_hora=evento.fecha_hora,
-        fecha_fin=getattr(evento, "fecha_fin", None),
-        lugar=evento.lugar, categoria=evento.categoria,
-        es_general=evento.es_general, id_facultad_destino=evento.id_facultad_destino,
-        id_carrera_destino=evento.id_carrera_destino, grupos_destino=evento.grupos_destino,
-        imagen_url=flyer or evento.imagen_url, organizador_email=evento.organizador_email,
-        finalizado=_evento_ha_finalizado(evento), archivos=archivos,
-        total_registrados=registrados, total_asistieron=asistieron,
+        id=evento.id,
+        titulo=evento.titulo,
+        descripcion=evento.descripcion,
+        disponible_desde=asegurar_utc(getattr(evento, "disponible_desde", None)),
+        fecha_hora=asegurar_utc(evento.fecha_hora),
+        fecha_fin=asegurar_utc(getattr(evento, "fecha_fin", None)),
+        disponible_ahora=_evento_esta_disponible_ahora(evento),
+        lugar=evento.lugar,
+        categoria=evento.categoria,
+        es_general=evento.es_general,
+        id_facultad_destino=evento.id_facultad_destino,
+        id_carrera_destino=evento.id_carrera_destino,
+        grupos_destino=evento.grupos_destino,
+        imagen_url=flyer or evento.imagen_url,
+        organizador_email=evento.organizador_email,
+        finalizado=_evento_ha_finalizado(evento),
+        archivos=archivos,
+        total_registrados=registrados,
+        total_asistieron=asistieron,
     )
 
 
@@ -130,9 +207,9 @@ def _puede_gestionar(usuario: Usuario) -> bool:
 def _aplicar_datos(evento: Evento, datos: EventoCreateConVigencia) -> None:
     evento.titulo = datos.titulo
     evento.descripcion = datos.descripcion
-    evento.disponible_desde = datos.disponible_desde
-    evento.fecha_hora = datos.fecha_hora
-    evento.fecha_fin = datos.fecha_fin
+    evento.disponible_desde = asegurar_utc(datos.disponible_desde)
+    evento.fecha_hora = asegurar_utc(datos.fecha_hora)
+    evento.fecha_fin = asegurar_utc(datos.fecha_fin)
     evento.lugar = datos.lugar
     evento.categoria = datos.categoria
     evento.es_general = datos.es_general
@@ -154,33 +231,41 @@ def _aplicar_datos(evento: Evento, datos: EventoCreateConVigencia) -> None:
 def obtener_feed(
     request: Request,
     incluir_todos: bool = False,
+    incluir_programados: bool = False,
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Devuelve los eventos vigentes (que ya alcanzaron su fecha 'disponible_desde' y NO han
-    alcanzado su 'fecha_fin' / 'fecha_hora' de expiración).
-    Así los eventos finalizados desaparecen automáticamente de la App Android.
+    Devuelve los eventos vigentes:
+    - Oculta siempre los eventos cuya `fecha_fin` ya pasó (a menos que `incluir_todos=True` desde web admin).
+    - Oculta los eventos cuya `disponible_desde` aún NO llega, salvo que un administrador en el panel web
+      solicite `incluir_programados=True` para poder verlos/editarlos antes de su hora de publicación.
     """
     eventos = (
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.asc()).all()
     )
+    _cargar_vigencias_sql(db, eventos)
+
     user_agent = (request.headers.get("user-agent") or "").lower()
     es_app_android = "okhttp" in user_agent
+    es_gestor = _puede_gestionar(usuario)
 
-    # En la App Android (o si no se pide incluir_todos para estadísticas web),
-    # filtrar siempre eventos finalizados/expirados y eventos cuya fecha disponible_desde aún no llega
-    if es_app_android or not incluir_todos:
-        eventos = [
-            e for e in eventos
-            if not _evento_ha_finalizado(e) and _evento_esta_disponible_ahora(e)
-        ]
+    # 1. Filtrar eventos ya finalizados
+    if es_app_android or not (incluir_todos and es_gestor):
+        eventos = [e for e in eventos if not _evento_ha_finalizado(e)]
 
-    if not _puede_gestionar(usuario):
+    # 2. Filtrar eventos programados cuya hora 'disponible_desde' aún no llega
+    # En la App Android SIEMPRE se respetan los horarios de publicación (incluso si el usuario es admin).
+    if es_app_android or not (incluir_programados and es_gestor):
+        eventos = [e for e in eventos if _evento_esta_disponible_ahora(e)]
+
+    # 3. Segmentación por carrera/facultad/grupo para alumnos
+    if not es_gestor:
         tiene_perfil_segmentado = bool(usuario.id_facultad or usuario.id_carrera or usuario.grupos)
         if tiene_perfil_segmentado:
             eventos = [e for e in eventos if evento_visible_para(e, usuario)]
+
     base = _base_url(request)
     return [_serializar(e, base) for e in eventos]
 
@@ -196,6 +281,7 @@ def eventos_pasados(
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.desc()).all()
     )
+    _cargar_vigencias_sql(db, eventos)
     eventos = [e for e in eventos if _evento_ha_finalizado(e)]
     conteos = _conteos(db, [e.id for e in eventos])
     base = _base_url(request)
@@ -230,25 +316,25 @@ def crear_evento(
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
     db: Session = Depends(get_db),
 ):
-    """
-    1. Protegido con requiere_permiso("eventos:escribir") -> devuelve 403 Forbidden si un alumno intenta crear.
-    2. Al guardar en PostgreSQL, dispara automáticamente la notificación push de Firebase:
-       "¡Nuevo evento disponible: [Título del Evento]!".
-    """
     nuevo = Evento(organizador_email=usuario.email)
     _aplicar_datos(nuevo, evento_in)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
 
+    # Asegurar persistencia de disponible_desde y fecha_fin en BD
+    _guardar_vigencias_sql(db, nuevo.id, evento_in.disponible_desde, evento_in.fecha_fin)
+    _cargar_vigencias_sql(db, [nuevo])
+
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento creado: {nuevo.titulo}")
 
-    # Disparar notificación masiva a los tokens FCM registrados en Firebase
-    try:
-        enviar_notificacion_nuevo_evento(db, nuevo)
-    except Exception as exc:
-        print(f"[FCM] Error no bloqueante al enviar push de nuevo evento: {exc}")
+    # Enviar push inmediato solo si ya está disponible ahora
+    if _evento_esta_disponible_ahora(nuevo):
+        try:
+            enviar_notificacion_nuevo_evento(db, nuevo)
+        except Exception as exc:
+            print(f"[FCM] Error no bloqueante al enviar push de nuevo evento: {exc}")
 
     return _serializar(nuevo, _base_url(request))
 
@@ -265,6 +351,11 @@ def editar_evento(
     _aplicar_datos(evento, evento_in)
     db.commit()
     db.refresh(evento)
+
+    # Asegurar persistencia de disponible_desde y fecha_fin en BD
+    _guardar_vigencias_sql(db, evento.id, evento_in.disponible_desde, evento_in.fecha_fin)
+    _cargar_vigencias_sql(db, [evento])
+
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento editado: {evento.titulo}")
     return _serializar(evento, _base_url(request))
@@ -277,11 +368,6 @@ def eliminar_evento(
     usuario: Usuario = Depends(requiere_permiso("eventos:eliminar")),
     db: Session = Depends(get_db),
 ):
-    """
-    Vulnerabilidad 1 del Profe:
-    Si un usuario normal intenta borrar un evento enviando DELETE directamente,
-    requiere_permiso("eventos:eliminar") lo rechaza con 403 Forbidden antes de tocar la BD.
-    """
     evento = _buscar_evento(db, evento_id)
     titulo = evento.titulo
     nombres = [a.nombre_guardado for a in evento.archivos]
@@ -298,9 +384,6 @@ def eliminar_evento(
 def disparar_recordatorios_manual(
     usuario: Usuario = Depends(verificar_rol_admin),
 ):
-    """
-    Permite probar al instante el Job Scheduler de recordatorios de 24h sin esperar 1 hora.
-    """
     resultado = verificar_y_enviar_recordatorios_24h()
     return {"mensaje": "Verificación de recordatorios 24h ejecutada", "resultado": resultado}
 
@@ -387,8 +470,10 @@ def registrar_asistencia(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Inscribe al usuario autenticado en el evento (para recibir también recordatorio 24h antes)."""
+    """Inscribe al usuario autenticado en el evento."""
     evento = _buscar_evento(db, evento_id)
+    if not _evento_esta_disponible_ahora(evento) and not _puede_gestionar(usuario):
+        raise HTTPException(status_code=400, detail="Este evento aún no está abierto para inscripciones.")
     if _evento_ha_finalizado(evento):
         raise HTTPException(status_code=400, detail="Este evento ya finalizó.")
     tiene_perfil_segmentado = bool(usuario.id_facultad or usuario.id_carrera or usuario.grupos)

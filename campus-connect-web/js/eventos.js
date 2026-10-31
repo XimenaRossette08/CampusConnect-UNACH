@@ -7,7 +7,7 @@ let eventosLista = [];
 let filtroCategoriaEvento = "Todos";
 let busquedaEventoTexto = "";
 
-const STORAGE_HORARIOS_POR_EVENTO = "cc_vigencia_por_evento_v2";
+const STORAGE_HORARIOS_POR_EVENTO = "cc_vigencia_por_evento_v3";
 
 function _leerMapaHorariosPorEvento() {
     try {
@@ -33,10 +33,14 @@ function _obtenerHorarioIndividualEvento(ev) {
     if (!ev || !ev.id) return { disponibleDesde: null, fechaFin: null };
     const mapa = _leerMapaHorariosPorEvento();
     const local = mapa[String(ev.id)] || {};
-    return {
-        disponibleDesde: ev.disponibleDesde || ev.disponible_desde || local.disponibleDesde || null,
-        fechaFin: ev.fechaFin || ev.fecha_fin || local.fechaFin || null
-    };
+    // Prioridad: valor de la BD para este evento.id -> respaldo local para este evento.id -> null
+    const disp = (ev.disponibleDesde !== undefined && ev.disponibleDesde !== null)
+        ? ev.disponibleDesde
+        : ((ev.disponible_desde !== undefined && ev.disponible_desde !== null) ? ev.disponible_desde : (local.disponibleDesde || null));
+    const fin = (ev.fechaFin !== undefined && ev.fechaFin !== null)
+        ? ev.fechaFin
+        : ((ev.fecha_fin !== undefined && ev.fecha_fin !== null) ? ev.fecha_fin : (local.fechaFin || null));
+    return { disponibleDesde: disp, fechaFin: fin };
 }
 
 function _formatearFechaInputLocal(isoStr) {
@@ -47,31 +51,22 @@ function _formatearFechaInputLocal(isoStr) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Localiza los inputs de Término (2) y Disponible desde (3) en #modal-evento
-function _inputFechaFinModal() {
-    const ids = ["ev-fecha-fin", "ev-fin", "ev-termino", "ev-expiracion", "ev-fecha-termino"];
-    for (const id of ids) {
-        const el = document.getElementById(id);
-        if (el) return el;
+function autocompletarFechaFinEvento() {
+    const inpInicio = document.getElementById("ev-fecha-hora");
+    const inpFin = document.getElementById("ev-fecha-fin");
+    if (!inpInicio || !inpFin || !inpInicio.value) return;
+    const dInicio = new Date(inpInicio.value);
+    if (Number.isNaN(dInicio.getTime())) return;
+    if (!inpFin.value || new Date(inpFin.value) <= dInicio) {
+        const dFin = new Date(dInicio.getTime() + 2 * 60 * 60 * 1000);
+        inpFin.value = _formatearFechaInputLocal(dFin.toISOString());
     }
-    const dtInputs = document.querySelectorAll('#modal-evento input[type="datetime-local"]');
-    return dtInputs.length >= 2 ? dtInputs[1] : null;
-}
-
-function _inputDisponibleDesdeModal() {
-    const ids = ["ev-disponible-desde", "ev-disponible", "ev-publicacion", "ev-fecha-publicacion"];
-    for (const id of ids) {
-        const el = document.getElementById(id);
-        if (el) return el;
-    }
-    const dtInputs = document.querySelectorAll('#modal-evento input[type="datetime-local"]');
-    return dtInputs.length >= 3 ? dtInputs[2] : null;
 }
 
 function _sincronizarInputsFechasModal(ev) {
     const inpInicio = document.getElementById("ev-fecha-hora");
-    const inpFin = _inputFechaFinModal();
-    const inpDisp = _inputDisponibleDesdeModal();
+    const inpFin = document.getElementById("ev-fecha-fin");
+    const inpDisp = document.getElementById("ev-disponible-desde");
 
     if (!ev) {
         if (inpInicio) inpInicio.value = "";
@@ -399,7 +394,7 @@ async function abrirModalEvento(id = null) {
     if (ev && ev.categoria) document.getElementById("ev-categoria").value = ev.categoria;
     document.getElementById("ev-descripcion").value = ev ? ev.descripcion : "";
     _sincronizarInputsFechasModal(ev);
-    setTimeout(() => _sincronizarInputsFechasModal(ev), 30);
+    setTimeout(() => _sincronizarInputsFechasModal(ev), 40);
     if (ev && ev.lugar) {
         document.getElementById("ev-lugar").value = ev.lugar;
         if (typeof actualizarBadgeAsientosModal === "function") actualizarBadgeAsientosModal();
@@ -445,8 +440,8 @@ async function guardarEvento(e) {
     }
 
     const rawInicio = document.getElementById("ev-fecha-hora")?.value || "";
-    const rawFin = _inputFechaFinModal()?.value || "";
-    const rawDisp = _inputDisponibleDesdeModal()?.value || "";
+    const rawFin = document.getElementById("ev-fecha-fin")?.value || "";
+    const rawDisp = document.getElementById("ev-disponible-desde")?.value || "";
 
     if (rawFin && rawInicio && new Date(rawFin) <= new Date(rawInicio)) {
         toast("La fecha de término/expiración debe ser posterior al inicio del evento.", "alerta");

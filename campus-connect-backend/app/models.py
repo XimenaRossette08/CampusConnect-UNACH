@@ -21,7 +21,9 @@ class Evento(Base):
 
     titulo = Column(String, nullable=False)
     descripcion = Column(String, nullable=False)
+    disponible_desde = Column(DateTime(timezone=True), nullable=True)
     fecha_hora = Column(DateTime(timezone=True), nullable=False)
+    fecha_fin = Column(DateTime(timezone=True), nullable=True)
     lugar = Column(String, nullable=False)
     organizador_email = Column(String, nullable=False)
     imagen_url = Column(String, nullable=True)  # legado: eventos creados antes de la subida de archivos

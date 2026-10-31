@@ -454,6 +454,23 @@
                     <div id="lista-cat-categorias" class="flex flex-wrap gap-2 pt-1"></div>
                 </div>
             </div>
+
+            <!-- 5. Membretado y Pie de Página Oficial (Formato ETDA) para Listas de Asistencia -->
+            <div class="etda-card p-6 space-y-4 border-t-4 border-t-[#122652]">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Diseño Oficial de Documentos Impresos</span>
+                        <h3 class="text-base font-extrabold text-[#122652]">5. Membretado y Pie de Página de Listas de Asistencia (Formato ETDA)</h3>
+                        <p class="text-xs text-[#5B6670]">Personaliza los textos del encabezado institucional, logos, dirección, teléfonos y pie de página que aparecen al descargar las listas de asistencia.</p>
+                    </div>
+                    <button type="button" onclick="abrirModalMembreteAsistencia()"
+                        class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2.5 rounded-xl shadow-sm transition flex items-center gap-2 shrink-0">
+                        <i class="fa-solid fa-file-signature text-[#F57C00]"></i>
+                        <span>Editar Membretado y Pie de Página</span>
+                    </button>
+                </div>
+                <div id="resumen-membrete-catalogos"></div>
+            </div>
         </section>
 
 <!-- ==================================================================
@@ -707,19 +724,45 @@
                         class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none"></textarea>
                 </div>
 
-                <!-- Fecha y Auditorio con Capacidad Automática de Asientos -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs font-extrabold text-[#122652] mb-1">Fecha y Hora</label>
-                        <input type="datetime-local" id="ev-fecha-hora" required
-                            class="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                <!-- Vigencia de Visibilidad (Disponible desde / Inicio / Término y Expiración en App) -->
+                <div class="border border-slate-200 rounded-2xl p-4 bg-[#F4F7FB] space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-extrabold text-[#122652]">
+                            <i class="fa-regular fa-clock text-[#F57C00] mr-1"></i>
+                            Horario del Evento y Tiempo de Expiración en la App
+                        </span>
+                        <span class="text-[10px] font-bold text-[#0093FF] bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full">
+                            Se oculta automáticamente al finalizar
+                        </span>
                     </div>
-                    <div>
-                        <label class="block text-xs font-extrabold text-[#122652] mb-1">Auditorio / Sede (Predefinido)</label>
-                        <select id="ev-lugar" required onchange="actualizarBadgeAsientosModal()"
-                            class="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-[#122652] bg-[#F4F7FB] focus:ring-2 focus:ring-[#0093FF] outline-none">
-                        </select>
-                        <p id="ev-asientos-info" class="text-[11px] text-emerald-700 font-semibold mt-1"></p>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">1. Inicio del Evento (Fecha y Hora)</label>
+                            <input type="datetime-local" id="ev-fecha-hora" required onchange="autocompletarFechaFinEvento()"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-[#0093FF] outline-none font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-red-700 mb-1">2. Término / Expiración (Deja de salir en App)</label>
+                            <input type="datetime-local" id="ev-fecha-fin" required
+                                class="w-full px-3 py-2 border border-red-200 rounded-xl text-xs bg-white focus:ring-2 focus:ring-red-400 outline-none font-semibold">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-200/80">
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">3. Disponible en la App desde (Publicación)</label>
+                            <input type="datetime-local" id="ev-disponible-desde"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-[#0093FF] outline-none">
+                            <p class="text-[10px] text-[#5B6670] mt-0.5">Si lo dejas en la hora actual, aparece de inmediato en la app.</p>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">4. Auditorio / Sede (Predefinido)</label>
+                            <select id="ev-lugar" required onchange="actualizarBadgeAsientosModal()"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-[#122652] bg-white focus:ring-2 focus:ring-[#0093FF] outline-none">
+                            </select>
+                            <p id="ev-asientos-info" class="text-[11px] text-emerald-700 font-semibold mt-1"></p>
+                        </div>
                     </div>
                 </div>
 
@@ -976,10 +1019,17 @@
                 </table>
             </div>
 
-            <div class="pt-4 flex justify-between items-center border-t mt-4">
-                <button id="btn-descargar-pdf" onclick="descargarAsistenciaPDF()" class="bg-red-600 hover:bg-red-700 text-white text-xs px-4 py-2.5 rounded-xl font-extrabold shadow-sm transition">
-                    <i class="fa-solid fa-file-pdf mr-1"></i> Descargar Lista en PDF
-                </button>
+            <div class="pt-4 flex flex-wrap justify-between items-center gap-2 border-t mt-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="btn-descargar-pdf" onclick="descargarAsistenciaPDF()" class="bg-red-600 hover:bg-red-700 text-white text-xs px-4 py-2.5 rounded-xl font-extrabold shadow-sm transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>Descargar Lista en PDF (Formato ETDA)</span>
+                    </button>
+                    <button type="button" onclick="abrirModalMembreteAsistencia()" class="bg-[#F4F7FB] hover:bg-slate-200 text-[#122652] border border-slate-300 text-xs px-3.5 py-2.5 rounded-xl font-extrabold transition flex items-center gap-1.5" title="Personalizar encabezado y pie de página de la hoja">
+                        <i class="fa-solid fa-sliders text-[#F57C00]"></i>
+                        <span>Editar Membrete y Pie de Página</span>
+                    </button>
+                </div>
                 <button onclick="cerrarModalAsistentes()" class="bg-[#122652] text-white text-xs px-5 py-2.5 rounded-xl font-extrabold hover:bg-[#193773]">
                     Cerrar
                 </button>
@@ -1224,6 +1274,161 @@
                     Cerrar
                 </button>
             </div>
+        </div>
+    </div>
+
+
+    <!-- MODAL 11: CONFIGURADOR DE MEMBRETADO Y PIE DE PÁGINA OFICIAL (FORMATO ETDA) -->
+    <div id="modal-membrete-etda" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl border max-h-[94vh] flex flex-col">
+            <div class="flex items-center justify-between border-b pb-3.5 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-[#122652] text-[#F57C00] flex items-center justify-center text-base font-extrabold">
+                        <i class="fa-solid fa-file-signature"></i>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Plantilla Institucional Editable</span>
+                        <h3 class="text-lg font-extrabold text-[#122652] leading-tight">Configurar Membretado y Pie de Página (Formato ETDA)</h3>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="restaurarMembreteETDAPorDefecto()"
+                        class="text-xs font-bold text-[#122652] bg-[#F4F7FB] hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-xl transition">
+                        <i class="fa-solid fa-rotate-left text-[#F57C00] mr-1"></i>Restaurar Formato ETDA Original
+                    </button>
+                    <button type="button" onclick="cerrarModalMembreteAsistencia()" class="text-slate-400 hover:text-slate-600 text-lg ml-1">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <form onsubmit="guardarMembreteAsistencia(event)" class="flex-1 overflow-y-auto space-y-5 pr-1">
+                <!-- Vista previa en vivo idéntica al documento Formato etda.docx -->
+                <div class="bg-slate-100 p-4 rounded-2xl border border-slate-300 space-y-3">
+                    <span class="block text-[11px] font-extrabold uppercase tracking-wider text-[#122652]">
+                        <i class="fa-solid fa-eye text-[#0093FF] mr-1"></i> Vista previa en tiempo real del documento impreso:
+                    </span>
+                    <div class="rounded-xl overflow-hidden shadow border border-slate-300 bg-white">
+                        <div id="preview-membrete-header"></div>
+                        <div class="py-4 px-6 text-center text-xs text-slate-400 italic bg-slate-50/60 border-y border-dashed border-slate-200">
+                            [ Aquí se inserta la información del evento y la tabla numerada de alumnos asistentes ]
+                        </div>
+                        <div id="preview-membrete-firma"></div>
+                        <div id="preview-membrete-footer"></div>
+                    </div>
+                </div>
+
+                <!-- Campos de edición: Encabezado (Membretado) y Pie de Página -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <!-- Columna 1: Membretado Superior -->
+                    <div class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
+                        <h4 class="text-xs font-extrabold uppercase tracking-wider text-[#122652] border-b border-slate-200 pb-2">
+                            <i class="fa-solid fa-heading text-[#0093FF] mr-1"></i> 1. Textos del Membretado (Encabezado)
+                        </h4>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Institución (Línea 1 en negritas)</label>
+                            <input type="text" id="mem-institucion" required oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                placeholder="UNIVERSIDAD AUTÓNOMA DE CHIAPAS"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold text-[#122652]">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Facultad / Escuela / Campus (Línea 2)</label>
+                            <input type="text" id="mem-dependencia" oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                placeholder="ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS CAMPUS I"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Título del Documento (Subtítulo centrado)</label>
+                            <input type="text" id="mem-subtitulo" oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                placeholder="LISTA OFICIAL DE ASISTENCIA A EVENTO ACADÉMICO"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 pt-1">
+                            <div>
+                                <label class="block text-[10px] font-bold text-[#5B6670] mb-1">Cambiar Logo Izquierdo (Opcional)</label>
+                                <input type="file" accept="image/*" onchange="cambiarLogoMembrete('izquierdo', this)"
+                                    class="w-full text-[10px] text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-[#122652] file:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-[#5B6670] mb-1">Cambiar Logo Derecho (Opcional)</label>
+                                <input type="file" accept="image/*" onchange="cambiarLogoMembrete('derecho', this)"
+                                    class="w-full text-[10px] text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-[#122652] file:text-white">
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between pt-1">
+                            <label class="text-[11px] font-bold text-[#122652]">Color de la línea divisoria superior:</label>
+                            <input type="color" id="mem-color-sup" value="#2B3E6B" oninput="actualizarVistaPreviaMembreteEnVivo()" class="h-7 w-14 rounded cursor-pointer border border-slate-300">
+                        </div>
+                    </div>
+
+                    <!-- Columna 2: Pie de Página -->
+                    <div class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
+                        <h4 class="text-xs font-extrabold uppercase tracking-wider text-[#122652] border-b border-slate-200 pb-2">
+                            <i class="fa-solid fa-shoe-prints text-[#F57C00] mr-1"></i> 2. Textos del Pie de Página
+                        </h4>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Dirección Oficial (Renglón 1 del pie)</label>
+                            <input type="text" id="mem-direccion-pie" oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                placeholder="BOULEVARD DR. BELISARIO DOMÍNGUEZ, KM 1081, SIN NÚMERO/TERÁN TUXTLA GUTIÉRREZ, MÉXICO"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Teléfonos, C.P., Página Web y Correo (Renglón 2 del pie)</label>
+                            <textarea id="mem-contacto-pie" rows="2" oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                placeholder="C.P. 29020 / TEL. 961 615 42 49 y 961 615 13 26 ext. 106 y 108, https://tecnologiastuxtla.unach.mx, e-mail: @unach.mx"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Dominio Destacado Derecho (en el pie)</label>
+                            <input type="text" id="mem-dominio-pie" oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                placeholder="unach.mx"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold text-[#122652]">
+                        </div>
+
+                        <!-- Bloque específico para Activar / Quitar y Editar la Línea de Firma -->
+                        <div class="p-3 rounded-xl bg-white border border-slate-200 space-y-2.5">
+                            <label class="flex items-center justify-between gap-2 cursor-pointer">
+                                <span class="text-[11px] font-extrabold text-[#122652]">
+                                    <i class="fa-solid fa-pen-fancy text-[#F57C00] mr-1"></i>
+                                    Mostrar línea de firma al final de la lista
+                                </span>
+                                <input type="checkbox" id="mem-mostrar-firma" checked onchange="alternarVisibilidadCamposFirmaModal()"
+                                    class="w-4 h-4 accent-[#122652] rounded cursor-pointer">
+                            </label>
+                            <div id="contenedor-campos-firma-membrete" class="space-y-2 pt-1 border-t border-slate-100">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-[#5B6670] mb-0.5">Texto bajo la línea de firma (Nombre / Área responsable)</label>
+                                    <input type="text" id="mem-firma-responsable" oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                        placeholder="Ej. Coordinación Académica ETDA — UNACH"
+                                        class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-semibold text-[#122652]">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-[#5B6670] mb-0.5">Segundo renglón opcional (Cargo / Puesto)</label>
+                                    <input type="text" id="mem-firma-cargo" oninput="actualizarVistaPreviaMembreteEnVivo()"
+                                        placeholder="Ej. Responsable del Evento / Docente (opcional)"
+                                        class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between pt-1">
+                            <label class="text-[11px] font-bold text-[#122652]">Color de la línea divisoria inferior (Dorado ETDA):</label>
+                            <input type="color" id="mem-color-inf" value="#C49B27" oninput="actualizarVistaPreviaMembreteEnVivo()" class="h-7 w-14 rounded cursor-pointer border border-slate-300">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border-t pt-3.5 flex items-center justify-end gap-2.5">
+                    <button type="button" onclick="cerrarModalMembreteAsistencia()"
+                        class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-xl transition">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                        class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2">
+                        <i class="fa-solid fa-floppy-disk text-[#F57C00]"></i>
+                        <span>Guardar Membretado y Pie de Página</span>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

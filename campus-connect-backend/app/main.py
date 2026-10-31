@@ -35,11 +35,13 @@ logger = logging.getLogger("uvicorn.error")
 # Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
 
-# 1. Asegurar columnas categoria y recordatorio_enviado en la tabla eventos
+# 1. Asegurar columnas categoria, recordatorio_enviado, disponible_desde y fecha_fin en la tabla eventos
 try:
     with engine.begin() as _conn:
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS categoria VARCHAR"))
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS recordatorio_enviado BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS disponible_desde TIMESTAMPTZ"))
+        _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS fecha_fin TIMESTAMPTZ"))
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 

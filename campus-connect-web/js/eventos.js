@@ -454,17 +454,307 @@ function cerrarModalAsistentes() {
 
 async function descargarPDFDe(eventoId) {
     try {
-        const res = await api(`/eventos/${eventoId}/asistentes/pdf`, { blob: true });
-        const nombre = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "asistencia_unach.pdf";
-        const url = URL.createObjectURL(await res.blob());
-        const a = Object.assign(document.createElement("a"), { href: url, download: nombre });
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        toast("Lista de asistencia en PDF descargada.", "exito");
+        toast("Generando lista de asistencia con Formato ETDA...", "info");
+        let ev = eventosCache[eventoId];
+        if (!ev) {
+            try {
+                const todos = await api("/eventos/feed");
+                (todos || []).forEach(e => { eventosCache[e.id] = e; });
+                ev = eventosCache[eventoId];
+            } catch (_) {}
+        }
+        ev = ev || { id: eventoId, titulo: asistentesActual?.titulo || "Evento Académico UNACH", lugar: "Campus I Tuxtla", fechaHora: new Date().toISOString() };
+
+        const asistentes = await api(`/eventos/${eventoId}/asistentes`);
+        const lista = Array.isArray(asistentes) ? asistentes : [];
+        const confirmados = lista.filter(a => a.asistio).length;
+        const m = typeof obtenerMembreteActivo === "function" ? obtenerMembreteActivo() : MEMBRETE_ETDA_POR_DEFECTO;
+
+        const fechaEventoStr = ev.fechaHora
+            ? new Date(ev.fechaHora).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })
+            : "Fecha por confirmar";
+
+        const audienciaStr = ev.esGeneral
+            ? "Comunidad Universitaria General"
+            : [ev.idFacultadDestino, ev.idCarreraDestino, (ev.gruposDestino || []).length ? "Grupos: " + ev.gruposDestino.join(", ") : null]
+                .filter(Boolean)
+                .join(" · ") || "Comunidad ETDA";
+
+        const filasHtml = lista.length
+            ? lista.map((a, idx) => `
+                <tr>
+                    <td style="text-align:center;font-weight:700;color:#243763;">${idx + 1}</td>
+                    <td style="font-weight:600;color:#1E293B;">${esc(a.nombre || "—")}</td>
+                    <td style="font-family:monospace;font-size:9.5pt;color:#334155;">${esc(a.email || "—")}</td>
+                    <td style="color:#334155;">${esc([a.carrera, (a.grupos || []).join(", ")].filter(Boolean).join(" · ") || "—")}</td>
+                    <td style="text-align:center;font-size:9pt;color:#475569;">${a.fecha_registro ? esc(new Date(a.fecha_registro).toLocaleString("es-MX")) : "Registrado"}</td>
+                    <td style="text-align:center;font-weight:700;color:${a.asistio ? '#15803D' : '#64748B'};">
+                        ${a.asistio ? "✓ ASISTIÓ" : "Inscrito"}
+                    </td>
+                </tr>
+            `).join("")
+            : `<tr><td colspan="6" style="text-align:center;padding:18px;color:#64748B;font-style:italic;">No hay alumnos inscritos registrados en este evento.</td></tr>`;
+
+        const ventana = window.open("", "_blank", "width=1020,height=840");
+        if (!ventana) {
+            toast("Permite las ventanas emergentes en tu navegador para generar el PDF con Formato ETDA.", "alerta");
+            return;
+        }
+
+        ventana.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Lista de Asistencia - ${esc(ev.titulo)}</title>
+    <style>
+        @page {
+            size: letter;
+            margin: 0;
+        }
+        * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Arial', 'Segoe UI', sans-serif;
+            color: #1E293B;
+            background: #FFFFFF;
+        }
+        /* Estructura de tabla repetible para que el Membretado ETDA y el Pie de Página salgan fijos en cada hoja */
+        table.page-frame {
+            width: 100%;
+            border-collapse: collapse;
+            min-height: 100vh;
+        }
+        thead.frame-header {
+            display: table-header-group;
+        }
+        tfoot.frame-footer {
+            display: table-footer-group;
+        }
+        .etda-header-wrap {
+            padding: 22px 44px 12px 44px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .etda-header-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .etda-logo-izq {
+            height: 68px;
+            width: auto;
+            object-fit: contain;
+        }
+        .etda-logo-der {
+            height: 62px;
+            width: auto;
+            object-fit: contain;
+        }
+        .etda-inst-title {
+            font-size: 13.5pt;
+            font-weight: 800;
+            color: #243763;
+            letter-spacing: 0.2px;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .etda-dep-title {
+            font-size: 10.5pt;
+            font-weight: 500;
+            color: #243763;
+            margin: 3px 0 0 0;
+            line-height: 1.25;
+        }
+        .etda-bar-top {
+            height: 6px;
+            width: 100%;
+            background: ${esc(m.colorBarraSuperior || "#2B3E6B")};
+        }
+        .etda-body-content {
+            padding: 22px 44px 110px 44px;
+            vertical-align: top;
+        }
+        .doc-subtitle {
+            text-align: center;
+            font-size: 12pt;
+            font-weight: 800;
+            color: #243763;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0 0 14px 0;
+        }
+        .meta-box {
+            border: 1px solid #CBD5E1;
+            background: #F8FAFC;
+            border-left: 5px solid ${esc(m.colorBarraSuperior || "#2B3E6B")};
+            padding: 12px 16px;
+            margin-bottom: 18px;
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 6px 18px;
+            font-size: 9.5pt;
+        }
+        .meta-box div strong {
+            color: #243763;
+        }
+        table.att-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9.5pt;
+        }
+        table.att-table th {
+            background: ${esc(m.colorBarraSuperior || "#2B3E6B")};
+            color: #FFFFFF;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 8.5pt;
+            letter-spacing: 0.3px;
+            padding: 8px 8px;
+            border: 1px solid ${esc(m.colorBarraSuperior || "#2B3E6B")};
+            text-align: left;
+        }
+        table.att-table td {
+            padding: 7px 8px;
+            border: 1px solid #CBD5E1;
+        }
+        table.att-table tbody tr:nth-child(even) {
+            background: #F4F7FB;
+        }
+        .firma-box {
+            margin-top: 38px;
+            text-align: center;
+            page-break-inside: avoid;
+        }
+        .firma-line {
+            width: 260px;
+            border-top: 1.5px solid #243763;
+            margin: 0 auto 5px auto;
+        }
+        .firma-label {
+            font-size: 9.5pt;
+            font-weight: 700;
+            color: #243763;
+        }
+        /* Pie de página fijo en la parte inferior idéntico al Formato ETDA */
+        .etda-footer-fixed {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #FFFFFF;
+        }
+        .etda-bar-bottom {
+            height: 6px;
+            width: 100%;
+            background: ${esc(m.colorBarraInferior || "#C49B27")};
+        }
+        .etda-footer-inner {
+            padding: 10px 44px 18px 44px;
+            color: #243763;
+            font-size: 8.5pt;
+            line-height: 1.45;
+        }
+        .etda-footer-row1 {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+        }
+        .etda-footer-domain {
+            font-size: 14pt;
+            font-weight: 800;
+            color: #243763;
+            letter-spacing: 0.2px;
+        }
+    </style>
+</head>
+<body>
+    <table class="page-frame">
+        <thead class="frame-header">
+            <tr>
+                <td>
+                    <div class="etda-header-wrap">
+                        <div class="etda-header-left">
+                            <img class="etda-logo-izq" src="${m.logoIzquierdo}" alt="Escudo UNACH">
+                            <div>
+                                <p class="etda-inst-title">${esc(m.institucion)}</p>
+                                <p class="etda-dep-title">${esc(m.dependencia)}</p>
+                            </div>
+                        </div>
+                        <img class="etda-logo-der" src="${m.logoDerecho}" alt="Educación que transforma">
+                    </div>
+                    <div class="etda-bar-top"></div>
+                </td>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="etda-body-content">
+                    ${m.subtituloDocumento ? `<h2 class="doc-subtitle">${esc(m.subtituloDocumento)}</h2>` : ""}
+                    <div class="meta-box">
+                        <div><strong>Evento Académico:</strong> ${esc(ev.titulo || "Evento")}</div>
+                        <div><strong>Fecha y Hora:</strong> ${esc(fechaEventoStr)}</div>
+                        <div><strong>Sede / Auditorio:</strong> ${esc(ev.lugar || "Campus I")}</div>
+                        <div><strong>Inscritos / Asistencias:</strong> ${lista.length} inscritos · ${confirmados} asistencias confirmadas</div>
+                        <div style="grid-column: span 2;"><strong>Dirigido a:</strong> ${esc(audienciaStr)}</div>
+                    </div>
+
+                    <table class="att-table">
+                        <thead>
+                            <tr>
+                                <th style="width:6%;text-align:center;">No.</th>
+                                <th style="width:28%;">Nombre Completo</th>
+                                <th style="width:24%;">Correo Institucional</th>
+                                <th style="width:18%;">Carrera / Grupo</th>
+                                <th style="width:13%;text-align:center;">Fecha Registro</th>
+                                <th style="width:11%;text-align:center;">Asistencia</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filasHtml}
+                        </tbody>
+                    </table>
+
+                    ${(m.mostrarFirma !== false && (m.firmaResponsable || m.cargoFirma)) ? `
+                        <div class="firma-box">
+                            <div class="firma-line"></div>
+                            ${m.firmaResponsable ? `<div class="firma-label">${esc(m.firmaResponsable)}</div>` : ""}
+                            ${m.cargoFirma ? `<div style="font-size:8.5pt;color:#475569;margin-top:2px;">${esc(m.cargoFirma)}</div>` : ""}
+                        </div>
+                    ` : ""}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="etda-footer-fixed">
+        <div class="etda-bar-bottom"></div>
+        <div class="etda-footer-inner">
+            <div class="etda-footer-row1">
+                <span>${esc(m.direccionPie)}</span>
+                <span class="etda-footer-domain">${esc(m.dominioPie)}</span>
+            </div>
+            <div>${esc(m.contactoPie)}</div>
+        </div>
+    </div>
+
+    <script>
+        window.onload = function() {
+            setTimeout(function() { window.print(); }, 350);
+        };
+    <\/script>
+</body>
+</html>`);
+        ventana.document.close();
     } catch (err) {
-        toast(err.message, "error");
+        toast("Error al generar la lista de asistencia: " + err.message, "error");
     }
 }
 

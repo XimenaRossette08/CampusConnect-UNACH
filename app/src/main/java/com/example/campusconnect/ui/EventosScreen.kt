@@ -41,8 +41,12 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.campusconnect.model.ArchivoEvento
 import com.example.campusconnect.model.Evento
+import com.example.campusconnect.network.RetrofitClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -125,6 +129,8 @@ fun EventosScreen(
     snackbarHostState: SnackbarHostState,
     scope: CoroutineScope
 ) {
+    val context = LocalContext.current
+
     // ESTADO PARA CONTROLAR LA CÁMARA
     var mostrarEscaner by remember { mutableStateOf(false) }
 
@@ -136,11 +142,62 @@ fun EventosScreen(
     var tabVistaEventos by remember { mutableIntStateOf(0) }
     val eventosInscritos = remember { mutableStateListOf<String>() }
 
+    // Lista sincronizada en tiempo real con el servidor FastAPI (GET /eventos/feed)
+    var eventosServidor by remember { mutableStateOf<List<Evento>>(emptyList()) }
+    var yaSincronizoConServidor by remember { mutableStateOf(false) }
+    var sincronizandoServidor by remember { mutableStateOf(false) }
+    var errorServidor by remember { mutableStateOf<String?>(null) }
+
+    fun recargarEventosDesdeServidor(mostrarMensaje: Boolean = false) {
+        scope.launch {
+            sincronizandoServidor = true
+            try {
+                val remotos = withContext(Dispatchers.IO) {
+                    RetrofitClient.obtenerApi(context).obtenerEventos()
+                }
+                eventosServidor = remotos
+                yaSincronizoConServidor = true
+                errorServidor = null
+                if (mostrarMensaje) {
+                    snackbarHostState.showSnackbar("Cartelera actualizada (${remotos.size} eventos)")
+                }
+            } catch (e: Exception) {
+                errorServidor = e.localizedMessage
+                if (mostrarMensaje) {
+                    snackbarHostState.showSnackbar("No se pudo actualizar desde el servidor")
+                }
+            } finally {
+                sincronizandoServidor = false
+            }
+        }
+    }
+
+    // Sincronización automática al abrir la pantalla y actualización periódica cada 15 segundos
+    LaunchedEffect(Unit) {
+        while (true) {
+            try {
+                val remotos = withContext(Dispatchers.IO) {
+                    RetrofitClient.obtenerApi(context).obtenerEventos()
+                }
+                eventosServidor = remotos
+                yaSincronizoConServidor = true
+                errorServidor = null
+            } catch (_: Exception) {
+            }
+            delay(15_000L)
+        }
+    }
+
+    // Mostrar siempre los eventos reales del servidor una vez sincronizado
+    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor) {
+        if (yaSincronizoConServidor) eventosServidor else eventos
+    }
+
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
     var fechaSeleccionada by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
 
-    val eventosFiltrados = remember(eventos, searchQuery, filtroSeleccionado, tabVistaEventos, eventosInscritos.size) {
-        eventos.filter { ev ->
+    val eventosFiltrados = remember(listaEventosActiva, searchQuery, filtroSeleccionado, tabVistaEventos, eventosInscritos.size) {
+        listaEventosActiva.filter { ev ->
             val catInfo = detectarCategoriaEvento(ev)
             val coincideBusqueda = searchQuery.isBlank() ||
                     ev.titulo.contains(searchQuery, ignoreCase = true) ||
@@ -161,7 +218,7 @@ fun EventosScreen(
         }
     }
 
-    val diasDelMes = remember(mesActual, fechaSeleccionada, eventos) {
+    val diasDelMes = remember(mesActual, fechaSeleccionada, listaEventosActiva) {
         val dias = mutableListOf<DiaMesContext>()
         val cal = mesActual.clone() as Calendar
         cal.timeZone = zonaHorariaMx
@@ -188,7 +245,7 @@ fun EventosScreen(
             val diaStr = String.format(Locale.getDefault(), "%02d", dia)
             val fechaStr = "$anioInt-$mesStr-$diaStr"
 
-            val diaTieneEvento = eventos.any { (it.fechaHora ?: "").startsWith(fechaStr) } || dia == 8 || dia == 15
+            val diaTieneEvento = listaEventosActiva.any { (it.fechaHora ?: "").startsWith(fechaStr) }
             dias.add(DiaMesContext(dia, mesInt, anioInt, diaTieneEvento, esSeleccionado))
         }
         dias
@@ -255,14 +312,25 @@ fun EventosScreen(
                                 shape = CircleShape,
                                 color = EtdaBlue.copy(alpha = 0.2f),
                                 border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.5f)),
-                                modifier = Modifier.size(44.dp)
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .clickable { recargarEventosDesdeServidor(mostrarMensaje = true) }
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Eventos",
-                                    tint = EtdaOrange,
-                                    modifier = Modifier.padding(10.dp)
-                                )
+                                if (sincronizandoServidor) {
+                                    CircularProgressIndicator(
+                                        color = EtdaOrange,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.padding(11.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Actualizar cartelera",
+                                        tint = EtdaOrange,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -725,18 +793,40 @@ fun EventosScreen(
                 },
                 onToggleInscripcion = { inscribir ->
                     val cat = detectarCategoriaEvento(evento)
-                    if (inscribir) {
-                        if (!eventosInscritos.contains(evento.titulo)) {
-                            eventosInscritos.add(evento.titulo)
-                        }
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                "¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
-                            )
-                        }
-                    } else {
-                        eventosInscritos.remove(evento.titulo)
-                        scope.launch {
+                    scope.launch {
+                        if (inscribir) {
+                            try {
+                                val resp = withContext(Dispatchers.IO) {
+                                    RetrofitClient.obtenerApi(context).registrarAsistenciaEvento(evento.id)
+                                }
+                                if (resp.isSuccessful || resp.code() == 409) {
+                                    if (!eventosInscritos.contains(evento.titulo)) {
+                                        eventosInscritos.add(evento.titulo)
+                                    }
+                                    snackbarHostState.showSnackbar(
+                                        "¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
+                                    )
+                                } else {
+                                    snackbarHostState.showSnackbar(
+                                        "No fue posible registrar tu inscripción en el servidor (${resp.code()})"
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                if (!eventosInscritos.contains(evento.titulo)) {
+                                    eventosInscritos.add(evento.titulo)
+                                }
+                                snackbarHostState.showSnackbar(
+                                    "Inscrito localmente a: ${evento.titulo}"
+                                )
+                            }
+                        } else {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    RetrofitClient.obtenerApi(context).cancelarAsistenciaEvento(evento.id)
+                                }
+                            } catch (_: Exception) {
+                            }
+                            eventosInscritos.remove(evento.titulo)
                             snackbarHostState.showSnackbar(
                                 "Inscripción cancelada para: ${evento.titulo}"
                             )

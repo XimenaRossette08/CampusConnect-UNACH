@@ -1,10 +1,11 @@
 import re
 import unicodedata
 import uuid
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
 from ..auditoria import registrar_auditoria
@@ -21,6 +22,45 @@ from ..segmentacion import evento_visible_para
 from ..storage import ArchivoInvalido, borrar_archivo, guardar_archivo, limpiar_nombre_original
 
 router = APIRouter(prefix="/eventos", tags=["eventos"])
+
+class EventoCreateConVigencia(EventoCreate):
+    disponible_desde: Optional[datetime] = Field(default=None, alias="disponibleDesde")
+    fecha_fin: Optional[datetime] = Field(default=None, alias="fechaFin")
+
+
+class EventoOutConVigencia(EventoOut):
+    disponible_desde: Optional[datetime] = Field(default=None, serialization_alias="disponibleDesde")
+    fecha_fin: Optional[datetime] = Field(default=None, serialization_alias="fechaFin")
+
+
+def _asegurar_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _evento_ha_finalizado(evento: Evento) -> bool:
+    """
+    Un evento se considera finalizado/expirado si:
+    - Tiene fecha_fin configurada y la hora actual ya alcanzó o superó fecha_fin.
+    - O si no tiene fecha_fin y la hora actual ya alcanzó o superó fecha_hora.
+    """
+    limite = getattr(evento, "fecha_fin", None) or evento.fecha_hora
+    return evento_finalizado(limite)
+
+
+def _evento_esta_disponible_ahora(evento: Evento) -> bool:
+    """
+    Verifica si ya llegó la fecha/hora configurada en disponible_desde.
+    Si disponible_desde es NULL, está disponible desde el momento de su creación.
+    """
+    disp = _asegurar_utc(getattr(evento, "disponible_desde", None))
+    if disp is None:
+        return True
+    return ahora_utc() >= disp
+
 
 TIPOS_ARCHIVO = {"material", "evidencia"}
 MAX_ARCHIVOS_POR_PETICION = 20
@@ -50,17 +90,20 @@ def _archivo_out(a: EventoArchivo, base: str) -> ArchivoOut:
     )
 
 
-def _serializar(evento: Evento, base: str, conteos: Optional[Dict] = None) -> EventoOut:
+def _serializar(evento: Evento, base: str, conteos: Optional[Dict] = None) -> EventoOutConVigencia:
     archivos = [_archivo_out(a, base) for a in evento.archivos]
     flyer = next((a.url for a in archivos if a.tipo == "material" and a.es_imagen), None)
     registrados, asistieron = conteos.get(evento.id, (0, 0)) if conteos is not None else (None, None)
-    return EventoOut(
+    return EventoOutConVigencia(
         id=evento.id, titulo=evento.titulo, descripcion=evento.descripcion,
-        fecha_hora=evento.fecha_hora, lugar=evento.lugar, categoria=evento.categoria,
+        disponible_desde=getattr(evento, "disponible_desde", None),
+        fecha_hora=evento.fecha_hora,
+        fecha_fin=getattr(evento, "fecha_fin", None),
+        lugar=evento.lugar, categoria=evento.categoria,
         es_general=evento.es_general, id_facultad_destino=evento.id_facultad_destino,
         id_carrera_destino=evento.id_carrera_destino, grupos_destino=evento.grupos_destino,
         imagen_url=flyer or evento.imagen_url, organizador_email=evento.organizador_email,
-        finalizado=evento_finalizado(evento.fecha_hora), archivos=archivos,
+        finalizado=_evento_ha_finalizado(evento), archivos=archivos,
         total_registrados=registrados, total_asistieron=asistieron,
     )
 
@@ -84,10 +127,12 @@ def _puede_gestionar(usuario: Usuario) -> bool:
     return "eventos:escribir" in {p.clave for p in (usuario.rol.permisos if usuario.rol else [])}
 
 
-def _aplicar_datos(evento: Evento, datos: EventoCreate) -> None:
+def _aplicar_datos(evento: Evento, datos: EventoCreateConVigencia) -> None:
     evento.titulo = datos.titulo
     evento.descripcion = datos.descripcion
+    evento.disponible_desde = datos.disponible_desde
     evento.fecha_hora = datos.fecha_hora
+    evento.fecha_fin = datos.fecha_fin
     evento.lugar = datos.lugar
     evento.categoria = datos.categoria
     evento.es_general = datos.es_general
@@ -105,24 +150,42 @@ def _aplicar_datos(evento: Evento, datos: EventoCreate) -> None:
 
 # ---------------------------------------------------------------- listados
 
-@router.get("/feed", response_model=List[EventoOut])
+@router.get("/feed", response_model=List[EventoOutConVigencia])
 def obtener_feed(
     request: Request,
+    incluir_todos: bool = False,
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Eventos visibles para el usuario (carrera/grupo incluidos). Quien gestiona eventos ve todos."""
+    """
+    Devuelve los eventos vigentes (que ya alcanzaron su fecha 'disponible_desde' y NO han
+    alcanzado su 'fecha_fin' / 'fecha_hora' de expiración).
+    Así los eventos finalizados desaparecen automáticamente de la App Android.
+    """
     eventos = (
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.asc()).all()
     )
+    user_agent = (request.headers.get("user-agent") or "").lower()
+    es_app_android = "okhttp" in user_agent
+
+    # En la App Android (o si no se pide incluir_todos para estadísticas web),
+    # filtrar siempre eventos finalizados/expirados y eventos cuya fecha disponible_desde aún no llega
+    if es_app_android or not incluir_todos:
+        eventos = [
+            e for e in eventos
+            if not _evento_ha_finalizado(e) and _evento_esta_disponible_ahora(e)
+        ]
+
     if not _puede_gestionar(usuario):
-        eventos = [e for e in eventos if evento_visible_para(e, usuario)]
+        tiene_perfil_segmentado = bool(usuario.id_facultad or usuario.id_carrera or usuario.grupos)
+        if tiene_perfil_segmentado:
+            eventos = [e for e in eventos if evento_visible_para(e, usuario)]
     base = _base_url(request)
     return [_serializar(e, base) for e in eventos]
 
 
-@router.get("/pasados", response_model=List[EventoOut])
+@router.get("/pasados", response_model=List[EventoOutConVigencia])
 def eventos_pasados(
     request: Request,
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir", "estadisticas:leer")),
@@ -133,7 +196,7 @@ def eventos_pasados(
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.desc()).all()
     )
-    eventos = [e for e in eventos if evento_finalizado(e.fecha_hora)]
+    eventos = [e for e in eventos if _evento_ha_finalizado(e)]
     conteos = _conteos(db, [e.id for e in eventos])
     base = _base_url(request)
     return [_serializar(e, base, conteos) for e in eventos]
@@ -160,10 +223,10 @@ def opciones_segmentacion(
 
 # ---------------------------------------------------------------- CRUD (Protegidos con 403 Forbidden)
 
-@router.post("/", response_model=EventoOut, status_code=201)
+@router.post("/", response_model=EventoOutConVigencia, status_code=201)
 def crear_evento(
     request: Request,
-    evento_in: EventoCreate,
+    evento_in: EventoCreateConVigencia,
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
     db: Session = Depends(get_db),
 ):
@@ -190,11 +253,11 @@ def crear_evento(
     return _serializar(nuevo, _base_url(request))
 
 
-@router.put("/{evento_id}", response_model=EventoOut)
+@router.put("/{evento_id}", response_model=EventoOutConVigencia)
 def editar_evento(
     request: Request,
     evento_id: uuid.UUID,
-    evento_in: EventoCreate,
+    evento_in: EventoCreateConVigencia,
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
     db: Session = Depends(get_db),
 ):
@@ -259,7 +322,7 @@ def subir_archivos(
         raise HTTPException(status_code=400, detail=f"Envía entre 1 y {MAX_ARCHIVOS_POR_PETICION} archivos.")
 
     evento = _buscar_evento(db, evento_id)
-    if tipo == "evidencia" and not evento_finalizado(evento.fecha_hora):
+    if tipo == "evidencia" and not _evento_ha_finalizado(evento):
         raise HTTPException(status_code=400, detail="Solo se pueden subir evidencias de eventos finalizados.")
 
     guardados: List[EventoArchivo] = []
@@ -326,16 +389,30 @@ def registrar_asistencia(
 ):
     """Inscribe al usuario autenticado en el evento (para recibir también recordatorio 24h antes)."""
     evento = _buscar_evento(db, evento_id)
-    if evento_finalizado(evento.fecha_hora):
+    if _evento_ha_finalizado(evento):
         raise HTTPException(status_code=400, detail="Este evento ya finalizó.")
-    if not _puede_gestionar(usuario) and not evento_visible_para(evento, usuario):
+    tiene_perfil_segmentado = bool(usuario.id_facultad or usuario.id_carrera or usuario.grupos)
+    if not _puede_gestionar(usuario) and tiene_perfil_segmentado and not evento_visible_para(evento, usuario):
         raise HTTPException(status_code=403, detail="Este evento no está dirigido a tu carrera o grupo.")
     ya = db.query(EventoAsistencia).filter_by(evento_id=evento.id, usuario_id=usuario.id).first()
     if ya:
-        raise HTTPException(status_code=409, detail="Ya estás registrado en este evento.")
+        return {"mensaje": "Ya estás registrado en este evento."}
     db.add(EventoAsistencia(evento_id=evento.id, usuario_id=usuario.id))
     db.commit()
     return {"mensaje": "Inscripción realizada correctamente."}
+
+
+@router.delete("/{evento_id}/registro", status_code=200)
+def cancelar_asistencia(
+    evento_id: uuid.UUID,
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    fila = db.query(EventoAsistencia).filter_by(evento_id=evento_id, usuario_id=usuario.id).first()
+    if fila:
+        db.delete(fila)
+        db.commit()
+    return {"mensaje": "Inscripción cancelada correctamente."}
 
 
 def _filas_asistencia(db: Session, evento_id: uuid.UUID):

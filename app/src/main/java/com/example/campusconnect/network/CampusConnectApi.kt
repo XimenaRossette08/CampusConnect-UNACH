@@ -10,8 +10,10 @@ import com.example.campusconnect.model.Verificar2FARequest
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 
 interface CampusConnectApi {
 
@@ -37,6 +39,16 @@ interface CampusConnectApi {
     suspend fun crearEvento(
         @Body evento: EventoCreateRequest
     ): Evento
+
+    @POST("eventos/{eventoId}/registro")
+    suspend fun registrarAsistenciaEvento(
+        @Path("eventoId") eventoId: String
+    ): Response<ResponseBody>
+
+    @DELETE("eventos/{eventoId}/registro")
+    suspend fun cancelarAsistenciaEvento(
+        @Path("eventoId") eventoId: String
+    ): Response<ResponseBody>
 
     @POST("/api/login")
     suspend fun iniciarSesion(@Body request: LoginRequest): Response<LoginResponse>

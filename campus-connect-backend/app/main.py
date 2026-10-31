@@ -172,6 +172,8 @@ async def cabeceras_seguras(request: Request, call_next):
     respuesta = await call_next(request)
     respuesta.headers["X-Content-Type-Options"] = "nosniff"
     respuesta.headers["X-Frame-Options"] = "DENY"
+    # Bloquear caché para que la app móvil y el panel web no retengan datos viejos
+    respuesta.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return respuesta
 
 

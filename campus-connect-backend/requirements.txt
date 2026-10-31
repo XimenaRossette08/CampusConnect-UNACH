@@ -9,3 +9,4 @@ email-validator
 slowapi
 python-dotenv
 reportlab
+python-multipart

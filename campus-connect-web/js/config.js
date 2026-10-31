@@ -1,9 +1,7 @@
-// ============================================================================
-// CONFIGURACIÓN GLOBAL, PALETA ETDA-UNACH Y CATÁLOGO DE PERMISOS GRANULARES
-// ============================================================================
-
-const API_BASE_URL = "http://127.0.0.1:8000";
-
+// Detección automática: si estás en tu PC usa localhost, si está en Vercel usa Render
+const API_BASE_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+    ? "http://127.0.0.1:8000"
+    : "https://campusconnect-unach-api.onrender.com";
 // Limpieza automática de cualquier token legado en localStorage para cumplir al 100%
 // con la prohibición de guardar JWT en localStorage (prevención de XSS)
 try {

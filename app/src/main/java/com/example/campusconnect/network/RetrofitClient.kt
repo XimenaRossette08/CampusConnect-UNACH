@@ -13,8 +13,7 @@ object RetrofitClient {
 
     // ✅ Con 'adb reverse' activo, usamos localhost directamente
     // CORRECTO (apunta a tu PC desde el emulador):
-    private const val BASE_URL = "http://localhost:8000/"
-
+    private const val BASE_URL = "https://campusconnect-unach-api.onrender.com/"
     @Volatile
     private var instancia: CampusConnectApi? = null
 

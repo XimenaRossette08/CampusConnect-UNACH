@@ -2,16 +2,17 @@ import json
 import logging
 import os
 import smtplib
-import urllib.request
 import urllib.error
+import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 logger = logging.getLogger("uvicorn.error")
 
-# Configuración de remitente institucional por defecto
-SENDER_NAME = "Campus Connect UNACH • ETDA"
-SENDER_EMAIL = os.getenv("SMTP_USER", "campusconnect1c0de@gmail.com")
+# Configuración de remitente institucional
+SENDER_NAME = os.getenv("SENDER_NAME", "Campus Connect UNACH • ETDA")
+SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", os.getenv("SMTP_USER", "campusconnect1c0de@gmail.com"))
+RESEND_FROM = os.getenv("RESEND_FROM", "Campus Connect UNACH <onboarding@resend.dev>")
 
 
 def _generar_plantilla_html_2fa(codigo: str, destinatario: str) -> str:
@@ -46,7 +47,7 @@ def _generar_plantilla_html_2fa(codigo: str, destinatario: str) -> str:
       <div class="code-box">
         <span class="code">{codigo}</span>
       </div>
-      <p style="font-size: 12px; color: #64748B;">Este código tiene una vigencia de <b>30 días</b> de confianza en tu navegador o app. Si tú no realizaste este intento, ignora este mensaje o cambia tu contraseña.</p>
+      <p style="font-size: 12px; color: #64748B;">Este código expira en <b>10 minutos</b>. Una vez verificado, tu sesión se mantendrá en este dispositivo hasta por 30 días. Si no realizaste esta solicitud, ignora este mensaje o cambia tu contraseña.</p>
     </div>
     <div class="footer">
       <span>“Por la conciencia de la necesidad de servir”</span><br>
@@ -82,21 +83,18 @@ def _enviar_via_brevo_api(destinatario: str, codigo: str, api_key: str) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=12) as resp:
             if resp.status in (200, 201, 202):
-                logger.info(f"[BREVO API] Correo 2FA enviado exitosamente a {destinatario} (Status {resp.status})")
-                print(f"[BREVO API] Correo 2FA enviado exitosamente a {destinatario}")
+                logger.info(f"[BREVO API] Correo 2FA enviado a {destinatario} (Status {resp.status})")
                 return True
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8", errors="ignore")
         logger.error(f"[BREVO API] Error HTTP {e.code}: {err_msg}")
-        print(f"[BREVO API] Error HTTP {e.code}: {err_msg}")
     except Exception as e:
         logger.error(f"[BREVO API] Error de conexión: {e}")
-        print(f"[BREVO API] Error de conexión: {e}")
     return False
 
 
 def _enviar_via_resend_api(destinatario: str, codigo: str, api_key: str) -> bool:
-    """Envía correo mediante HTTPS REST API de Resend (Puerto 443 - 100 correos/día gratis)."""
+    """Envía correo mediante HTTPS REST API de Resend (Puerto 443)."""
     url = "https://api.resend.com/emails"
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
@@ -104,7 +102,7 @@ def _enviar_via_resend_api(destinatario: str, codigo: str, api_key: str) -> bool
         "User-Agent": "CampusConnect/1.0",
     }
     payload = {
-        "from": "Campus Connect UNACH <onboarding@resend.dev>",
+        "from": RESEND_FROM,
         "to": [destinatario],
         "subject": f"Código de Seguridad 2FA: {codigo} — Campus Connect UNACH",
         "html": _generar_plantilla_html_2fa(codigo, destinatario),
@@ -119,21 +117,18 @@ def _enviar_via_resend_api(destinatario: str, codigo: str, api_key: str) -> bool
     try:
         with urllib.request.urlopen(req, timeout=12) as resp:
             if resp.status in (200, 201, 202):
-                logger.info(f"[RESEND API] Correo 2FA enviado exitosamente a {destinatario}")
-                print(f"[RESEND API] Correo 2FA enviado exitosamente a {destinatario}")
+                logger.info(f"[RESEND API] Correo 2FA enviado a {destinatario}")
                 return True
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8", errors="ignore")
         logger.error(f"[RESEND API] Error HTTP {e.code}: {err_msg}")
-        print(f"[RESEND API] Error HTTP {e.code}: {err_msg}")
     except Exception as e:
         logger.error(f"[RESEND API] Error de conexión: {e}")
-        print(f"[RESEND API] Error de conexión: {e}")
     return False
 
 
 def _enviar_via_smtp_tradicional(destinatario: str, codigo: str) -> bool:
-    """Fallback: intento por SMTP estándar (funciona en local si no hay firewall bloqueando puertos)."""
+    """Fallback: intento por SMTP estándar (funciona en entorno local)."""
     host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     user = os.getenv("SMTP_USER", "")
     pwd = (os.getenv("SMTP_PASSWORD", "") or "").replace(" ", "").strip()
@@ -149,7 +144,7 @@ def _enviar_via_smtp_tradicional(destinatario: str, codigo: str) -> bool:
     msg.attach(MIMEText(f"Tu código de verificación 2FA es: {codigo}", "plain", "utf-8"))
     msg.attach(MIMEText(_generar_plantilla_html_2fa(codigo, destinatario), "html", "utf-8"))
 
-    # Intentar por el puerto configurado (ej. 587 con STARTTLS)
+    # Intentar por puerto principal
     try:
         if port == 465:
             with smtplib.SMTP_SSL(host, port, timeout=6) as server:
@@ -163,12 +158,11 @@ def _enviar_via_smtp_tradicional(destinatario: str, codigo: str) -> bool:
                 server.send_message(msg)
                 return True
     except OSError as e:
-        # [Errno 101] Network is unreachable (bloqueo típico de Render Free Tier)
-        print(f"[SMTP] Puerto {port} bloqueado por la red de Render: {e}")
+        logger.warning(f"[SMTP] Puerto {port} bloqueado en la red del host: {e}")
     except Exception as e:
-        print(f"[SMTP] Error al enviar correo: {e}")
+        logger.warning(f"[SMTP] Error en envío: {e}")
 
-    # Si 587 falló por red, intentar puerto 465 directo
+    # Fallback a puerto 465 SSL si 587 falló
     if port != 465:
         try:
             with smtplib.SMTP_SSL(host, 465, timeout=6) as server:
@@ -183,28 +177,21 @@ def _enviar_via_smtp_tradicional(destinatario: str, codigo: str) -> bool:
 
 def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
     """
-    Función principal llamada desde auth.py para el envío del código 2FA.
-    Estrategia de triple canal tolerante a la nube:
-    1. Si existe BREVO_API_KEY -> envía por HTTPS puerto 443 (libre de bloqueos de Render).
-    2. Si existe RESEND_API_KEY -> envía por HTTPS puerto 443 (libre de bloqueos de Render).
-    3. Si no hay API key -> intenta por SMTP tradicional (útil para entorno local).
+    Estrategia de envío tolerante a fallos:
+    1. Brevo API (HTTPS 443 - Permite envíos a cualquier destinatario si el remitente está verificado).
+    2. Resend API (HTTPS 443).
+    3. SMTP tradicional (Entornos locales).
     """
-    # 1. Intentar por Brevo API (Recomendado para Render Free Tier: 300 emails/día a cualquier correo)
     brevo_key = os.getenv("BREVO_API_KEY", "").strip()
-    if brevo_key:
-        if _enviar_via_brevo_api(destinatario, codigo, brevo_key):
-            return True
+    if brevo_key and _enviar_via_brevo_api(destinatario, codigo, brevo_key):
+        return True
 
-    # 2. Intentar por Resend API (Alternativa HTTPS puerto 443)
     resend_key = os.getenv("RESEND_API_KEY", "").strip()
-    if resend_key:
-        if _enviar_via_resend_api(destinatario, codigo, resend_key):
-            return True
+    if resend_key and _enviar_via_resend_api(destinatario, codigo, resend_key):
+        return True
 
-    # 3. Intentar por SMTP tradicional (falla en Render con Errno 101, pero funciona en local)
     if _enviar_via_smtp_tradicional(destinatario, codigo):
         return True
 
-    # Si todos los canales fallan, el código sigue vivo y disponible en consola y Supabase
-    print(f"[2FA AVISO] El correo no pudo enviarse vía red. Código respaldado en BD y logs: {codigo}")
+    logger.warning(f"[2FA AVISO] No se pudo enviar el correo por red. Código generado: {codigo}")
     return False

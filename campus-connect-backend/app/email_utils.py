@@ -1,126 +1,210 @@
+import json
+import logging
 import os
 import smtplib
-import ssl
-from email.header import Header
+import urllib.request
+import urllib.error
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formataddr
-from pathlib import Path
 
-from dotenv import load_dotenv
+logger = logging.getLogger("uvicorn.error")
 
-# Cargar variables del archivo .env en la raíz del backend
-_BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(_BASE_DIR / ".env", override=True)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+# Configuración de remitente institucional por defecto
+SENDER_NAME = "Campus Connect UNACH • ETDA"
+SENDER_EMAIL = os.getenv("SMTP_USER", "campusconnect1c0de@gmail.com")
 
 
-def _limpiar_env(valor: str) -> str:
-    return (valor or "").strip().strip('"').strip("'")
-
-
-def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
-    # Recargar .env por si se editó mientras el servidor estaba corriendo
-    load_dotenv(_BASE_DIR / ".env", override=True)
-
-    smtp_host = _limpiar_env(os.getenv("SMTP_HOST", "smtp.gmail.com")) or "smtp.gmail.com"
-    smtp_port_cfg = int(_limpiar_env(os.getenv("SMTP_PORT", "465")) or "465")
-    smtp_user = _limpiar_env(os.getenv("SMTP_USER", ""))
-    # Quitamos comillas y espacios internos de la Contraseña de Aplicación de Google (16 letras)
-    smtp_password = _limpiar_env(os.getenv("SMTP_PASSWORD", "")).replace(" ", "")
-    smtp_from = _limpiar_env(os.getenv("SMTP_FROM", "")) or smtp_user
-
-    if not smtp_user or not smtp_password:
-        print(f"[SMTP] ERROR: Faltan SMTP_USER y SMTP_PASSWORD en {_BASE_DIR / '.env'}")
-        print(f"[SMTP] Para pruebas locales tu código es: {codigo}")
-        return False
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = Header(f"Tu código de acceso es {codigo} - Campus Connect UNACH", "utf-8")
-    msg["From"] = formataddr((str(Header("Campus Connect UNACH", "utf-8")), smtp_from))
-    msg["To"] = destinatario
-
-    texto_plano = (
-        f"Campus Connect UNACH\n\n"
-        f"Tu código de verificación es: {codigo}\n\n"
-        f"Este código y tu verificación tienen una vigencia de 1 mes (30 días)."
-    )
-    html_contenido = f"""<!DOCTYPE html>
+def _generar_plantilla_html_2fa(codigo: str, destinatario: str) -> str:
+    """Genera un correo con diseño institucional oficial UNACH - ETDA."""
+    return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #F4F7FB; margin: 0; padding: 24px; color: #122652; }}
-        .card {{ max-width: 480px; margin: 0 auto; background: #FFFFFF; border-radius: 20px; border: 1px solid #E2E8F0; overflow: hidden; box-shadow: 0 4px 14px rgba(18, 38, 82, 0.08); }}
-        .header {{ background: linear-gradient(135deg, #0C1B3B 0%, #122652 100%); padding: 26px 20px; text-align: center; color: #FFFFFF; border-bottom: 4px solid #F57C00; }}
-        .header h1 {{ margin: 0; font-size: 20px; font-weight: 800; }}
-        .header p {{ margin: 4px 0 0; font-size: 11px; color: #FFB74D; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; }}
-        .content {{ padding: 30px 24px; text-align: center; }}
-        .instruction {{ font-size: 13px; color: #5B6670; line-height: 1.6; margin-bottom: 20px; }}
-        .code-box {{ background-color: #F4F7FB; border: 2px dashed #0093FF; border-radius: 14px; padding: 16px 24px; display: inline-block; margin: 0 auto 20px; }}
-        .code {{ font-family: monospace; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #122652; margin: 0; }}
-        .validity {{ font-size: 11px; color: #F57C00; font-weight: bold; margin-top: 6px; }}
-        .security-note {{ font-size: 11px; color: #8C98A4; line-height: 1.5; border-top: 1px solid #EEF2F6; padding-top: 16px; }}
-        .footer {{ background: #F8FAFC; padding: 14px; text-align: center; font-size: 10px; color: #64748B; }}
-    </style>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: 'Segoe UI', Arial, sans-serif; background-color: #F4F7FB; margin: 0; padding: 24px; color: #1E293B; }}
+    .card {{ max-width: 520px; margin: 0 auto; background: #FFFFFF; border-radius: 20px; overflow: hidden; box-shadow: 0 8px 24px rgba(18,38,82,0.08); border: 1px solid #E2E8F0; }}
+    .header {{ background: #122652; padding: 28px 24px; text-align: center; color: #FFFFFF; border-bottom: 4px solid #F57C00; }}
+    .header h1 {{ margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 0.3px; }}
+    .header p {{ margin: 4px 0 0 0; font-size: 11px; color: #FDE68A; font-weight: 600; text-transform: uppercase; }}
+    .body {{ padding: 28px 24px; text-align: center; }}
+    .body p {{ font-size: 13px; line-height: 1.5; color: #475569; margin: 0 0 16px 0; }}
+    .code-box {{ display: inline-block; background: #F8FAFC; border: 2px dashed #0093FF; border-radius: 14px; padding: 14px 28px; margin: 12px 0 20px 0; }}
+    .code {{ font-family: monospace; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #122652; }}
+    .badge {{ display: inline-block; background: #ECFDF5; color: #047857; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 50px; border: 1px solid #A7F3D0; margin-bottom: 16px; }}
+    .footer {{ background: #F8FAFC; padding: 16px 24px; text-align: center; font-size: 11px; color: #64748B; border-top: 1px solid #E2E8F0; line-height: 1.4; }}
+  </style>
 </head>
 <body>
-    <div class="card">
-        <div class="header">
-            <h1>Campus Connect UNACH</h1>
-            <p>Escuela de Tecnologías Digitales Aplicadas (ETDA)</p>
-        </div>
-        <div class="content">
-            <p class="instruction">Hola. Estás iniciando sesión en <b>Campus Connect UNACH</b>.<br>Ingresa este código en tu aplicación para continuar:</p>
-            <div class="code-box">
-                <div class="code">{codigo}</div>
-                <div class="validity">Vigencia de verificación: 30 días (1 mes)</div>
-            </div>
-            <p class="security-note">Al verificar tu código en este dispositivo, no se te volverá a solicitar otro código durante <b>1 mes (30 días)</b>.</p>
-        </div>
-        <div class="footer">“Por la conciencia de la necesidad de servir” — UNACH</div>
+  <div class="card">
+    <div class="header">
+      <p>Escuela de Tecnologías Digitales Aplicadas · UNACH</p>
+      <h1>Campus Connect UNACH</h1>
     </div>
+    <div class="body">
+      <span class="badge">Autenticación de Dos Factores (2FA)</span>
+      <p>Hola. Hemos recibido una solicitud para iniciar sesión en tu cuenta <b>{destinatario}</b>. Ingresa el siguiente código de seguridad en la plataforma:</p>
+      <div class="code-box">
+        <span class="code">{codigo}</span>
+      </div>
+      <p style="font-size: 12px; color: #64748B;">Este código tiene una vigencia de <b>30 días</b> de confianza en tu navegador o app. Si tú no realizaste este intento, ignora este mensaje o cambia tu contraseña.</p>
+    </div>
+    <div class="footer">
+      <span>“Por la conciencia de la necesidad de servir”</span><br>
+      <span>Universidad Autónoma de Chiapas · Campus I Tuxtla Gutiérrez</span>
+    </div>
+  </div>
 </body>
 </html>"""
 
-    msg.attach(MIMEText(texto_plano, "plain", "utf-8"))
-    msg.attach(MIMEText(html_contenido, "html", "utf-8"))
 
-    # Probar primero por SSL directo (puerto 465) y, si la red o antivirus bloquea, probar STARTTLS (puerto 587)
-    puertos_a_probar = [465, 587] if smtp_port_cfg == 465 else [smtp_port_cfg, 465, 587]
-    puertos_a_probar = list(dict.fromkeys(puertos_a_probar))
+def _enviar_via_brevo_api(destinatario: str, codigo: str, api_key: str) -> bool:
+    """Envía correo mediante HTTPS REST API de Brevo (Puerto 443 - 300 correos/día gratis)."""
+    url = "https://api.brevo.com/v3/smtp/email"
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key.strip(),
+        "content-type": "application/json",
+        "user-agent": "CampusConnect/1.0",
+    }
+    payload = {
+        "sender": {"name": SENDER_NAME, "email": SENDER_EMAIL},
+        "to": [{"email": destinatario}],
+        "subject": f"Código de Seguridad 2FA: {codigo} — Campus Connect UNACH",
+        "htmlContent": _generar_plantilla_html_2fa(codigo, destinatario),
+    }
 
-    ultimo_error = None
-    contexto_ssl = ssl.create_default_context()
-
-    for puerto in puertos_a_probar:
-        server = None
-        try:
-            if puerto == 465:
-                server = smtplib.SMTP_SSL(smtp_host, 465, timeout=20, context=contexto_ssl)
-                server.ehlo()
-            else:
-                server = smtplib.SMTP(smtp_host, puerto, timeout=20)
-                server.ehlo()
-                server.starttls(context=contexto_ssl)
-                server.ehlo()
-
-            server.login(smtp_user, smtp_password)
-            server.sendmail(smtp_from, [destinatario], msg.as_string())
-            print(f"[SMTP] Correo 2FA enviado exitosamente a {destinatario} (puerto {puerto})")
-            return True
-        except Exception as e:
-            ultimo_error = e
-            print(f"[SMTP] Intento por puerto {puerto} falló ({type(e).__name__}: {e}). Probando alternativa...")
-        finally:
-            if server is not None:
-                try:
-                    server.quit()
-                except Exception:
-                    pass
-
-    print(
-        f"[SMTP] ERROR FINAL al enviar correo con usuario '{smtp_user}' "
-        f"(longitud password={len(smtp_password)}): {ultimo_error}"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
     )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            if resp.status in (200, 201, 202):
+                logger.info(f"[BREVO API] Correo 2FA enviado exitosamente a {destinatario} (Status {resp.status})")
+                print(f"[BREVO API] Correo 2FA enviado exitosamente a {destinatario}")
+                return True
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode("utf-8", errors="ignore")
+        logger.error(f"[BREVO API] Error HTTP {e.code}: {err_msg}")
+        print(f"[BREVO API] Error HTTP {e.code}: {err_msg}")
+    except Exception as e:
+        logger.error(f"[BREVO API] Error de conexión: {e}")
+        print(f"[BREVO API] Error de conexión: {e}")
+    return False
+
+
+def _enviar_via_resend_api(destinatario: str, codigo: str, api_key: str) -> bool:
+    """Envía correo mediante HTTPS REST API de Resend (Puerto 443 - 100 correos/día gratis)."""
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+        "User-Agent": "CampusConnect/1.0",
+    }
+    payload = {
+        "from": "Campus Connect UNACH <onboarding@resend.dev>",
+        "to": [destinatario],
+        "subject": f"Código de Seguridad 2FA: {codigo} — Campus Connect UNACH",
+        "html": _generar_plantilla_html_2fa(codigo, destinatario),
+    }
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            if resp.status in (200, 201, 202):
+                logger.info(f"[RESEND API] Correo 2FA enviado exitosamente a {destinatario}")
+                print(f"[RESEND API] Correo 2FA enviado exitosamente a {destinatario}")
+                return True
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode("utf-8", errors="ignore")
+        logger.error(f"[RESEND API] Error HTTP {e.code}: {err_msg}")
+        print(f"[RESEND API] Error HTTP {e.code}: {err_msg}")
+    except Exception as e:
+        logger.error(f"[RESEND API] Error de conexión: {e}")
+        print(f"[RESEND API] Error de conexión: {e}")
+    return False
+
+
+def _enviar_via_smtp_tradicional(destinatario: str, codigo: str) -> bool:
+    """Fallback: intento por SMTP estándar (funciona en local si no hay firewall bloqueando puertos)."""
+    host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    user = os.getenv("SMTP_USER", "")
+    pwd = (os.getenv("SMTP_PASSWORD", "") or "").replace(" ", "").strip()
+    port = int(os.getenv("SMTP_PORT", "587"))
+
+    if not user or not pwd:
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"Código de Seguridad 2FA: {codigo} — Campus Connect UNACH"
+    msg["From"] = f"{SENDER_NAME} <{user}>"
+    msg["To"] = destinatario
+    msg.attach(MIMEText(f"Tu código de verificación 2FA es: {codigo}", "plain", "utf-8"))
+    msg.attach(MIMEText(_generar_plantilla_html_2fa(codigo, destinatario), "html", "utf-8"))
+
+    # Intentar por el puerto configurado (ej. 587 con STARTTLS)
+    try:
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=6) as server:
+                server.login(user, pwd)
+                server.send_message(msg)
+                return True
+        else:
+            with smtplib.SMTP(host, port, timeout=6) as server:
+                server.starttls()
+                server.login(user, pwd)
+                server.send_message(msg)
+                return True
+    except OSError as e:
+        # [Errno 101] Network is unreachable (bloqueo típico de Render Free Tier)
+        print(f"[SMTP] Puerto {port} bloqueado por la red de Render: {e}")
+    except Exception as e:
+        print(f"[SMTP] Error al enviar correo: {e}")
+
+    # Si 587 falló por red, intentar puerto 465 directo
+    if port != 465:
+        try:
+            with smtplib.SMTP_SSL(host, 465, timeout=6) as server:
+                server.login(user, pwd)
+                server.send_message(msg)
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
+def enviar_correo_codigo_2fa(destinatario: str, codigo: str) -> bool:
+    """
+    Función principal llamada desde auth.py para el envío del código 2FA.
+    Estrategia de triple canal tolerante a la nube:
+    1. Si existe BREVO_API_KEY -> envía por HTTPS puerto 443 (libre de bloqueos de Render).
+    2. Si existe RESEND_API_KEY -> envía por HTTPS puerto 443 (libre de bloqueos de Render).
+    3. Si no hay API key -> intenta por SMTP tradicional (útil para entorno local).
+    """
+    # 1. Intentar por Brevo API (Recomendado para Render Free Tier: 300 emails/día a cualquier correo)
+    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
+    if brevo_key:
+        if _enviar_via_brevo_api(destinatario, codigo, brevo_key):
+            return True
+
+    # 2. Intentar por Resend API (Alternativa HTTPS puerto 443)
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    if resend_key:
+        if _enviar_via_resend_api(destinatario, codigo, resend_key):
+            return True
+
+    # 3. Intentar por SMTP tradicional (falla en Render con Errno 101, pero funciona en local)
+    if _enviar_via_smtp_tradicional(destinatario, codigo):
+        return True
+
+    # Si todos los canales fallan, el código sigue vivo y disponible en consola y Supabase
+    print(f"[2FA AVISO] El correo no pudo enviarse vía red. Código respaldado en BD y logs: {codigo}")
     return False

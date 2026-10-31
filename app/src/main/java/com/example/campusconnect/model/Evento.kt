@@ -1,6 +1,10 @@
 package com.example.campusconnect.model
 
 import com.google.gson.annotations.SerializedName
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
 
 /** Archivo adjunto a un evento (flyer, PDF, etc.) que el organizador subió desde el panel web. */
 data class ArchivoEvento(
@@ -13,10 +17,8 @@ data class ArchivoEvento(
     val esImagen: Boolean = false
 )
 
-// El backend (FastAPI) responde con alias camelCase: fechaHora, disponibleDesde, fechaFin, imagenUrl...
-// Se aceptan también las variantes snake_case por compatibilidad.
-// NOTA IMPORTANTE PARA GSON: Los booleanos opcionales deben ser Boolean? = null para que Gson
-// no los inicialice en false cuando el JSON no incluya el campo.
+// NOTA PARA GSON: disponibleAhora y finalizado son Boolean? = null para evitar que UnsafeAllocator
+// los inicialice como false cuando no vengan en el JSON.
 data class Evento(
     val id: String,
     val titulo: String,
@@ -36,13 +38,48 @@ data class Evento(
     val materiales: List<ArchivoEvento> get() = archivos.orEmpty().filter { it.tipo == "material" }
 
     /**
-     * El servidor (GET /eventos/feed) ya filtra la vigencia en hora oficial de Chiapas.
-     * En la app solo descartamos si el servidor marcó explícitamente finalizado=true o disponibleAhora=false.
+     * Evalúa individualmente para ESTE evento si ya llegó su `disponibleDesde`
+     * y si aún no ha pasado su `fechaFin` (usando zona horaria de Chiapas America/Mexico_City).
      */
     fun estaVigenteEnTiempoReal(): Boolean {
         if (finalizado == true) return false
         if (disponibleAhora == false) return false
+
+        val ahora = Instant.now()
+
+        disponibleDesde?.takeIf { it.isNotBlank() }?.let { raw ->
+            parsearInstanteMx(raw)?.let { disp ->
+                if (ahora.isBefore(disp)) return false
+            }
+        }
+
+        fechaFin?.takeIf { it.isNotBlank() }?.let { raw ->
+            parsearInstanteMx(raw)?.let { fin ->
+                if (!ahora.isBefore(fin)) return false
+            }
+        }
+
         return true
+    }
+
+    private fun parsearInstanteMx(raw: String): Instant? {
+        val limpio = raw.trim()
+        val zoneMx = ZoneId.of("America/Mexico_City")
+        return try {
+            OffsetDateTime.parse(limpio).toInstant()
+        } catch (_: Exception) {
+            try {
+                Instant.parse(limpio)
+            } catch (_: Exception) {
+                try {
+                    val norm = limpio.replace(" ", "T").take(19)
+                    val padded = if (norm.length == 16) "$norm:00" else norm
+                    LocalDateTime.parse(padded).atZone(zoneMx).toInstant()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
     }
 }
 

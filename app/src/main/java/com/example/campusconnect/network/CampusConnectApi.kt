@@ -34,6 +34,9 @@ interface CampusConnectApi {
         @Body request: Verificar2FARequest
     ): Response<TokenResponse>
 
+    @POST("auth/logout")
+    suspend fun cerrarSesionRemota(): Response<ResponseBody>
+
     @POST("auth/fcm-token")
     suspend fun registrarFcmToken(
         @Body body: Map<String, String>
@@ -41,6 +44,9 @@ interface CampusConnectApi {
 
     @GET("auth/expediente")
     suspend fun obtenerExpedienteAlumno(): ExpedienteAlumnoResponse
+
+    @GET("auth/configuracion-registro")
+    suspend fun obtenerConfiguracionRegistro(): CatalogoFacultadResponse
 
     @GET("catalogos/facultad")
     suspend fun obtenerCatalogosFacultad(): CatalogoFacultadResponse
@@ -63,6 +69,10 @@ interface CampusConnectApi {
         @Path("eventoId") eventoId: String
     ): Response<ResponseBody>
 
-    @POST("/api/login")
+    @Deprecated(
+        message = "Usar loginUser(request) que apunta a auth/login",
+        replaceWith = ReplaceWith("loginUser(request)")
+    )
+    @POST("auth/login")
     suspend fun iniciarSesion(@Body request: LoginRequest): Response<LoginResponse>
 }

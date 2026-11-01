@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Bundle
+import android.util.Patterns
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -44,6 +45,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.campusconnect.model.CarreraCatalogoDto
+import com.example.campusconnect.model.ConfiguracionRegistroDto
+import com.example.campusconnect.model.FacultadCatalogoDto
 import com.example.campusconnect.model.RegistroRequest
 import com.example.campusconnect.network.AuthRepository
 import com.example.campusconnect.network.RetrofitClient
@@ -87,6 +90,7 @@ class ComposeLoginActivity : FragmentActivity() {
 
                     val loginViewModel: LoginViewModel = viewModel(
                         factory = object : ViewModelProvider.Factory {
+                            @Suppress("UNCHECKED_CAST")
                             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                                 val api = RetrofitClient.obtenerApi(context)
                                 val repository = AuthRepository(api)
@@ -183,7 +187,9 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
     var showOtpDialog by remember { mutableStateOf(false) }
     var otpCode by remember { mutableStateOf("") }
 
-    var biometriaDisponible by remember { mutableStateOf(TokenManager.tieneBiometriaHabilitada(context)) }
+    var biometriaDisponible by remember {
+        mutableStateOf(TokenManager.tieneBiometriaHabilitada(context) && dispositivoSoportaHuella(context))
+    }
     var mostrarModalOfrecerHuella by remember { mutableStateOf(false) }
 
     var esAlumnoEgresado by remember { mutableStateOf(false) }
@@ -194,8 +200,17 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
     var regTelefonoPrincipal by remember { mutableStateOf("") }
     var regTelefonoSecundario by remember { mutableStateOf("") }
     var regPassword by remember { mutableStateOf("") }
+    var mensajeErrorValidacion by remember { mutableStateOf<String?>(null) }
 
-    // Catálogo dinámico de Carreras y sus Grupos sincronizado con Administración (/catalogos/facultad)
+    // Catálogo dinámico de Facultades, Carreras, Grupos y Políticas de Registro sincronizado con Administración
+    val facultadesPorDefecto = remember {
+        listOf(
+            FacultadCatalogoDto("ETDA", "Escuela de Tecnologías Digitales Aplicadas (ETDA)"),
+            FacultadCatalogoDto("FCA", "Facultad de Contaduría y Administración (FCA)"),
+            FacultadCatalogoDto("FI", "Facultad de Ingeniería (FI)")
+        )
+    }
+
     val carrerasPorDefecto = remember {
         listOf(
             CarreraCatalogoDto(
@@ -219,7 +234,9 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         )
     }
 
+    var listaFacultadesCatalogo by remember { mutableStateOf(facultadesPorDefecto) }
     var listaCarrerasCatalogo by remember { mutableStateOf(carrerasPorDefecto) }
+    var configRegistro by remember { mutableStateOf(ConfiguracionRegistroDto()) }
     var carreraSeleccionada by remember { mutableStateOf<CarreraCatalogoDto?>(carrerasPorDefecto.firstOrNull()) }
     var grupoSeleccionado by remember {
         mutableStateOf(carrerasPorDefecto.firstOrNull()?.grupos?.firstOrNull() ?: "1A")
@@ -227,11 +244,31 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
     var menuCarreraExpandido by remember { mutableStateOf(false) }
     var menuGrupoExpandido by remember { mutableStateOf(false) }
 
-    // Al abrir la pantalla o cambiar a "Crear Cuenta", sincronizar carreras y grupos desde el servidor
+    fun obtenerNombreFacultad(facultadId: String?): String {
+        if (facultadId.isNullOrBlank()) return "ETDA"
+        return listaFacultadesCatalogo.find { it.id.equals(facultadId, ignoreCase = true) }?.nombre ?: facultadId
+    }
+
+    // Al abrir la pantalla o cambiar a "Crear Cuenta", sincronizar catálogo y políticas desde el servidor
     LaunchedEffect(modoRegistro) {
+        mensajeErrorValidacion = null
         try {
             val api = RetrofitClient.obtenerApi(context)
             val remoto = api.obtenerCatalogosFacultad()
+            val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+
+            remoto.facultades?.takeIf { it.isNotEmpty() }?.let { facs ->
+                listaFacultadesCatalogo = facs
+            }
+
+            remoto.configuracionRegistro?.let { cfgRemota ->
+                configRegistro = cfgRemota
+                if (!cfgRemota.permitirRegistroEgresados && esAlumnoEgresado) {
+                    esAlumnoEgresado = false
+                }
+            }
+
             val gruposGlobales = remoto.grupos?.takeIf { it.isNotEmpty() }
                 ?: listOf("1A", "1B", "3A", "3B", "5A", "5B", "7N", "7O", "8A")
             val carrerasRemotas = remoto.carreras?.map { c ->
@@ -253,15 +290,13 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
 
             // Guardar datos institucionales estáticos en caché local para PerfilScreen
             remoto.datosInstitucionales?.let { inst ->
-                val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
-                prefs.edit()
-                    .putString("inst_escuela", inst.escuela ?: "Escuela de Tecnologías Digitales Aplicadas (ETDA)")
-                    .putString("inst_modalidad", inst.modalidadSede ?: "Escolarizada (Campus I, Tuxtla Gutiérrez)")
-                    .putString("inst_ciclo", inst.cicloEscolar ?: "Agosto - Diciembre 2026")
-                    .apply()
+                editor.putString("inst_escuela", inst.escuela ?: "Escuela de Tecnologías Digitales Aplicadas (ETDA)")
+                editor.putString("inst_modalidad", inst.modalidadSede ?: "Escolarizada (Campus I, Tuxtla Gutiérrez)")
+                editor.putString("inst_ciclo", inst.cicloEscolar ?: "Agosto - Diciembre 2026")
             }
+            editor.apply()
         } catch (_: Exception) {
-            // Si no hay red al abrir, se mantienen las opciones por defecto de la UNACH
+            // Si no hay red al abrir, se mantienen las opciones locales de la UNACH
         }
     }
 
@@ -269,7 +304,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         val credsGuardadas = TokenManager.obtenerCredencialesBiometricas(context)
         val yaVinculadoMismoUsuario = credsGuardadas?.first?.equals(emailAutenticado, ignoreCase = true) == true
 
-        if (!yaVinculadoMismoUsuario && passAutenticada.isNotBlank()) {
+        if (!yaVinculadoMismoUsuario && passAutenticada.isNotBlank() && dispositivoSoportaHuella(context)) {
             mostrarModalOfrecerHuella = true
         } else {
             onNavigateToAlumno()
@@ -288,31 +323,40 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     context = context,
                     token = estado.token,
                     refreshToken = estado.refreshToken,
-                    email = estado.correo,
+                    email = estado.correo.trim().lowercase(),
                     rol = estado.role,
-                    actualizarMarca2FA = false
+                    actualizarMarca2FA = true
                 )
                 showOtpDialog = false
-                finalizarAccesoOVincularHuella(estado.correo, estado.pass)
+                finalizarAccesoOVincularHuella(estado.correo.trim().lowercase(), estado.pass)
                 viewModel.resetState()
             }
             is LoginState.RegisterSuccess -> {
-                // Guardar en caché local del dispositivo los datos elegidos por el usuario al registrarse
                 val emailKey = regCorreoPrincipal.trim().lowercase()
+                val facIdElegida = carreraSeleccionada?.facultadId ?: "ETDA"
                 val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
                 prefs.edit()
                     .putString("nombre_$emailKey", regNombre.trim())
-                    .putString("matricula_$emailKey", regMatricula.trim())
+                    .putString("matricula_$emailKey", regMatricula.trim().uppercase())
                     .putString("carrera_$emailKey", carreraSeleccionada?.nombre ?: "")
-                    .putString("grupo_$emailKey", grupoSeleccionado.trim())
-                    .putString("facultad_$emailKey", carreraSeleccionada?.facultadId ?: "ETDA")
+                    .putString("grupo_$emailKey", grupoSeleccionado.trim().uppercase())
+                    .putString("facultad_$emailKey", facIdElegida)
+                    .putString("escuela_$emailKey", obtenerNombreFacultad(facIdElegida))
+                    .putBoolean("egresado_$emailKey", esAlumnoEgresado)
+                    .putString("email_sec_$emailKey", regCorreoSecundario.trim().lowercase())
+                    .putString("tel1_$emailKey", regTelefonoPrincipal.trim())
+                    .putString("tel2_$emailKey", regTelefonoSecundario.trim())
                     .apply()
 
-                Toast.makeText(context, "Registro exitoso. Inicia sesión.", Toast.LENGTH_LONG).show()
+                correo = emailKey
+                password = ""
+                mensajeErrorValidacion = null
+                Toast.makeText(context, "Cuenta creada correctamente. Ahora inicia sesión.", Toast.LENGTH_LONG).show()
                 modoRegistro = false
                 viewModel.resetState()
             }
             is LoginState.Failure -> {
+                mensajeErrorValidacion = estado.error
                 Toast.makeText(context, estado.error, Toast.LENGTH_SHORT).show()
                 viewModel.resetState()
             }
@@ -332,15 +376,123 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             titulo = "Iniciar sesión con Huella Dactilar",
             subtitulo = "Coloca tu huella para ingresar con ${creds.first}",
             alAutenticarConExito = {
-                correo = creds.first
+                correo = creds.first.trim().lowercase()
                 password = creds.second
                 Toast.makeText(context, "Huella reconocida. Iniciando...", Toast.LENGTH_SHORT).show()
-                viewModel.ejecutarLogin(creds.first, creds.second)
+                viewModel.ejecutarLogin(correo, password)
             },
             alFallar = { msg ->
                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             }
         )
+    }
+
+    fun validarYEnviarRegistro() {
+        mensajeErrorValidacion = null
+        val nombreLimpio = regNombre.trim().replace(Regex("\\s+"), " ")
+        val correoLimpio = regCorreoPrincipal.trim().lowercase()
+        val matriculaLimpia = regMatricula.trim().uppercase()
+        val carreraNombre = carreraSeleccionada?.nombre?.trim().orEmpty()
+        val grupoLimpio = grupoSeleccionado.trim().uppercase()
+        val passLimpia = regPassword.trim()
+
+        if (nombreLimpio.length < 2) {
+            mensajeErrorValidacion = "Ingresa tu nombre completo (mínimo 2 caracteres)."
+            return
+        }
+        if (correoLimpio.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(correoLimpio).matches()) {
+            mensajeErrorValidacion = "Ingresa un correo electrónico válido."
+            return
+        }
+
+        // Validar dominio institucional si Administración lo configuró para estudiantes activos
+        if (!esAlumnoEgresado && configRegistro.restringirDominioCorreo) {
+            val dominios = configRegistro.dominiosPermitidos?.map { it.trim().lowercase().removePrefix("@") }
+                ?.filter { it.isNotBlank() }
+                .orEmpty()
+                .ifEmpty { listOf("unach.mx") }
+            val dominioUsuario = correoLimpio.substringAfterLast("@", "")
+            if (dominioUsuario !in dominios) {
+                val listaDominios = dominios.joinToString(", ") { "@$it" }
+                mensajeErrorValidacion = "Usa tu correo institucional autorizado ($listaDominios)."
+                return
+            }
+        }
+
+        // Validar Matrícula según configuración administrativa
+        if ((configRegistro.requerirMatricula && !esAlumnoEgresado) || matriculaLimpia.isNotEmpty()) {
+            val minMat = configRegistro.longitudMinMatricula.coerceAtLeast(1)
+            val maxMat = configRegistro.longitudMaxMatricula.coerceAtLeast(minMat)
+            if (matriculaLimpia.isBlank()) {
+                mensajeErrorValidacion = "La matrícula estudiantil es obligatoria."
+                return
+            }
+            if (matriculaLimpia.length !in minMat..maxMat) {
+                mensajeErrorValidacion = "La matrícula debe tener entre $minMat y $maxMat caracteres."
+                return
+            }
+            if (configRegistro.soloDigitosMatricula && !matriculaLimpia.all { it.isDigit() }) {
+                mensajeErrorValidacion = "La matrícula solo debe contener números."
+                return
+            }
+            if (!Regex("^[A-Z0-9\\-]+$").matches(matriculaLimpia)) {
+                mensajeErrorValidacion = "La matrícula solo puede contener letras, números o guiones."
+                return
+            }
+        }
+
+        // Validar Carrera y Semestre/Grupo según configuración administrativa
+        if (configRegistro.requerirCarreraGrupo && !esAlumnoEgresado) {
+            if (carreraNombre.isBlank() || grupoLimpio.isBlank()) {
+                mensajeErrorValidacion = "Selecciona tu Programa Educativo (Carrera) y tu Grado/Grupo."
+                return
+            }
+        }
+
+        // Validaciones adicionales para Alumno Egresado
+        val correoSecLimpio = regCorreoSecundario.trim().lowercase()
+        val tel1Limpio = regTelefonoPrincipal.trim().replace(Regex("[\\s\\-()]"), "")
+        val tel2Limpio = regTelefonoSecundario.trim().replace(Regex("[\\s\\-()]"), "")
+
+        if (esAlumnoEgresado) {
+            if (correoSecLimpio.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(correoSecLimpio).matches()) {
+                mensajeErrorValidacion = "Los egresados deben ingresar un correo alternativo válido."
+                return
+            }
+            if (correoSecLimpio == correoLimpio) {
+                mensajeErrorValidacion = "El correo principal y el correo alternativo deben ser diferentes."
+                return
+            }
+            if (!Regex("^\\d{10}$").matches(tel1Limpio) || !Regex("^\\d{10}$").matches(tel2Limpio)) {
+                mensajeErrorValidacion = "Ingresa dos números telefónicos válidos de 10 dígitos numéricos."
+                return
+            }
+            if (tel1Limpio == tel2Limpio) {
+                mensajeErrorValidacion = "El teléfono principal y el secundario deben ser diferentes."
+                return
+            }
+        }
+
+        val minPass = configRegistro.longitudMinPassword.coerceAtLeast(6)
+        if (passLimpia.length < minPass) {
+            mensajeErrorValidacion = "La contraseña debe tener al menos $minPass caracteres."
+            return
+        }
+
+        val req = RegistroRequest(
+            nombre = nombreLimpio,
+            email = correoLimpio,
+            password = passLimpia,
+            esEgresado = esAlumnoEgresado,
+            emailSecundario = correoSecLimpio.takeIf { esAlumnoEgresado && it.isNotBlank() },
+            telefonoPrincipal = tel1Limpio.takeIf { esAlumnoEgresado && it.isNotBlank() },
+            telefonoSecundario = tel2Limpio.takeIf { esAlumnoEgresado && it.isNotBlank() },
+            matricula = matriculaLimpia.takeIf { it.isNotBlank() },
+            carrera = carreraNombre.takeIf { it.isNotBlank() },
+            semestreGrupo = grupoLimpio.takeIf { it.isNotBlank() },
+            idFacultad = carreraSeleccionada?.facultadId ?: "ETDA"
+        )
+        viewModel.ejecutarRegistro(req)
     }
 
     Column(
@@ -393,16 +545,51 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             ) {
                 Surface(shape = RoundedCornerShape(14.dp), color = LightBackground, modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Surface(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { modoRegistro = false }, color = if (!modoRegistro) NavyBlue else Color.Transparent) {
+                        Surface(
+                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                modoRegistro = false
+                                mensajeErrorValidacion = null
+                            },
+                            color = if (!modoRegistro) NavyBlue else Color.Transparent
+                        ) {
                             Text("Iniciar Sesión", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (!modoRegistro) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
                         }
-                        Surface(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { modoRegistro = true }, color = if (modoRegistro) NavyBlue else Color.Transparent) {
+                        Surface(
+                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                modoRegistro = true
+                                mensajeErrorValidacion = null
+                            },
+                            color = if (modoRegistro) NavyBlue else Color.Transparent
+                        ) {
                             Text("Crear Cuenta", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (modoRegistro) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                AnimatedVisibility(visible = !mensajeErrorValidacion.isNullOrBlank()) {
+                    Surface(
+                        color = Color(0xFFFEF2F2),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = mensajeErrorValidacion.orEmpty(),
+                                color = Color(0xFFB91C1C),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
 
                 if (!modoRegistro) {
                     Text("Bienvenido a Campus Connect", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = NavyBlue)
@@ -476,7 +663,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     Spacer(modifier = Modifier.height(18.dp))
                     OutlinedTextField(
                         value = correo,
-                        onValueChange = { correo = it },
+                        onValueChange = { correo = it; mensajeErrorValidacion = null },
                         label = { Text("Correo institucional") },
                         leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) },
                         singleLine = true,
@@ -495,7 +682,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     Spacer(modifier = Modifier.height(14.dp))
                     OutlinedTextField(
                         value = password,
-                        onValueChange = { password = it },
+                        onValueChange = { password = it; mensajeErrorValidacion = null },
                         label = { Text("Contraseña", fontWeight = FontWeight.Bold) },
                         leadingIcon = {
                             Icon(
@@ -529,7 +716,16 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     Spacer(modifier = Modifier.height(22.dp))
 
                     Button(
-                        onClick = { viewModel.ejecutarLogin(correo, password) },
+                        onClick = {
+                            val correoLimpio = correo.trim().lowercase()
+                            val passLimpia = password.trim()
+                            if (correoLimpio.isBlank() || passLimpia.isBlank()) {
+                                mensajeErrorValidacion = "Ingresa tu correo institucional y contraseña."
+                                return@Button
+                            }
+                            correo = correoLimpio
+                            viewModel.ejecutarLogin(correoLimpio, passLimpia)
+                        },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange),
@@ -546,32 +742,40 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = LightBackground,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Surface(
-                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { esAlumnoEgresado = false },
-                                color = if (!esAlumnoEgresado) BrightBlue else Color.Transparent
-                            ) {
-                                Text("Activo", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (!esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
-                            }
-                            Surface(
-                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { esAlumnoEgresado = true },
-                                color = if (esAlumnoEgresado) BrightBlue else Color.Transparent
-                            ) {
-                                Text("Egresado", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                    // Mostrar selector Activo / Egresado solo si el Administrador lo habilitó en Catálogos
+                    if (configRegistro.permitirRegistroEgresados) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = LightBackground,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Surface(
+                                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        esAlumnoEgresado = false
+                                        mensajeErrorValidacion = null
+                                    },
+                                    color = if (!esAlumnoEgresado) BrightBlue else Color.Transparent
+                                ) {
+                                    Text("Activo", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (!esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                                }
+                                Surface(
+                                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        esAlumnoEgresado = true
+                                        mensajeErrorValidacion = null
+                                    },
+                                    color = if (esAlumnoEgresado) BrightBlue else Color.Transparent
+                                ) {
+                                    Text("Egresado", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                                }
                             }
                         }
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
 
                     OutlinedTextField(
                         value = regNombre,
-                        onValueChange = { regNombre = it },
+                        onValueChange = { if (it.length <= 120) regNombre = it; mensajeErrorValidacion = null },
                         label = { Text("Nombre completo") },
                         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = BrightBlue) },
                         singleLine = true,
@@ -587,10 +791,22 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    val dominiosHint = configRegistro.dominiosPermitidos
+                        ?.takeIf { configRegistro.restringirDominioCorreo && !esAlumnoEgresado && it.isNotEmpty() }
+                        ?.joinToString(", ") { "@${it.removePrefix("@")}" }
+
                     OutlinedTextField(
                         value = regCorreoPrincipal,
-                        onValueChange = { regCorreoPrincipal = it },
-                        label = { Text(if (esAlumnoEgresado) "Correo principal" else "Correo institucional") },
+                        onValueChange = { regCorreoPrincipal = it; mensajeErrorValidacion = null },
+                        label = {
+                            Text(
+                                when {
+                                    esAlumnoEgresado -> "Correo principal"
+                                    !dominiosHint.isNullOrBlank() -> "Correo institucional ($dominiosHint)"
+                                    else -> "Correo institucional"
+                                }
+                            )
+                        },
                         leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
@@ -606,16 +822,37 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // 1. CAMPO DE MATRÍCULA
+                    // 1. CAMPO DE MATRÍCULA CONFIGURADO DESDE ADMINISTRACIÓN
+                    val maxLenMat = configRegistro.longitudMaxMatricula.coerceIn(4, 30)
+                    val minLenMat = configRegistro.longitudMinMatricula.coerceIn(1, maxLenMat)
                     OutlinedTextField(
                         value = regMatricula,
-                        onValueChange = { regMatricula = it },
-                        label = { Text("Matrícula") },
+                        onValueChange = { nuevo ->
+                            val filtrado = if (configRegistro.soloDigitosMatricula) {
+                                nuevo.filter { it.isDigit() }
+                            } else {
+                                nuevo.filter { it.isLetterOrDigit() || it == '-' }
+                            }
+                            if (filtrado.length <= maxLenMat) {
+                                regMatricula = filtrado
+                                mensajeErrorValidacion = null
+                            }
+                        },
+                        label = {
+                            Text(
+                                if (configRegistro.requerirMatricula && !esAlumnoEgresado)
+                                    "Matrícula ($minLenMat-$maxLenMat caracteres)"
+                                else
+                                    "Matrícula (Opcional)"
+                            )
+                        },
                         placeholder = { Text("Ej. 100016853") },
                         leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, tint = BrightBlue) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = if (configRegistro.soloDigitosMatricula) KeyboardType.Number else KeyboardType.Ascii
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isLoading,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -672,9 +909,11 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                             )
                                             if (!opcionCarrera.facultadId.isNullOrBlank()) {
                                                 Text(
-                                                    text = "Facultad / Escuela: ${opcionCarrera.facultadId}",
+                                                    text = obtenerNombreFacultad(opcionCarrera.facultadId),
                                                     fontSize = 11.sp,
-                                                    color = Color.Gray
+                                                    color = Color.Gray,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
                                         }
@@ -684,6 +923,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                         val gruposDeEstaCarrera = opcionCarrera.grupos.orEmpty()
                                         grupoSeleccionado = gruposDeEstaCarrera.firstOrNull() ?: ""
                                         menuCarreraExpandido = false
+                                        mensajeErrorValidacion = null
                                     }
                                 )
                             }
@@ -741,6 +981,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                     onClick = {
                                         grupoSeleccionado = codigoGrupo
                                         menuGrupoExpandido = false
+                                        mensajeErrorValidacion = null
                                     }
                                 )
                             }
@@ -752,8 +993,8 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = regCorreoSecundario,
-                                onValueChange = { regCorreoSecundario = it },
-                                label = { Text("Correo alternativo") },
+                                onValueChange = { regCorreoSecundario = it; mensajeErrorValidacion = null },
+                                label = { Text("Correo alternativo (distinto al principal)") },
                                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
@@ -765,12 +1006,18 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = regTelefonoPrincipal,
-                                onValueChange = { regTelefonoPrincipal = it },
-                                label = { Text("Teléfono principal") },
+                                onValueChange = { nuevo ->
+                                    val soloDigitos = nuevo.filter { it.isDigit() }
+                                    if (soloDigitos.length <= 10) {
+                                        regTelefonoPrincipal = soloDigitos
+                                        mensajeErrorValidacion = null
+                                    }
+                                },
+                                label = { Text("Teléfono principal (10 dígitos)") },
                                 leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = BrightBlue) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !isLoading,
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
@@ -778,12 +1025,18 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = regTelefonoSecundario,
-                                onValueChange = { regTelefonoSecundario = it },
-                                label = { Text("Teléfono secundario") },
+                                onValueChange = { nuevo ->
+                                    val soloDigitos = nuevo.filter { it.isDigit() }
+                                    if (soloDigitos.length <= 10) {
+                                        regTelefonoSecundario = soloDigitos
+                                        mensajeErrorValidacion = null
+                                    }
+                                },
+                                label = { Text("Teléfono secundario (10 dígitos)") },
                                 leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = BrightBlue) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !isLoading,
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
@@ -795,8 +1048,8 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
 
                     OutlinedTextField(
                         value = regPassword,
-                        onValueChange = { regPassword = it },
-                        label = { Text("Contraseña") },
+                        onValueChange = { regPassword = it; mensajeErrorValidacion = null },
+                        label = { Text("Contraseña (mín. ${configRegistro.longitudMinPassword} caracteres)") },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = BrightBlue) },
                         trailingIcon = {
                             val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
@@ -821,31 +1074,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     Spacer(modifier = Modifier.height(22.dp))
 
                     Button(
-                        onClick = {
-                            val carreraNombre = carreraSeleccionada?.nombre?.trim().orEmpty()
-                            if (regNombre.isBlank() || regCorreoPrincipal.isBlank() || regPassword.isBlank()) {
-                                Toast.makeText(context, "Completa tu nombre, correo y contraseña.", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            if (regMatricula.isBlank() || carreraNombre.isBlank() || grupoSeleccionado.isBlank()) {
-                                Toast.makeText(context, "Ingresa tu matrícula y selecciona tu carrera y grupo.", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            val req = RegistroRequest(
-                                nombre = regNombre.trim(),
-                                email = regCorreoPrincipal.trim(),
-                                password = regPassword,
-                                esEgresado = esAlumnoEgresado,
-                                emailSecundario = regCorreoSecundario.takeIf { it.isNotBlank() },
-                                telefonoPrincipal = regTelefonoPrincipal.takeIf { it.isNotBlank() },
-                                telefonoSecundario = regTelefonoSecundario.takeIf { it.isNotBlank() },
-                                matricula = regMatricula.trim(),
-                                carrera = carreraNombre,
-                                semestreGrupo = grupoSeleccionado.trim(),
-                                idFacultad = carreraSeleccionada?.facultadId ?: "ETDA"
-                            )
-                            viewModel.ejecutarRegistro(req)
-                        },
+                        onClick = { validarYEnviarRegistro() },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange),
@@ -949,7 +1178,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                 },
                 confirmButton = {
                     Button(
-                        onClick = { viewModel.verificar2FA(correo, otpCode, password) },
+                        onClick = { viewModel.verificar2FA(correo.trim().lowercase(), otpCode.trim(), password) },
                         enabled = !isLoading && otpCode.length == 6,
                         colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange),
                         shape = RoundedCornerShape(12.dp),
@@ -991,7 +1220,8 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                 confirmButton = {
                     Button(
                         onClick = {
-                            TokenManager.guardarCredencialesBiometricas(context, correo.trim(), password.trim())
+                            TokenManager.guardarCredencialesBiometricas(context, correo.trim().lowercase(), password.trim())
+                            biometriaDisponible = true
                             mostrarModalOfrecerHuella = false
                             onNavigateToAlumno()
                         },

@@ -82,7 +82,7 @@
         </div>
     </nav>
 
-    <!-- VISTA 1: AUTENTICACIÓN INSTITUCIONAL (LOGIN, REGISTRO Y RECUPERACIÓN) -->
+    <!-- VISTA 1: AUTENTICACIÓN INSTITUCIONAL (LOGIN, REGISTRO SINCRONIZADO CON CATÁLOGOS Y RECUPERACIÓN) -->
     <main id="view-auth" class="flex-1 flex items-center justify-center p-4 bg-etda-gradient">
         <div class="bg-white rounded-3xl shadow-2xl border border-white/20 overflow-hidden max-w-md w-full">
             <!-- Encabezado con identidad oficial UNACH - ETDA -->
@@ -125,26 +125,93 @@
                         <i class="fa-solid fa-arrow-right text-[#F57C00]"></i>
                     </button>
                     <div class="flex justify-between text-xs text-[#122652] pt-2 border-t border-slate-100">
-                        <a href="#" onclick="toggleAuthForm('registro')" class="hover:text-[#0093FF] font-bold">Registrar nueva cuenta</a>
+                        <a href="#" onclick="toggleAuthForm('registro'); poblarSelectoresRegistroUsuario();" class="hover:text-[#0093FF] font-bold">Registrar nueva cuenta</a>
                         <a href="#" onclick="toggleAuthForm('recuperar')" class="text-[#5B6670] hover:text-[#122652]">¿Olvidaste tu contraseña?</a>
                     </div>
                 </form>
 
-                <!-- Formulario de Registro -->
-                <form id="form-registro" onsubmit="procesarRegistro(event)" class="space-y-4 hidden">
-                    <h3 class="text-base font-extrabold text-[#122652] border-b pb-2">Registro de Cuenta Universitaria</h3>
-                    <div>
-                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Nombre Completo</label>
-                        <input type="text" id="reg-nombre" required class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                <!-- Formulario de Registro Guiado por las Opciones de Administración -->
+                <form id="form-registro" onsubmit="procesarRegistro(event)" class="space-y-3.5 hidden">
+                    <div class="border-b pb-2">
+                        <h3 class="text-base font-extrabold text-[#122652]">Registro de Cuenta Universitaria</h3>
+                        <p class="text-[11px] text-[#5B6670]">Opciones académicas sincronizadas con el Catálogo Institucional.</p>
                     </div>
-                    <div>
-                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Correo Institucional (@unach.mx)</label>
-                        <input type="email" id="reg-email" required class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+
+                    <!-- Selector Estudiante Activo / Alumno Egresado (controlado desde Administración) -->
+                    <div id="reg-bloque-tipo-cuenta" class="bg-[#F4F7FB] p-1 rounded-xl border border-slate-200 flex gap-1">
+                        <input type="hidden" id="reg-es-egresado" value="activo">
+                        <button type="button" id="reg-tab-activo" onclick="alternarTipoUsuarioRegistroWeb('activo')"
+                            class="flex-1 py-2 rounded-xl text-xs font-extrabold text-white bg-[#122652] shadow-sm transition">
+                            Estudiante Activo
+                        </button>
+                        <button type="button" id="reg-tab-egresado" onclick="alternarTipoUsuarioRegistroWeb('egresado')"
+                            class="flex-1 py-2 rounded-xl text-xs font-extrabold text-[#122652] bg-transparent transition">
+                            Alumno Egresado
+                        </button>
                     </div>
+
                     <div>
-                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Contraseña</label>
-                        <input type="password" id="reg-password" required class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Nombre Completo *</label>
+                        <input type="text" id="reg-nombre" required minlength="2" maxlength="120" placeholder="Nombre(s) y Apellidos"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
                     </div>
+
+                    <div>
+                        <label id="reg-label-email" class="block text-xs font-bold text-[#122652] uppercase mb-1">Correo Institucional (@unach.mx)</label>
+                        <input type="email" id="reg-email" required placeholder="usuario@unach.mx"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    </div>
+
+                    <div id="reg-contenedor-matricula">
+                        <label id="reg-label-matricula" class="block text-xs font-bold text-[#122652] uppercase mb-1">Matrícula Estudiantil *</label>
+                        <input type="text" id="reg-matricula" required minlength="6" maxlength="15" placeholder="Ej. 100016853"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    </div>
+
+                    <!-- Selectores dinámicos de Carrera y Grado/Grupo configurados por Administración -->
+                    <div id="reg-contenedor-carrera-grupo" class="space-y-3">
+                        <input type="hidden" id="reg-id-facultad" value="ETDA">
+                        <div>
+                            <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Programa Educativo (Carrera)</label>
+                            <select id="reg-carrera" onchange="actualizarGruposRegistroSegunCarrera()"
+                                class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-[#122652] bg-[#F4F7FB] focus:ring-2 focus:ring-[#0093FF] outline-none">
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Grado y Grupo (Semestre y Grupo)</label>
+                            <select id="reg-semestre-grupo"
+                                class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-[#122652] bg-[#F4F7FB] focus:ring-2 focus:ring-[#0093FF] outline-none">
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Campos adicionales cuando se registra un Alumno Egresado -->
+                    <div id="reg-campos-egresado" class="hidden space-y-3 pt-2 border-t border-slate-200">
+                        <div>
+                            <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Correo Alternativo (Secundario)</label>
+                            <input type="email" id="reg-email-secundario" placeholder="correo.personal@ejemplo.com"
+                                class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div>
+                                <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Teléfono Principal (10 díg.)</label>
+                                <input type="tel" id="reg-telefono-principal" maxlength="10" pattern="[0-9]{10}" placeholder="9611234567"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Teléfono Secundario (10 díg.)</label>
+                                <input type="tel" id="reg-telefono-secundario" maxlength="10" pattern="[0-9]{10}" placeholder="9617654321"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Contraseña *</label>
+                        <input type="password" id="reg-password" required minlength="8" placeholder="Mínimo 8 caracteres"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#0093FF] outline-none">
+                    </div>
+
                     <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-extrabold text-sm transition">
                         Completar Registro
                     </button>
@@ -321,8 +388,8 @@
             <div id="stats-contenido" class="space-y-6"></div>
         </section>
 
-                        <!-- ==================================================================
-             PESTAÑA: CATÁLOGOS DE FACULTAD, CARRERAS, GRUPOS Y AUDITORIOS
+        <!-- ==================================================================
+             PESTAÑA 4: CATÁLOGOS DE FACULTAD, CARRERAS, GRUPOS, AUDITORIOS Y REGISTRO
              ================================================================== -->
         <section id="tab-catalogos" class="hidden space-y-6">
             <div class="bg-etda-banner rounded-3xl p-6 text-white shadow-lg">
@@ -330,11 +397,11 @@
                     <div>
                         <span class="etda-pill-tag">
                             <i class="fa-solid fa-building-columns"></i>
-                            Configuración de Espacios y Aforo UNACH
+                            Configuración de Espacios, Aforo y Registro de Cuentas UNACH
                         </span>
-                        <h2 class="text-2xl font-extrabold mt-2">Catálogos de Facultad, Carreras y Auditorios</h2>
+                        <h2 class="text-2xl font-extrabold mt-2">Catálogos de Facultad, Carreras, Auditorios y Registro</h2>
                         <p class="text-xs text-white/80 mt-1 max-w-3xl">
-                            Configura aquí los auditorios y salas con su <b>número exacto de asientos</b>, las carreras y los grupos oficiales. Al publicar un evento, todo aparecerá en listas desplegables automáticas sin escribir nada a mano.
+                            Configura aquí las opciones para la información del usuario al crear una cuenta (carreras, grupos por carrera, datos estáticos del expediente y políticas de validación), así como los auditorios y su capacidad exacta de asientos.
                         </p>
                     </div>
                     <div class="shrink-0">
@@ -375,7 +442,7 @@
                         <p class="text-xs text-[#5B6670]">Capacidad oficial de cada recinto para la cartelera.</p>
                     </div>
 
-                    <form onsubmit="agregarAuditorioCatalogo(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
+                    <form onsubmit="agregarAuditorioCatalogo(event, 'tab')" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                             <div class="sm:col-span-2">
                                 <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Nombre del Auditorio o Sala</label>
@@ -384,7 +451,7 @@
                             </div>
                             <div>
                                 <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Núm. Asientos</label>
-                                <input type="number" id="cat-nuevo-aud-asientos" required min="1" max="5000" placeholder="Ej. 60"
+                                <input type="number" id="cat-nuevo-aud-asientos" required min="1" max="20000" placeholder="Ej. 60"
                                     class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold">
                             </div>
                         </div>
@@ -405,7 +472,7 @@
                     <div class="border-b pb-3">
                         <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#0093FF]">Academia y Registro en App</span>
                         <h3 class="text-base font-extrabold text-[#122652]">2. Carreras y Grupos por Carrera</h3>
-                        <p class="text-xs text-[#5B6670]">Configura las carreras y los grupos específicos de cada una para el menú desplegable de registro en la App.</p>
+                        <p class="text-xs text-[#5B6670]">Configura las carreras y los grupos específicos de cada una para el menú desplegable de registro en la App y Web.</p>
                     </div>
 
                     <form onsubmit="agregarCarreraCatalogo(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-2.5">
@@ -505,12 +572,105 @@
                 </form>
             </div>
 
-            <!-- 6. Membretado y Pie de Página Oficial (Formato ETDA) para Listas de Asistencia -->
+            <!-- 6. Configuración de Opciones y Reglas para la Creación de Cuentas de Usuario -->
+            <div class="etda-card p-6 space-y-4 border-t-4 border-t-[#0093FF]">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#0093FF]">Políticas de Registro de Nuevas Cuentas (App Android y Panel Web)</span>
+                        <h3 class="text-base font-extrabold text-[#122652]">6. Configuración de la Información del Usuario al Crear una Cuenta</h3>
+                        <p class="text-xs text-[#5B6670]">Define qué campos son obligatorios, formatos de matrícula, dominios de correo permitidos y modalidades habilitadas cuando un alumno crea su cuenta.</p>
+                    </div>
+                </div>
+
+                <form onsubmit="guardarConfiguracionRegistroCatalogo(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cat-cfg-permitir-egresados" checked class="mt-0.5 w-4 h-4 accent-[#122652] rounded">
+                            <div>
+                                <span class="block text-xs font-extrabold text-[#122652]">Permitir registro de Egresados</span>
+                                <span class="text-[11px] text-[#5B6670]">Habilita la pestaña de Alumno Egresado (con 2 correos y 2 teléfonos).</span>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cat-cfg-requerir-matricula" checked class="mt-0.5 w-4 h-4 accent-[#122652] rounded">
+                            <div>
+                                <span class="block text-xs font-extrabold text-[#122652]">Exigir Matrícula Estudiantil</span>
+                                <span class="text-[11px] text-[#5B6670]">Solicita obligatoriamente la matrícula única del estudiante al crear su cuenta.</span>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cat-cfg-solo-digitos-matricula" class="mt-0.5 w-4 h-4 accent-[#122652] rounded">
+                            <div>
+                                <span class="block text-xs font-extrabold text-[#122652]">Matrícula solo numérica</span>
+                                <span class="text-[11px] text-[#5B6670]">Restringe la matrícula únicamente a dígitos numéricos (sin letras).</span>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cat-cfg-requerir-carrera-grupo" checked class="mt-0.5 w-4 h-4 accent-[#122652] rounded">
+                            <div>
+                                <span class="block text-xs font-extrabold text-[#122652]">Exigir Carrera y Grado/Grupo</span>
+                                <span class="text-[11px] text-[#5B6670]">Obliga al alumno a elegir su Programa Educativo y Semestre/Grupo.</span>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cat-cfg-validar-catalogo" checked class="mt-0.5 w-4 h-4 accent-[#122652] rounded">
+                            <div>
+                                <span class="block text-xs font-extrabold text-[#122652]">Validar contra Catálogo Oficial</span>
+                                <span class="text-[11px] text-[#5B6670]">El servidor verifica que la carrera y grupo elegidos existan en este catálogo.</span>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="cat-cfg-restringir-dominio" class="mt-0.5 w-4 h-4 accent-[#122652] rounded">
+                            <div>
+                                <span class="block text-xs font-extrabold text-[#122652]">Restringir Dominio Institucional</span>
+                                <span class="text-[11px] text-[#5B6670]">Exige que los alumnos activos usen los dominios institucionales autorizados.</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-slate-200">
+                        <div class="md:col-span-2">
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Dominios de Correo Institucional Autorizados</label>
+                            <input type="text" id="cat-cfg-dominios" placeholder="unach.mx, alumnos.unach.mx"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white text-[#122652]">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Long. Matrícula (Mín / Máx)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="number" id="cat-cfg-min-matricula" min="1" max="25" value="6"
+                                    class="w-1/2 px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white text-[#122652]">
+                                <input type="number" id="cat-cfg-max-matricula" min="1" max="30" value="15"
+                                    class="w-1/2 px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white text-[#122652]">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-extrabold text-[#122652] mb-1">Long. Mínima Contraseña</label>
+                            <input type="number" id="cat-cfg-min-password" min="6" max="64" value="8"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white text-[#122652]">
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="submit"
+                            class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-5 py-2.5 rounded-xl shadow-sm transition flex items-center gap-2">
+                            <i class="fa-solid fa-user-gear text-[#F57C00]"></i>
+                            <span>Guardar Opciones de Creación de Cuenta</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 7. Membretado y Pie de Página Oficial (Formato ETDA) para Listas de Asistencia -->
             <div class="etda-card p-6 space-y-4 border-t-4 border-t-[#122652]">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
                     <div>
                         <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Diseño Oficial de Documentos Impresos</span>
-                        <h3 class="text-base font-extrabold text-[#122652]">5. Membretado y Pie de Página de Listas de Asistencia (Formato ETDA)</h3>
+                        <h3 class="text-base font-extrabold text-[#122652]">7. Membretado y Pie de Página de Listas de Asistencia (Formato ETDA)</h3>
                         <p class="text-xs text-[#5B6670]">Personaliza los textos del encabezado institucional, logos, dirección, teléfonos y pie de página que aparecen al descargar las listas de asistencia.</p>
                     </div>
                     <button type="button" onclick="abrirModalMembreteAsistencia()"
@@ -523,8 +683,8 @@
             </div>
         </section>
 
-<!-- ==================================================================
-             PESTAÑA 4: USUARIOS Y PERMISOS PERSONALIZADOS (DISEÑO INSTITUCIONAL)
+        <!-- ==================================================================
+             PESTAÑA 5: USUARIOS Y PERMISOS PERSONALIZADOS (DISEÑO INSTITUCIONAL)
              ================================================================== -->
         <section id="tab-usuarios" class="hidden space-y-6">
             <!-- Encabezado explicativo del modelo de permisos a medida -->
@@ -620,8 +780,8 @@
             </div>
         </section>
 
-<!-- ==================================================================
-             PESTAÑA 5: SEGURIDAD Y AUDITORÍA DEL SISTEMA
+        <!-- ==================================================================
+             PESTAÑA 6: SEGURIDAD Y AUDITORÍA DEL SISTEMA
              ================================================================== -->
         <section id="tab-auditoria" class="hidden space-y-6">
             <div class="etda-card p-6 space-y-4 border-l-4 border-l-[#0093FF]">
@@ -711,7 +871,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-[#122652] mb-1">Nueva Contraseña</label>
-                    <input type="password" id="pass-nueva" required class="w-full px-3 py-2 border rounded-xl text-sm">
+                    <input type="password" id="pass-nueva" required minlength="8" class="w-full px-3 py-2 border rounded-xl text-sm">
                 </div>
                 <div class="flex gap-2 pt-2">
                     <button type="button" onclick="cerrarModalPassword()" class="w-1/2 bg-slate-100 text-slate-700 py-2 rounded-xl text-xs font-bold">Cancelar</button>
@@ -733,7 +893,7 @@
                     <button type="button" onclick="irAConfigurarCatalogosDesdeModal()"
                         class="text-[11px] font-bold text-[#122652] bg-[#F4F7FB] hover:bg-slate-200 border border-slate-300 px-2.5 py-1.5 rounded-xl transition"
                         title="Ir a configurar auditorios, carreras o grupos">
-                        <i class="fa-solid fa-Sliders text-[#F57C00] mr-1"></i>Editar Catálogos
+                        <i class="fa-solid fa-sliders text-[#F57C00] mr-1"></i>Editar Catálogos
                     </button>
                     <button type="button" onclick="cerrarModalEvento()" class="text-slate-400 hover:text-slate-600 text-lg"><i class="fa-solid fa-xmark"></i></button>
                 </div>
@@ -967,7 +1127,7 @@
                             class="w-full px-3.5 py-2.5 border border-slate-300 rounded-2xl text-xs font-sans focus:ring-2 focus:ring-[#0093FF] outline-none leading-relaxed"></textarea>
                     </div>
 
-                    <!-- OPCIÓN A: PUBLICACIÓN AUTOMÁTICA EN 1 CLIC (SUBE FLYER + TEXTO DIRECTO A LA CUENTA) -->
+                    <!-- OPCIÓN A: PUBLICACIÓN AUTOMÁTICA EN 1 CLIC -->
                     <div class="bg-[#F4F7FB] p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
                         <span class="block text-[11px] font-extrabold text-[#122652] uppercase tracking-wider">
                             <i class="fa-solid fa-bolt text-[#F57C00] mr-1"></i> 1. Publicar Automáticamente (Idéntico a la vista previa)
@@ -988,7 +1148,7 @@
                         </button>
                     </div>
 
-                    <!-- OPCIÓN B: PARA PERFILES PERSONALES SIN API (POSTAL UNIFICADA + PORTAPAPELES SIN ERROR 127.0.0.1) -->
+                    <!-- OPCIÓN B: PARA PERFILES PERSONALES SIN API -->
                     <div class="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
                         <span class="block text-[11px] font-extrabold text-[#5B6670] uppercase tracking-wider">
                             <i class="fa-solid fa-images text-[#0093FF] mr-1"></i> 2. O descargar / pegar en cuenta personal (Sin recuadro 127.0.0.1)
@@ -1087,10 +1247,9 @@
         </div>
     </div>
 
-        <!-- MODAL 7: CONFIGURACIÓN DE PERMISOS GRANULARES A MEDIDA POR USUARIO -->
+    <!-- MODAL 7: CONFIGURACIÓN DE PERMISOS GRANULARES A MEDIDA POR USUARIO -->
     <div id="modal-permisos-usuario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
-            <!-- Encabezado con avatar e iniciales -->
             <div class="flex items-center justify-between border-b pb-4 mb-4">
                 <div class="flex items-center gap-3">
                     <div id="perm-modal-iniciales" class="w-12 h-12 rounded-full bg-[#122652] text-white font-extrabold text-base flex items-center justify-center border-2 border-[#F57C00]">
@@ -1107,7 +1266,6 @@
                 </button>
             </div>
 
-            <!-- Selección rápida opcional (1 clic) -->
             <div class="bg-[#F4F7FB] p-3.5 rounded-2xl border border-slate-200/80 mb-4">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-xs font-extrabold text-[#122652]">
@@ -1119,10 +1277,8 @@
                 <div id="perm-modal-plantillas" class="flex flex-wrap gap-1.5"></div>
             </div>
 
-            <!-- Lista de casillas / switches de permisos individuales divididos en 3 áreas -->
             <div id="perm-modal-lista" class="overflow-y-auto flex-1 space-y-4 pr-1"></div>
 
-            <!-- Pie del modal -->
             <div class="pt-4 mt-4 border-t flex items-center justify-between gap-3">
                 <p class="text-[11px] text-[#5B6670]">
                     <i class="fa-solid fa-circle-info text-[#0093FF] mr-1"></i>
@@ -1142,7 +1298,7 @@
         </div>
     </div>
 
-<!-- MODAL 8: DAR DE ALTA NUEVO EMPLEADO / USUARIO DIRECTAMENTE DESDE EL PANEL WEB -->
+    <!-- MODAL 8: DAR DE ALTA NUEVO EMPLEADO / USUARIO DIRECTAMENTE DESDE EL PANEL WEB -->
     <div id="modal-crear-usuario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
             <div class="flex items-center justify-between border-b pb-3.5 mb-4">
@@ -1186,7 +1342,6 @@
                     <p class="text-[11px] text-[#5B6670] mt-1">Comparte este correo y contraseña con el empleado para que inicie sesión directamente en este panel web.</p>
                 </div>
 
-                <!-- Asignación de permisos desde el momento del alta -->
                 <div class="bg-[#F4F7FB] p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
                     <div class="flex items-center justify-between">
                         <span class="text-xs font-extrabold text-[#122652]">
@@ -1217,8 +1372,7 @@
         </div>
     </div>
 
-
-    <!-- MODAL 9: CONFIGURAR AUDITORIOS, ASIENTOS Y CARRERAS (ACCESIBLE CON 1 CLIC DESDE EL FORMULARIO DE EVENTOS) -->
+    <!-- MODAL 9: CONFIGURAR AUDITORIOS Y ASIENTOS (CON IDs ÚNICOS SIN COLISIÓN EN EL DOM) -->
     <div id="modal-config-auditorios" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
             <div class="flex items-center justify-between border-b pb-3 mb-4">
@@ -1237,18 +1391,18 @@
             </div>
 
             <div class="flex-1 overflow-y-auto space-y-4 pr-1">
-                <form onsubmit="agregarAuditorioCatalogo(event)" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-2.5">
+                <form onsubmit="agregarAuditorioCatalogo(event, 'modal')" class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-2.5">
                     <span class="block text-xs font-extrabold text-[#122652]">
                         <i class="fa-solid fa-plus text-[#F57C00] mr-1"></i>Dar de alta nuevo Auditorio o Sala con sus Asientos:
                     </span>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <input type="text" id="cat-nuevo-aud-nombre" required placeholder="Nombre (Ej. Auditorio B)"
+                        <input type="text" id="modal-cat-nuevo-aud-nombre" required placeholder="Nombre (Ej. Auditorio B)"
                             class="sm:col-span-2 px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
-                        <input type="number" id="cat-nuevo-aud-asientos" required min="1" max="5000" placeholder="Núm. Asientos"
+                        <input type="number" id="modal-cat-nuevo-aud-asientos" required min="1" max="20000" placeholder="Núm. Asientos"
                             class="px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold">
                     </div>
                     <div class="flex gap-2">
-                        <input type="text" id="cat-nuevo-aud-ubicacion" placeholder="Edificio / Ubicación (Ej. Edificio A Planta Baja)"
+                        <input type="text" id="modal-cat-nuevo-aud-ubicacion" placeholder="Edificio / Ubicación (Ej. Edificio A Planta Baja)"
                             class="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
                         <button type="submit" class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2 rounded-xl transition shrink-0">
                             + Guardar Auditorio
@@ -1258,7 +1412,7 @@
 
                 <div>
                     <span class="block text-xs font-extrabold text-[#122652] mb-2">Auditorios y Salas configurados:</span>
-                    <div id="lista-cat-auditorios" class="space-y-2 max-h-56 overflow-y-auto pr-1"></div>
+                    <div id="modal-lista-cat-auditorios" class="space-y-2 max-h-56 overflow-y-auto pr-1"></div>
                 </div>
 
                 <div class="border-t pt-3 flex items-center justify-between">
@@ -1273,8 +1427,7 @@
         </div>
     </div>
 
-
-    <!-- MODAL 10: CREACIÓN EXPLÍCITA DE ROLES Y ASIGNACIÓN DE PERMISOS EN POSTGRESQL (EXIGENCIA 6 DEL PDF) -->
+    <!-- MODAL 10: CREACIÓN EXPLÍCITA DE ROLES Y ASIGNACIÓN DE PERMISOS EN POSTGRESQL -->
     <div id="modal-gestion-roles" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border max-h-[92vh] flex flex-col">
             <div class="flex items-center justify-between border-b pb-3 mb-4">
@@ -1327,7 +1480,6 @@
         </div>
     </div>
 
-
     <!-- MODAL 11: CONFIGURADOR DE MEMBRETADO Y PIE DE PÁGINA OFICIAL (FORMATO ETDA) -->
     <div id="modal-membrete-etda" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl border max-h-[94vh] flex flex-col">
@@ -1353,7 +1505,6 @@
             </div>
 
             <form onsubmit="guardarMembreteAsistencia(event)" class="flex-1 overflow-y-auto space-y-5 pr-1">
-                <!-- Vista previa en vivo idéntica al documento Formato etda.docx -->
                 <div class="bg-slate-100 p-4 rounded-2xl border border-slate-300 space-y-3">
                     <span class="block text-[11px] font-extrabold uppercase tracking-wider text-[#122652]">
                         <i class="fa-solid fa-eye text-[#0093FF] mr-1"></i> Vista previa en tiempo real del documento impreso:
@@ -1368,9 +1519,7 @@
                     </div>
                 </div>
 
-                <!-- Campos de edición: Encabezado (Membretado) y Pie de Página -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <!-- Columna 1: Membretado Superior -->
                     <div class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
                         <h4 class="text-xs font-extrabold uppercase tracking-wider text-[#122652] border-b border-slate-200 pb-2">
                             <i class="fa-solid fa-heading text-[#0093FF] mr-1"></i> 1. Textos del Membretado (Encabezado)
@@ -1396,12 +1545,12 @@
                         <div class="grid grid-cols-2 gap-2 pt-1">
                             <div>
                                 <label class="block text-[10px] font-bold text-[#5B6670] mb-1">Cambiar Logo Izquierdo (Opcional)</label>
-                                <input type="file" accept="image/*" onchange="cambiarLogoMembrete('izquierdo', this)"
+                                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="cambiarLogoMembrete('izquierdo', this)"
                                     class="w-full text-[10px] text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-[#122652] file:text-white">
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-[#5B6670] mb-1">Cambiar Logo Derecho (Opcional)</label>
-                                <input type="file" accept="image/*" onchange="cambiarLogoMembrete('derecho', this)"
+                                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="cambiarLogoMembrete('derecho', this)"
                                     class="w-full text-[10px] text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-[#122652] file:text-white">
                             </div>
                         </div>
@@ -1411,7 +1560,6 @@
                         </div>
                     </div>
 
-                    <!-- Columna 2: Pie de Página -->
                     <div class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-3">
                         <h4 class="text-xs font-extrabold uppercase tracking-wider text-[#122652] border-b border-slate-200 pb-2">
                             <i class="fa-solid fa-shoe-prints text-[#F57C00] mr-1"></i> 2. Textos del Pie de Página
@@ -1435,7 +1583,6 @@
                                 class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-bold text-[#122652]">
                         </div>
 
-                        <!-- Bloque específico para Activar / Quitar y Editar la Línea de Firma -->
                         <div class="p-3 rounded-xl bg-white border border-slate-200 space-y-2.5">
                             <label class="flex items-center justify-between gap-2 cursor-pointer">
                                 <span class="text-[11px] font-extrabold text-[#122652]">
@@ -1489,8 +1636,8 @@
     <script src="js/utils.js"></script>
     <script src="js/permissions.js"></script>
     <script src="js/auth.js"></script>
-    <script src="js/catalogos.js?v=20261031"></script>
-    <script src="js/eventos.js?v=20261031"></script>
+    <script src="js/catalogos.js?v=20261101"></script>
+    <script src="js/eventos.js?v=20261101"></script>
     <script src="js/pasados.js"></script>
     <script src="js/social.js"></script>
     <script src="js/estadisticas.js"></script>

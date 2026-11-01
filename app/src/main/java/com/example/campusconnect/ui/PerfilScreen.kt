@@ -34,6 +34,7 @@ import com.example.campusconnect.ComposeLoginActivity
 import com.example.campusconnect.TokenManager
 import com.example.campusconnect.formatearEtiquetaGrupo
 import com.example.campusconnect.network.RetrofitClient
+import kotlinx.coroutines.launch
 
 // Paleta Oficial ETDA - UNACH
 private val EtdaNavy = Color(0xFF122652)
@@ -47,12 +48,17 @@ private data class DatosAcademicosAlumno(
     val iniciales: String,
     val correo: String,
     val rol: String,
+    val esEgresado: Boolean,
+    val correoSecundario: String,
+    val telefonoPrincipal: String,
+    val telefonoSecundario: String,
     val matricula: String,
     val escuela: String,
     val carrera: String,
     val semestreGrupo: String,
     val modalidad: String,
-    val cicloEscolar: String
+    val cicloEscolar: String,
+    val tiene2faActivo: Boolean
 )
 
 private fun calcularInicialesNombre(nombreCompleto: String): String {
@@ -69,8 +75,23 @@ private fun formatearRolAlumno(rolGuardado: String?, esEgresado: Boolean = false
     return when (rolGuardado?.lowercase()) {
         "admin", "administrador", "superadmin" -> "Administrador ETDA"
         "organizador", "docente", "editor" -> "Organizador Académico"
+        "auxiliar" -> "Auxiliar Académico"
         "alumno", "estudiante", "usuario_regular", "usuario regular" -> "Estudiante Activo"
         else -> if (!rolGuardado.isNullOrBlank()) rolGuardado else "Estudiante Activo"
+    }
+}
+
+private fun derivarNombreDesdeCorreo(correoReal: String): String {
+    val usuarioCorreo = correoReal.substringBefore("@").trim()
+    val partesNombre = usuarioCorreo
+        .replace(Regex("[0-9]"), "")
+        .split(".", "_", "-")
+        .filter { it.isNotBlank() }
+        .map { it.replaceFirstChar { char -> char.uppercase() } }
+    return when {
+        partesNombre.size >= 2 -> partesNombre.joinToString(" ")
+        partesNombre.size == 1 -> partesNombre[0]
+        else -> "Estudiante UNACH"
     }
 }
 
@@ -83,53 +104,47 @@ private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
     val matriculaGuardada = prefs.getString("matricula_$correoReal", null)?.takeIf { it.isNotBlank() }
     val carreraGuardada = prefs.getString("carrera_$correoReal", null)?.takeIf { it.isNotBlank() }
     val grupoGuardado = prefs.getString("grupo_$correoReal", null)?.takeIf { it.isNotBlank() }
+    val escuelaUsuario = prefs.getString("escuela_$correoReal", null)?.takeIf { it.isNotBlank() }
+    val esEgresadoGuardado = prefs.getBoolean("egresado_$correoReal", false)
+    val correoSecGuardado = prefs.getString("email_sec_$correoReal", null).orEmpty()
+    val tel1Guardado = prefs.getString("tel1_$correoReal", null).orEmpty()
+    val tel2Guardado = prefs.getString("tel2_$correoReal", null).orEmpty()
+    val tiene2faGuardado = prefs.getBoolean("tiene_2fa_$correoReal", true)
 
-    val escuelaEstatica = prefs.getString("inst_escuela", null)?.takeIf { it.isNotBlank() }
+    val escuelaEstatica = escuelaUsuario
+        ?: prefs.getString("inst_escuela", null)?.takeIf { it.isNotBlank() }
         ?: "Escuela de Tecnologías Digitales Aplicadas (ETDA)"
     val modalidadEstatica = prefs.getString("inst_modalidad", null)?.takeIf { it.isNotBlank() }
         ?: "Escolarizada (Campus I, Tuxtla Gutiérrez)"
     val cicloEstatico = prefs.getString("inst_ciclo", null)?.takeIf { it.isNotBlank() }
         ?: "Agosto - Diciembre 2026"
 
-    val usuarioCorreo = correoReal.substringBefore("@")
-
-    val (nombreFallback, inicialesFallback, matriculaFallback) = when {
-        correoReal.startsWith("luz.rossette") -> Triple("Luz Ximena Rossette Pérez", "LX", "100016853")
-        correoReal.contains("yasir") || correoReal.contains("estrada") -> Triple("Rodolfo Yasir Estrada Gálvez", "RY", "100016854")
-        else -> {
-            val partesNombre = usuarioCorreo.replace(Regex("[0-9]"), "").split(".", "_", "-").filter { it.isNotBlank() }.map { it.replaceFirstChar { char -> char.uppercase() } }
-            val nombre = when {
-                partesNombre.size >= 2 -> partesNombre.joinToString(" ")
-                partesNombre.size == 1 -> partesNombre[0]
-                else -> "Estudiante UNACH"
-            }
-            val ini = calcularInicialesNombre(nombre)
-            val digitos = usuarioCorreo.filter { it.isDigit() }.ifEmpty { "53" }
-            Triple(nombre, ini, "1000168$digitos")
-        }
-    }
-
-    val nombreFinal = nombreGuardado ?: nombreFallback
-    val inicialesFinal = if (nombreGuardado != null) calcularInicialesNombre(nombreGuardado) else inicialesFallback
-    val matriculaFinal = matriculaGuardada ?: matriculaFallback
+    val nombreFinal = nombreGuardado ?: derivarNombreDesdeCorreo(correoReal)
+    val inicialesFinal = calcularInicialesNombre(nombreFinal)
+    val matriculaFinal = matriculaGuardada ?: "Sin registrar"
     val carreraFinal = carreraGuardada ?: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software"
     val semestreGrupoFinal = if (!grupoGuardado.isNullOrBlank()) {
         formatearEtiquetaGrupo(grupoGuardado)
     } else {
-        "7° Semestre • Grupo N"
+        if (esEgresadoGuardado) "Generación Egresada" else "Sin asignar"
     }
 
     return DatosAcademicosAlumno(
         nombreCompleto = nombreFinal,
         iniciales = inicialesFinal,
-        correo = correoReal,
-        rol = formatearRolAlumno(rolGuardado),
+        correo = correoReal.ifBlank { "usuario@unach.mx" },
+        rol = formatearRolAlumno(rolGuardado, esEgresadoGuardado),
+        esEgresado = esEgresadoGuardado,
+        correoSecundario = correoSecGuardado,
+        telefonoPrincipal = tel1Guardado,
+        telefonoSecundario = tel2Guardado,
         matricula = matriculaFinal,
         escuela = escuelaEstatica,
         carrera = carreraFinal,
         semestreGrupo = semestreGrupoFinal,
         modalidad = modalidadEstatica,
-        cicloEscolar = cicloEstatico
+        cicloEscolar = cicloEstatico,
+        tiene2faActivo = tiene2faGuardado
     )
 }
 
@@ -145,10 +160,12 @@ private data class ProgresoCategoriaPerfil(
 fun PerfilScreen(puntos: Int) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
     var datosAlumno by remember { mutableStateOf(obtenerDatosSesionAlumno(context)) }
+    var sincronizandoExpediente by remember { mutableStateOf(false) }
 
-    // Sincronizar en tiempo real el expediente del alumno y los datos estáticos de Administración
-    LaunchedEffect(Unit) {
+    suspend fun sincronizarExpedienteDesdeServidor() {
+        sincronizandoExpediente = true
         val api = RetrofitClient.obtenerApi(context)
         val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
         val correoReal = TokenManager.obtenerEmail(context).trim().lowercase()
@@ -160,9 +177,18 @@ fun PerfilScreen(puntos: Int) {
             if (!exp.matricula.isNullOrBlank()) editor.putString("matricula_$correoReal", exp.matricula)
             if (!exp.carrera.isNullOrBlank()) editor.putString("carrera_$correoReal", exp.carrera)
             if (!exp.semestreGrupo.isNullOrBlank()) editor.putString("grupo_$correoReal", exp.semestreGrupo)
-            if (!exp.escuela.isNullOrBlank()) editor.putString("inst_escuela", exp.escuela)
+            if (!exp.idFacultad.isNullOrBlank()) editor.putString("facultad_$correoReal", exp.idFacultad)
+            if (!exp.escuela.isNullOrBlank()) {
+                editor.putString("inst_escuela", exp.escuela)
+                editor.putString("escuela_$correoReal", exp.escuela)
+            }
             if (!exp.modalidadSede.isNullOrBlank()) editor.putString("inst_modalidad", exp.modalidadSede)
             if (!exp.cicloEscolar.isNullOrBlank()) editor.putString("inst_ciclo", exp.cicloEscolar)
+            editor.putBoolean("egresado_$correoReal", exp.esEgresado == true)
+            if (!exp.emailSecundario.isNullOrBlank()) editor.putString("email_sec_$correoReal", exp.emailSecundario)
+            if (!exp.telefonoPrincipal.isNullOrBlank()) editor.putString("tel1_$correoReal", exp.telefonoPrincipal)
+            if (!exp.telefonoSecundario.isNullOrBlank()) editor.putString("tel2_$correoReal", exp.telefonoSecundario)
+            editor.putBoolean("tiene_2fa_$correoReal", exp.tiene2faActivo != false)
             editor.apply()
 
             val actualizado = obtenerDatosSesionAlumno(context)
@@ -170,7 +196,6 @@ fun PerfilScreen(puntos: Int) {
                 rol = formatearRolAlumno(exp.rol ?: TokenManager.obtenerRol(context), exp.esEgresado == true)
             )
         } catch (_: Exception) {
-            // Si /auth/expediente falla, intentar actualizar los datos institucionales desde /catalogos/facultad
             try {
                 val cat = api.obtenerCatalogosFacultad()
                 cat.datosInstitucionales?.let { inst ->
@@ -182,13 +207,18 @@ fun PerfilScreen(puntos: Int) {
                     datosAlumno = obtenerDatosSesionAlumno(context)
                 }
             } catch (_: Exception) {}
+        } finally {
+            sincronizandoExpediente = false
         }
+    }
+
+    LaunchedEffect(Unit) {
+        sincronizarExpedienteDesdeServidor()
     }
 
     var mostrarQrDialog by remember { mutableStateOf(false) }
     var mostrarCredencialExpandida by remember { mutableStateOf(true) }
 
-    // Todas las asistencias inicializadas en 0
     val categoriasAsistencia = remember {
         listOf(
             ProgresoCategoriaPerfil("Talleres", 0, 5, Icons.Default.Build, Color(0xFF0284C7)),
@@ -258,11 +288,22 @@ fun PerfilScreen(puntos: Int) {
                     Surface(color = EtdaOrange, shape = RoundedCornerShape(50)) {
                         Text(datosAlumno.rol.uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                     }
-                    Surface(color = EtdaSuccess.copy(alpha = 0.25f), shape = RoundedCornerShape(50), border = BorderStroke(1.dp, EtdaSuccess)) {
+                    Surface(
+                        color = if (datosAlumno.tiene2faActivo) EtdaSuccess.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, if (datosAlumno.tiene2faActivo) EtdaSuccess else Color.White.copy(alpha = 0.4f))
+                    ) {
                         Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Shield, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("2FA Activo", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                            Text(
+                                if (datosAlumno.tiene2faActivo) "2FA Activo" else "2FA Protegido",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }
@@ -291,13 +332,29 @@ fun PerfilScreen(puntos: Int) {
             elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                Row(modifier = Modifier.fillMaxWidth().clickable { mostrarCredencialExpandida = !mostrarCredencialExpandida }, horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { mostrarCredencialExpandida = !mostrarCredencialExpandida },
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Surface(shape = RoundedCornerShape(12.dp), color = EtdaNavy.copy(alpha = 0.08f), modifier = Modifier.size(38.dp)) {
                         Icon(Icons.Default.AccountBalance, contentDescription = null, tint = EtdaNavy, modifier = Modifier.padding(8.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Expediente Académico", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Datos oficiales de adscripción UNACH", fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Sincronizado con Administración UNACH", fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    IconButton(
+                        onClick = { coroutineScope.launch { sincronizarExpedienteDesdeServidor() } },
+                        enabled = !sincronizandoExpediente,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Sincronizar expediente",
+                            tint = if (sincronizandoExpediente) Color.Gray else EtdaBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                     Surface(onClick = { mostrarQrDialog = true }, color = EtdaOrange.copy(alpha = 0.14f), shape = RoundedCornerShape(12.dp)) {
                         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -318,12 +375,25 @@ fun PerfilScreen(puntos: Int) {
                         ItemDatoAcademico(Icons.Default.Computer, "Programa Educativo (Carrera)", datosAlumno.carrera, EtdaOrange)
                         Spacer(modifier = Modifier.height(14.dp))
                         Row(modifier = Modifier.fillMaxWidth()) {
-                            // Ingresado por el alumno al registrarse
                             Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Badge, "Matrícula", datosAlumno.matricula, EtdaNavy) }
                             Spacer(modifier = Modifier.width(8.dp))
-                            // Elegido por el alumno al registrarse
                             Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Groups, "Semestre y Grupo", datosAlumno.semestreGrupo, EtdaBlue) }
                         }
+
+                        if (datosAlumno.esEgresado && (datosAlumno.correoSecundario.isNotBlank() || datosAlumno.telefonoPrincipal.isNotBlank())) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            if (datosAlumno.correoSecundario.isNotBlank()) {
+                                ItemDatoAcademico(Icons.Default.AlternateEmail, "Correo Alternativo (Egresado)", datosAlumno.correoSecundario, EtdaBlue)
+                                Spacer(modifier = Modifier.height(14.dp))
+                            }
+                            if (datosAlumno.telefonoPrincipal.isNotBlank()) {
+                                val tels = listOf(datosAlumno.telefonoPrincipal, datosAlumno.telefonoSecundario)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString(" • ")
+                                ItemDatoAcademico(Icons.Default.Phone, "Teléfonos de Contacto", tels, EtdaNavy)
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(14.dp))
                         // Estático (configurado desde Administración)
                         ItemDatoAcademico(Icons.Default.LocationOn, "Modalidad y Sede", datosAlumno.modalidad, EtdaSuccess)
@@ -382,10 +452,15 @@ fun PerfilScreen(puntos: Int) {
 
         Button(
             onClick = {
-                TokenManager.cerrarSesion(context)
-                val intent = Intent(context, ComposeLoginActivity::class.java)
-                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                context.startActivity(intent)
+                coroutineScope.launch {
+                    try {
+                        RetrofitClient.obtenerApi(context).cerrarSesionRemota()
+                    } catch (_: Exception) {}
+                    TokenManager.cerrarSesion(context)
+                    val intent = Intent(context, ComposeLoginActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    context.startActivity(intent)
+                }
             },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(52.dp),
             shape = RoundedCornerShape(16.dp),

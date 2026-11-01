@@ -1,8 +1,8 @@
 import re
 import unicodedata
 import uuid
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..auditoria import registrar_auditoria
 from ..database import get_db
 from ..fechas import (
+    DURACION_EVENTO_HORAS,
     ahora_utc,
     asegurar_utc,
     evento_disponible,
@@ -20,7 +21,11 @@ from ..fechas import (
 )
 from ..models import Evento, EventoArchivo, EventoAsistencia
 from ..models_auth import Usuario
-from ..notifications import enviar_notificacion_nuevo_evento, verificar_y_enviar_recordatorios_24h
+from ..notifications import (
+    _enviar_aviso_30m_antes_de_finalizar,
+    enviar_notificacion_nuevo_evento,
+    verificar_y_enviar_recordatorios_24h,
+)
 from ..pdf_asistencia import generar_pdf_asistencia
 from ..publicaciones import audiencia_texto
 from ..schemas import ArchivoOut, EventoCreate, EventoOut
@@ -40,23 +45,15 @@ class EventoOutConVigencia(EventoOut):
     disponible_desde: Optional[datetime] = Field(default=None, alias="disponibleDesde", serialization_alias="disponibleDesde")
     fecha_fin: Optional[datetime] = Field(default=None, alias="fechaFin", serialization_alias="fechaFin")
     disponible_ahora: bool = Field(default=True, alias="disponibleAhora", serialization_alias="disponibleAhora")
+    inscrito: bool = Field(default=False, alias="inscrito", serialization_alias="inscrito")
 
 
 def _evento_ha_finalizado(evento: Evento) -> bool:
-    """
-    Un evento se considera finalizado/expirado si:
-    - Tiene `fecha_fin` configurada y la hora actual ya alcanzó o superó `fecha_fin` (exacta, sin sumar 4h).
-    - O si no tiene `fecha_fin` y ya pasaron DURACION_EVENTO_HORAS desde `fecha_hora`.
-    """
     fin = getattr(evento, "fecha_fin", None)
     return evento_finalizado(evento.fecha_hora, ahora=ahora_utc(), fecha_fin=fin)
 
 
 def _evento_esta_disponible_ahora(evento: Evento) -> bool:
-    """
-    Verifica si ya llegó la fecha/hora configurada en `disponible_desde` para este evento específico.
-    Si `disponible_desde` es NULL, está disponible desde el momento de su creación.
-    """
     disp = getattr(evento, "disponible_desde", None)
     return evento_disponible(disp, ahora=ahora_utc())
 
@@ -64,8 +61,6 @@ def _evento_esta_disponible_ahora(evento: Evento) -> bool:
 TIPOS_ARCHIVO = {"material", "evidencia"}
 MAX_ARCHIVOS_POR_PETICION = 20
 
-
-# ---------------------------------------------------------------- helpers
 
 def _ip(request: Request) -> str:
     return request.client.host if request.client else "desconocida"
@@ -89,18 +84,28 @@ def _archivo_out(a: EventoArchivo, base: str) -> ArchivoOut:
     )
 
 
-def _serializar(evento: Evento, base: str, conteos: Optional[Dict] = None) -> EventoOutConVigencia:
+def _serializar(
+    evento: Evento,
+    base: str,
+    conteos: Optional[Dict] = None,
+    eventos_inscritos_usuario: Optional[Set[uuid.UUID]] = None,
+) -> EventoOutConVigencia:
     archivos = [_archivo_out(a, base) for a in evento.archivos]
     flyer = next((a.url for a in archivos if a.tipo == "material" and a.es_imagen), None)
     registrados, asistieron = conteos.get(evento.id, (0, 0)) if conteos is not None else (None, None)
+    esta_inscrito = bool(eventos_inscritos_usuario and evento.id in eventos_inscritos_usuario)
+
+    # IMPORTANTE: Pasar disponibleDesde, fechaFin, disponibleAhora e inscrito por su alias camelCase
+    # para que Pydantic nunca los deje en None al serializar.
     return EventoOutConVigencia(
         id=evento.id,
         titulo=evento.titulo,
         descripcion=evento.descripcion,
-        disponible_desde=asegurar_utc(evento.disponible_desde),
+        disponibleDesde=asegurar_utc(evento.disponible_desde),
         fecha_hora=asegurar_utc(evento.fecha_hora),
-        fecha_fin=asegurar_utc(evento.fecha_fin),
-        disponible_ahora=_evento_esta_disponible_ahora(evento),
+        fechaFin=asegurar_utc(evento.fecha_fin),
+        disponibleAhora=_evento_esta_disponible_ahora(evento),
+        inscrito=esta_inscrito,
         lugar=evento.lugar,
         categoria=evento.categoria,
         es_general=evento.es_general,
@@ -156,8 +161,6 @@ def _aplicar_datos(evento: Evento, datos: EventoCreateConVigencia) -> None:
         evento.imagen_url = datos.imagen_url
 
 
-# ---------------------------------------------------------------- listados
-
 @router.get("/feed", response_model=List[EventoOutConVigencia])
 def obtener_feed(
     request: Request,
@@ -166,12 +169,6 @@ def obtener_feed(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Devuelve los eventos vigentes (evaluando evento por evento su propio `disponible_desde` y `fecha_fin`):
-    - En la App Android (`okhttp`) SIEMPRE filtra eventos que ya expiraron o cuya hora `disponible_desde` aún no llega.
-    - En el Panel Web Admin (`incluir_programados=True`), devuelve también los programados para que el
-      administrador pueda editarlos individualmente antes de su hora de salida.
-    """
     eventos = (
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.asc()).all()
@@ -191,8 +188,16 @@ def obtener_feed(
         if tiene_perfil_segmentado:
             eventos = [e for e in eventos if evento_visible_para(e, usuario)]
 
+    # Consultar a qué eventos ya está inscrito este usuario en PostgreSQL
+    ids_inscritos: Set[uuid.UUID] = {
+        fila[0]
+        for fila in db.query(EventoAsistencia.evento_id)
+        .filter(EventoAsistencia.usuario_id == usuario.id)
+        .all()
+    }
+
     base = _base_url(request)
-    return [_serializar(e, base) for e in eventos]
+    return [_serializar(e, base, eventos_inscritos_usuario=ids_inscritos) for e in eventos]
 
 
 @router.get("/pasados", response_model=List[EventoOutConVigencia])
@@ -201,7 +206,6 @@ def eventos_pasados(
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir", "estadisticas:leer")),
     db: Session = Depends(get_db),
 ):
-    """Eventos finalizados (más recientes primero) con sus archivos de evidencia y conteos."""
     eventos = (
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.desc()).all()
@@ -231,8 +235,6 @@ def opciones_segmentacion(
     return {"facultades": sorted(facultades), "carreras": sorted(carreras), "grupos": sorted(grupos)}
 
 
-# ---------------------------------------------------------------- CRUD (Protegidos con 403 Forbidden)
-
 @router.post("/", response_model=EventoOutConVigencia, status_code=201)
 def crear_evento(
     request: Request,
@@ -244,6 +246,7 @@ def crear_evento(
         organizador_email=usuario.email,
         notificacion_aparicion_enviada=False,
         notificacion_fin_30m_enviada=False,
+        notificacion_finalizado_enviada=False,
     )
     _aplicar_datos(nuevo, evento_in)
     db.add(nuevo)
@@ -253,8 +256,6 @@ def crear_evento(
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento creado: {nuevo.titulo}")
 
-    # Si aparece de inmediato en la app, enviar push ahora; si es programado a futuro,
-    # el Scheduler (cada 1 min) enviará el push en cuanto llegue `disponible_desde`.
     if _evento_esta_disponible_ahora(nuevo) and not _evento_ha_finalizado(nuevo):
         try:
             enviar_notificacion_nuevo_evento(db, nuevo)
@@ -278,18 +279,16 @@ def editar_evento(
 
     _aplicar_datos(evento, evento_in)
 
-    # Si cambió la hora de aparición a una fecha futura, reprogramar la notificación de aparición
     if asegurar_utc(evento.disponible_desde) != disp_anterior:
         evento.notificacion_aparicion_enviada = False
 
-    # Si cambió la hora de finalización, permitir enviar el aviso de 30 minutos antes del nuevo fin
     if asegurar_utc(evento.fecha_fin) != fin_anterior:
         evento.notificacion_fin_30m_enviada = False
+        evento.notificacion_finalizado_enviada = False
 
     db.commit()
     db.refresh(evento)
 
-    # Si tras editar ya está disponible ahora y aún no se había enviado su notificación de aparición, enviarla
     if (
         _evento_esta_disponible_ahora(evento)
         and not _evento_ha_finalizado(evento)
@@ -329,10 +328,8 @@ def disparar_recordatorios_manual(
     usuario: Usuario = Depends(verificar_rol_admin),
 ):
     resultado = verificar_y_enviar_recordatorios_24h()
-    return {"mensaje": "Verificación de recordatorios 24h ejecutada", "resultado": resultado}
+    return {"mensaje": "Verificación de notificaciones ejecutada", "resultado": resultado}
 
-
-# ---------------------------------------------------------------- archivos (flyers, materiales, evidencias)
 
 @router.post("/{evento_id}/archivos", response_model=List[ArchivoOut], status_code=201)
 def subir_archivos(
@@ -406,8 +403,6 @@ def eliminar_archivo(
     return {"mensaje": "Archivo eliminado."}
 
 
-# ---------------------------------------------------------------- asistencia
-
 @router.post("/{evento_id}/registro", status_code=200)
 def registrar_asistencia(
     evento_id: uuid.UUID,
@@ -423,10 +418,22 @@ def registrar_asistencia(
     if not _puede_gestionar(usuario) and tiene_perfil_segmentado and not evento_visible_para(evento, usuario):
         raise HTTPException(status_code=403, detail="Este evento no está dirigido a tu carrera o grupo.")
     ya = db.query(EventoAsistencia).filter_by(evento_id=evento.id, usuario_id=usuario.id).first()
-    if ya:
-        return {"mensaje": "Ya estás registrado en este evento."}
-    db.add(EventoAsistencia(evento_id=evento.id, usuario_id=usuario.id))
-    db.commit()
+    if not ya:
+        db.add(EventoAsistencia(evento_id=evento.id, usuario_id=usuario.id))
+        db.commit()
+
+    # Si al momento de inscribirse ya quedan 30 minutos o menos para finalizar el evento,
+    # disparar de inmediato el push de últimos 30 minutos para este alumno
+    ahora = ahora_utc()
+    fin_real = asegurar_utc(evento.fecha_fin) if evento.fecha_fin is not None else (
+        asegurar_utc(evento.fecha_hora) + timedelta(hours=DURACION_EVENTO_HORAS)
+    )
+    if fin_real is not None and timedelta(seconds=0) < (fin_real - ahora) <= timedelta(minutes=30):
+        try:
+            _enviar_aviso_30m_antes_de_finalizar(db, evento)
+        except Exception as exc:
+            print(f"[FCM] Aviso no bloqueante al enviar push de 30m en inscripción: {exc}")
+
     return {"mensaje": "Inscripción realizada correctamente."}
 
 

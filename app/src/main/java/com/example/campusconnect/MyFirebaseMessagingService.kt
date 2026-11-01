@@ -5,6 +5,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -40,7 +43,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val tipo = message.data["tipo"] ?: ""
         val eventoId = message.data["evento_id"] ?: ""
 
-        // Evitar duplicados si EventosScreen ya mostró la notificación localmente
         if (eventoId.isNotBlank() && tipo.isNotBlank()) {
             val prefs = applicationContext.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
             val clave = "notificado_${tipo}_$eventoId"
@@ -66,7 +68,47 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         const val CHANNEL_ID = "campus_connect_alertas_v2"
 
-        fun mostrarNotificacion(context: Context, titulo: String, cuerpo: String, notifId: Int = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()) {
+        /**
+         * Convierte el ícono oficial de la app Campus Connect (R.mipmap.ic_launcher_round o applicationIcon)
+         * en un Bitmap a todo color para mostrarlo en la notificación.
+         */
+        private fun obtenerBitmapIconoApp(context: Context): Bitmap? {
+            return try {
+                val drawable = context.packageManager.getApplicationIcon(context.applicationInfo)
+                if (drawable is BitmapDrawable && drawable.bitmap != null) {
+                    return drawable.bitmap
+                }
+                val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
+                val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bitmap
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        /**
+         * Busca el drawable vectorial del ícono de la app (ic_launcher_foreground) para la barra de estado,
+         * usando como respaldo seguro el ícono de información del sistema.
+         */
+        private fun obtenerSmallIconResId(context: Context): Int {
+            val idForeground = context.resources.getIdentifier(
+                "ic_launcher_foreground",
+                "drawable",
+                context.packageName
+            )
+            return if (idForeground != 0) idForeground else android.R.drawable.ic_dialog_info
+        }
+
+        fun mostrarNotificacion(
+            context: Context,
+            titulo: String,
+            cuerpo: String,
+            notifId: Int = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
+        ) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -75,7 +117,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     "Alertas de Eventos UNACH",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Notificaciones cuando aparece un evento o faltan 30 minutos para finalizar"
+                    description = "Notificaciones cuando aparece un evento, faltan 30 minutos o finaliza"
                     enableVibration(true)
                 }
                 notificationManager.createNotificationChannel(channel)
@@ -91,10 +133,12 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // IMPORTANTE: En Android 8+ (targetSdk 37) NO se debe usar R.mipmap.ic_launcher_round (adaptive icon)
-            // en setSmallIcon porque Android bloquea la notificación. Usamos un ícono vectorial válido.
+            val smallIconRes = obtenerSmallIconResId(context)
+            val appLogoBitmap = obtenerBitmapIconoApp(context)
+
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(smallIconRes)
+                .setColor(0xFF122652.toInt()) // Azul Marino Institucional UNACH
                 .setContentTitle(titulo)
                 .setContentText(cuerpo)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(cuerpo))
@@ -103,12 +147,20 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setContentIntent(pendingIntent)
 
+            if (appLogoBitmap != null) {
+                builder.setLargeIcon(appLogoBitmap)
+            }
+
             try {
                 notificationManager.notify(notifId, builder.build())
-            } catch (e: SecurityException) {
-                Log.e("FCM", "Falta permiso POST_NOTIFICATIONS para mostrar alerta: ${e.message}")
-            } catch (e: Exception) {
-                Log.e("FCM", "Error al mostrar notificación: ${e.message}")
+            } catch (_: Exception) {
+                // Respaldo garantizado si algún dispositivo rechaza ic_launcher_foreground como smallIcon
+                try {
+                    builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+                    notificationManager.notify(notifId, builder.build())
+                } catch (e2: Exception) {
+                    Log.e("FCM", "Error al mostrar notificación: ${e2.message}")
+                }
             }
         }
     }

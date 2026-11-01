@@ -44,6 +44,7 @@ try:
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS fecha_fin TIMESTAMPTZ"))
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_aparicion_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_fin_30m_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_finalizado_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 

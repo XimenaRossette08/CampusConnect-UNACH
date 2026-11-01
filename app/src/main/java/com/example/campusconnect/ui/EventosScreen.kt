@@ -120,10 +120,47 @@ private fun detectarCategoriaEvento(evento: Evento): InfoCategoria {
     }
 }
 
+private val zoneIdMx: ZoneId = ZoneId.of("America/Mexico_City")
+
+private fun parsearZonedDateTimeMx(raw: String?): ZonedDateTime? {
+    if (raw.isNullOrBlank()) return null
+    val limpio = raw.trim()
+    return try {
+        OffsetDateTime.parse(limpio).atZoneSameInstant(zoneIdMx)
+    } catch (_: Exception) {
+        try {
+            Instant.parse(limpio).atZone(zoneIdMx)
+        } catch (_: Exception) {
+            try {
+                val norm = limpio.replace(" ", "T").take(19)
+                val padded = if (norm.length == 16) "$norm:00" else norm
+                LocalDateTime.parse(padded).atZone(zoneIdMx)
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+}
+
+private fun parsearInstanteEventoMx(raw: String?): Instant? {
+    return parsearZonedDateTimeMx(raw)?.toInstant()
+}
+
+private fun fechaIsoLocalMx(raw: String?): String {
+    val zdt = parsearZonedDateTimeMx(raw) ?: return (raw ?: "").take(10)
+    return String.format(Locale.US, "%04d-%02d-%02d", zdt.year, zdt.monthValue, zdt.dayOfMonth)
+}
+
 private fun extraerFechaVisual(fechaHora: String?): Triple<String, String, String> {
     if (fechaHora.isNullOrBlank()) return Triple("OCT", "15", "10:00")
+    val meses = listOf("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
+    parsearZonedDateTimeMx(fechaHora)?.let { zdt ->
+        val mesTxt = meses.getOrElse(zdt.monthValue - 1) { "OCT" }
+        val diaTxt = String.format(Locale.US, "%02d", zdt.dayOfMonth)
+        val horaTxt = String.format(Locale.US, "%02d:%02d", zdt.hour, zdt.minute)
+        return Triple(mesTxt, diaTxt, horaTxt)
+    }
     return try {
-        val meses = listOf("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
         val partes = fechaHora.split("T", " ")
         val fechaPartes = partes[0].split("-")
         val mesIdx = (fechaPartes.getOrNull(1)?.toIntOrNull() ?: 10) - 1
@@ -135,29 +172,8 @@ private fun extraerFechaVisual(fechaHora: String?): Triple<String, String, Strin
     }
 }
 
-private fun parsearInstanteEventoMx(raw: String?): Instant? {
-    if (raw.isNullOrBlank()) return null
-    val limpio = raw.trim()
-    val zoneMx = ZoneId.of("America/Mexico_City")
-    return try {
-        OffsetDateTime.parse(limpio).toInstant()
-    } catch (_: Exception) {
-        try {
-            Instant.parse(limpio)
-        } catch (_: Exception) {
-            try {
-                val norm = limpio.replace(" ", "T").take(19)
-                val padded = if (norm.length == 16) "$norm:00" else norm
-                LocalDateTime.parse(padded).atZone(zoneMx).toInstant()
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
-}
-
 private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscritos: List<String>) {
-    val estaInscrito = inscritos.contains(ev.id) || inscritos.contains(ev.titulo)
+    val estaInscrito = (ev.inscrito == true) || inscritos.contains(ev.id) || inscritos.contains(ev.titulo)
     if (!estaInscrito) return
 
     val ahora = Instant.now()
@@ -166,10 +182,11 @@ private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscri
         ?: return
 
     val segundosRestantes = Duration.between(ahora, finInstant).seconds
-    // Si quedan entre 1 segundo y 30 minutos (1800 segundos) para que termine el evento
+    // Si quedan entre 1 segundo y 30 minutos (1800 segundos) para finalizar el evento
     if (segundosRestantes in 1..1800) {
         val prefs = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
-        val clave = "notificado_aviso_30m_fin_${ev.id}"
+        val firmaFin = ev.fechaFin ?: ev.fechaHora
+        val clave = "notificado_aviso_30m_fin_${ev.id}_$firmaFin"
         if (!prefs.getBoolean(clave, false)) {
             prefs.edit().putBoolean(clave, true).apply()
             val minRestantes = ((segundosRestantes + 59) / 60).coerceAtLeast(1)
@@ -180,6 +197,26 @@ private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscri
                 notifId = ("fin30_${ev.id}").hashCode()
             )
         }
+    }
+}
+
+private fun dispararNotificacionEventoFinalizado(
+    context: Context,
+    eventoId: String,
+    titulo: String,
+    lugar: String,
+    firmaFin: String
+) {
+    val prefs = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
+    val clave = "notificado_evento_finalizado_${eventoId}_$firmaFin"
+    if (!prefs.getBoolean(clave, false)) {
+        prefs.edit().putBoolean(clave, true).apply()
+        MyFirebaseMessagingService.mostrarNotificacion(
+            context = context,
+            titulo = "✅ Evento finalizado: $titulo",
+            cuerpo = "El evento en $lugar ha concluido. ¡Gracias por tu participación en Campus Connect UNACH!",
+            notifId = ("finalizado_$eventoId").hashCode()
+        )
     }
 }
 
@@ -208,12 +245,13 @@ fun EventosScreen(
         val guardados = prefsNotif.getStringSet("eventos_inscritos_set", emptySet()) ?: emptySet()
         mutableStateListOf<String>().apply { addAll(guardados) }
     }
+    // Memoria de eventos activos vistos en la sesión para detectar en qué momento exacto finalizan
+    val cacheEventosVistos = remember { mutableStateMapOf<String, Evento>() }
 
     fun guardarInscritosEnPrefs() {
         prefsNotif.edit().putStringSet("eventos_inscritos_set", eventosInscritos.toSet()).apply()
     }
 
-    // Pedir permiso de notificaciones en Android 13+ y registrar token FCM automáticamente
     val notifPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
@@ -242,16 +280,60 @@ fun EventosScreen(
     var yaSincronizoConServidor by remember { mutableStateOf(false) }
     var sincronizandoServidor by remember { mutableStateOf(false) }
     var errorServidor by remember { mutableStateOf<String?>(null) }
+    var pulsoReloj by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    fun evaluarNotificacionesDeEventos(listaVigentes: List<Evento>, esPrimeraCarga: Boolean) {
+    fun evaluarNotificacionesDeEventos(remotos: List<Evento>) {
         val ahora = Instant.now()
-        val idsConocidos = prefsNotif.getStringSet("ids_eventos_conocidos", null)
 
-        // Si es la primera vez que se instala la app, inicializar el conjunto base
-        // pero sí notificar cualquier evento cuya hora disponibleDesde haya ocurrido hace menos de 5 minutos
+        // 1. Sincronizar estado de inscripción que viene desde PostgreSQL (ev.inscrito == true)
+        var cambioInscritos = false
+        for (ev in remotos) {
+            if (ev.inscrito == true) {
+                if (!eventosInscritos.contains(ev.titulo)) {
+                    eventosInscritos.add(ev.titulo)
+                    cambioInscritos = true
+                }
+                if (!eventosInscritos.contains(ev.id)) {
+                    eventosInscritos.add(ev.id)
+                    cambioInscritos = true
+                }
+            }
+        }
+        if (cambioInscritos) {
+            guardarInscritosEnPrefs()
+        }
+
+        val vigentes = remotos.filter { it.estaVigenteEnTiempoReal() }
+        val idsVigentesActuales = vigentes.map { it.id }.toSet()
+
+        // 2. Revisar si algún evento que estaba activo en cacheEventosVistos acaba de finalizar
+        for ((idPrevio, evPrevio) in cacheEventosVistos.entries.toList()) {
+            val finInstant = parsearInstanteEventoMx(evPrevio.fechaFin)
+                ?: parsearInstanteEventoMx(evPrevio.fechaHora)?.plus(Duration.ofHours(4))
+            val yaAlcanzoHoraFin = finInstant != null && !ahora.isBefore(finInstant)
+            val salioDelFeedPorFin = !idsVigentesActuales.contains(idPrevio) && yaAlcanzoHoraFin
+
+            if (yaAlcanzoHoraFin || salioDelFeedPorFin) {
+                dispararNotificacionEventoFinalizado(
+                    context = context,
+                    eventoId = evPrevio.id,
+                    titulo = evPrevio.titulo,
+                    lugar = evPrevio.lugar,
+                    firmaFin = evPrevio.fechaFin ?: evPrevio.fechaHora
+                )
+                cacheEventosVistos.remove(idPrevio)
+            }
+        }
+
+        // Registrar los vigentes actuales en cacheEventosVistos
+        for (ev in vigentes) {
+            cacheEventosVistos[ev.id] = ev
+        }
+
+        val idsConocidos = prefsNotif.getStringSet("ids_eventos_conocidos", null)
         if (idsConocidos == null) {
             val iniciales = mutableSetOf<String>()
-            for (ev in listaVigentes) {
+            for (ev in vigentes) {
                 val disp = parsearInstanteEventoMx(ev.disponibleDesde)
                 val aparecioRecien = disp != null && Duration.between(disp, ahora).seconds in 0..300
                 if (aparecioRecien) {
@@ -274,7 +356,7 @@ fun EventosScreen(
         }
 
         val nuevosConocidos = idsConocidos.toMutableSet()
-        for (ev in listaVigentes) {
+        for (ev in vigentes) {
             val claveAparicion = "notificado_evento_disponible_${ev.id}"
             val esNuevoEnFeed = !nuevosConocidos.contains(ev.id)
             val disp = parsearInstanteEventoMx(ev.disponibleDesde)
@@ -291,7 +373,7 @@ fun EventosScreen(
             }
             nuevosConocidos.add(ev.id)
 
-            // Verificar si faltan 30 minutos o menos para finalizar (solo si está inscrito)
+            // 3. Verificar si faltan 30 minutos o menos para finalizar (para inscritos)
             verificarYDispararAviso30MinFin(context, ev, eventosInscritos)
         }
         prefsNotif.edit().putStringSet("ids_eventos_conocidos", nuevosConocidos).apply()
@@ -304,13 +386,13 @@ fun EventosScreen(
                 val remotos = withContext(Dispatchers.IO) {
                     RetrofitClient.obtenerApi(context).obtenerEventos()
                 }
-                val vigentes = remotos.filter { it.estaVigenteEnTiempoReal() }
-                evaluarNotificacionesDeEventos(vigentes, esPrimeraCarga = !yaSincronizoConServidor)
+                evaluarNotificacionesDeEventos(remotos)
                 eventosServidor = remotos
                 yaSincronizoConServidor = true
                 errorServidor = null
                 if (mostrarMensaje) {
-                    snackbarHostState.showSnackbar("Cartelera actualizada (${vigentes.size} eventos)")
+                    val vigentesCount = remotos.count { it.estaVigenteEnTiempoReal() }
+                    snackbarHostState.showSnackbar("Cartelera actualizada ($vigentesCount eventos)")
                 }
             } catch (e: Exception) {
                 errorServidor = e.localizedMessage
@@ -330,20 +412,21 @@ fun EventosScreen(
                 val remotos = withContext(Dispatchers.IO) {
                     RetrofitClient.obtenerApi(context).obtenerEventos()
                 }
-                val vigentes = remotos.filter { it.estaVigenteEnTiempoReal() }
-                evaluarNotificacionesDeEventos(vigentes, esPrimeraCarga = !yaSincronizoConServidor)
+                evaluarNotificacionesDeEventos(remotos)
                 eventosServidor = remotos
                 yaSincronizoConServidor = true
                 errorServidor = null
             } catch (_: Exception) {
             }
+            pulsoReloj = System.currentTimeMillis()
             delay(15_000L)
         }
     }
 
-    // Mostrar siempre los eventos reales del servidor una vez sincronizado
-    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor) {
-        if (yaSincronizoConServidor) eventosServidor else eventos
+    // Mostrar los eventos vigentes en tiempo real
+    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor, pulsoReloj) {
+        val base = if (yaSincronizoConServidor) eventosServidor else eventos
+        base.filter { it.estaVigenteEnTiempoReal() }
     }
 
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
@@ -362,7 +445,7 @@ fun EventosScreen(
                     catInfo.nombre.equals(filtroSeleccionado, ignoreCase = true)
 
             val coincideTab = if (tabVistaEventos == 1) {
-                eventosInscritos.contains(ev.titulo)
+                (ev.inscrito == true) || eventosInscritos.contains(ev.id) || eventosInscritos.contains(ev.titulo)
             } else {
                 true
             }
@@ -398,7 +481,7 @@ fun EventosScreen(
             val diaStr = String.format(Locale.getDefault(), "%02d", dia)
             val fechaStr = "$anioInt-$mesStr-$diaStr"
 
-            val diaTieneEvento = listaEventosActiva.any { (it.fechaHora ?: "").startsWith(fechaStr) }
+            val diaTieneEvento = listaEventosActiva.any { fechaIsoLocalMx(it.fechaHora) == fechaStr }
             dias.add(DiaMesContext(dia, mesInt, anioInt, diaTieneEvento, esSeleccionado))
         }
         dias
@@ -923,7 +1006,7 @@ fun EventosScreen(
                     items = eventosFiltrados,
                     key = { index, ev -> "${ev.titulo}_$index" }
                 ) { index, evento ->
-                    val yaInscrito = eventosInscritos.contains(evento.titulo)
+                    val yaInscrito = (evento.inscrito == true) || eventosInscritos.contains(evento.id) || eventosInscritos.contains(evento.titulo)
                     TarjetaEventoAnimada(
                         evento = evento,
                         index = index,
@@ -935,7 +1018,7 @@ fun EventosScreen(
         }
 
         eventoSeleccionado?.let { evento ->
-            val yaInscrito = eventosInscritos.contains(evento.titulo)
+            val yaInscrito = (evento.inscrito == true) || eventosInscritos.contains(evento.id) || eventosInscritos.contains(evento.titulo)
             DetalleEventoSheet(
                 evento = evento,
                 estaInscrito = yaInscrito,

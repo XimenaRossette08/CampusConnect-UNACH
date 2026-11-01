@@ -17,8 +17,6 @@ data class ArchivoEvento(
     val esImagen: Boolean = false
 )
 
-// NOTA PARA GSON: disponibleAhora y finalizado son Boolean? = null para evitar que UnsafeAllocator
-// los inicialice como false cuando no vengan en el JSON.
 data class Evento(
     val id: String,
     val titulo: String,
@@ -28,6 +26,7 @@ data class Evento(
     @SerializedName(value = "fechaFin", alternate = ["fecha_fin"]) val fechaFin: String? = null,
     @SerializedName(value = "disponibleAhora", alternate = ["disponible_ahora"]) val disponibleAhora: Boolean? = null,
     @SerializedName(value = "finalizado") val finalizado: Boolean? = null,
+    @SerializedName(value = "inscrito") val inscrito: Boolean? = null,
     val lugar: String,
     @SerializedName(value = "imagenUrl", alternate = ["imagen_url"]) val imagenUrl: String? = null,
     val categoria: String? = null,
@@ -37,10 +36,6 @@ data class Evento(
     /** Archivos que deben ver los alumnos (las evidencias son solo para el panel de administración). */
     val materiales: List<ArchivoEvento> get() = archivos.orEmpty().filter { it.tipo == "material" }
 
-    /**
-     * Evalúa individualmente para ESTE evento si ya llegó su `disponibleDesde`
-     * y si aún no ha pasado su `fechaFin` (usando zona horaria de Chiapas America/Mexico_City).
-     */
     fun estaVigenteEnTiempoReal(): Boolean {
         if (finalizado == true) return false
         if (disponibleAhora == false) return false

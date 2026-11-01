@@ -166,10 +166,8 @@ fun EventosScreen(
     var calendarioExpandido by remember { mutableStateOf(true) }
     var tabVistaEventos by remember { mutableIntStateOf(0) }
 
-    // ✅ IMPLEMENTACIÓN DE GUARDADO LOCAL PARA LA PRUEBA PILOTO
     val prefsLocal = context.getSharedPreferences("EventosPiloto", Context.MODE_PRIVATE)
 
-    // Cargamos los IDs de los eventos al iniciar
     var eventosInscritos by remember {
         mutableStateOf(prefsLocal.getStringSet("inscritos", emptySet()) ?: emptySet())
     }
@@ -214,6 +212,19 @@ fun EventosScreen(
         base.filter { it.estaVigenteEnTiempoReal() }
     }
 
+    // ✅ NUEVO BLOQUE: Limpieza automática de eventos finalizados en el SharedPreferences
+    LaunchedEffect(listaEventosActiva, yaSincronizoConServidor) {
+        if (yaSincronizoConServidor) {
+            val titulosActivos = listaEventosActiva.map { it.titulo }.toSet()
+            val inscritosValidos = eventosInscritos.filter { titulosActivos.contains(it) }.toSet()
+
+            if (inscritosValidos.size != eventosInscritos.size) {
+                eventosInscritos = inscritosValidos
+                prefsLocal.edit().putStringSet("inscritos", inscritosValidos).apply()
+            }
+        }
+    }
+
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
     var fechaSeleccionada by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
 
@@ -226,8 +237,6 @@ fun EventosScreen(
                     ev.descripcion.contains(searchQuery, ignoreCase = true) ||
                     (ev.categoria ?: "").contains(searchQuery, ignoreCase = true)
             val coincideCategoria = filtroSeleccionado == "Todos" || catInfo.nombre.equals(filtroSeleccionado, ignoreCase = true)
-
-            // ✅ Filtramos la pestaña de Mis Inscritos basándonos en el guardado local (usamos el título como ID único temporal)
             val coincideTab = if (tabVistaEventos == 1) eventosInscritos.contains(ev.titulo) else true
 
             coincideBusqueda && coincideCategoria && coincideTab
@@ -425,32 +434,24 @@ fun EventosScreen(
                             try {
                                 val resp = withContext(Dispatchers.IO) { RetrofitClient.obtenerApi(context).registrarAsistenciaEvento(evento.id) }
                                 if (resp.isSuccessful || resp.code() == 409) {
-
-                                    // ✅ GUARDAMOS EN EL DISPOSITIVO LOCALMENTE (Para la prueba piloto)
                                     val nuevosInscritos = eventosInscritos.toMutableSet().apply { add(evento.titulo) }
                                     eventosInscritos = nuevosInscritos
                                     prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-
                                     snackbarHostState.showSnackbar("¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})")
                                 } else {
                                     snackbarHostState.showSnackbar("No fue posible registrar tu inscripción en el servidor (${resp.code()})")
                                 }
                             } catch (e: Exception) {
-                                // ✅ SI FALLA EL SERVIDOR, LO GUARDA LOCALMENTE DE TODOS MODOS
                                 val nuevosInscritos = eventosInscritos.toMutableSet().apply { add(evento.titulo) }
                                 eventosInscritos = nuevosInscritos
                                 prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-
                                 snackbarHostState.showSnackbar("Inscrito localmente a: ${evento.titulo}")
                             }
                         } else {
                             try { withContext(Dispatchers.IO) { RetrofitClient.obtenerApi(context).cancelarAsistenciaEvento(evento.id) } } catch (_: Exception) {}
-
-                            // ✅ ELIMINAMOS DEL DISPOSITIVO LOCALMENTE
                             val nuevosInscritos = eventosInscritos.toMutableSet().apply { remove(evento.titulo) }
                             eventosInscritos = nuevosInscritos
                             prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-
                             snackbarHostState.showSnackbar("Inscripción cancelada para: ${evento.titulo}")
                         }
                     }
@@ -509,9 +510,9 @@ private fun TarjetaEventoAnimada(evento: Evento, index: Int, estaInscrito: Boole
 
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = if (estaInscrito) Color(0xFFF8FAFC) else Color.White), // Ligeramente gris si está inscrito
+        colors = CardDefaults.cardColors(containerColor = if (estaInscrito) Color(0xFFF8FAFC) else Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        border = if (estaInscrito) BorderStroke(1.5.dp, EtdaSuccess.copy(alpha = 0.6f)) else null, // ✅ MARCO VERDE SI ESTÁ INSCRITO
+        border = if (estaInscrito) BorderStroke(1.5.dp, EtdaSuccess.copy(alpha = 0.6f)) else null,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp).graphicsLayer { alpha = alphaAnim; translationY = slideAnim }.clickable { onClick() }
     ) {
         Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
@@ -562,7 +563,12 @@ private fun DetalleEventoSheet(evento: Evento, estaInscrito: Boolean, onDismiss:
     var isInscrito by remember(estaInscrito) { mutableStateOf(estaInscrito) }
     val catInfo = detectarCategoriaEvento(evento)
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
-    val progresoCupo by animateFloatAsState(targetValue = if (isInscrito) 0.85f else 0.80f, animationSpec = tween(600), label = "progresoCupo")
+
+    val capacidad = evento.capacidadTotal ?: 100
+    val ocupados = evento.asientosOcupados ?: 0
+    val disponibles = (capacidad - ocupados).coerceAtLeast(0)
+    val progresoReal = if (capacidad > 0) ocupados.toFloat() / capacidad.toFloat() else 0f
+    val estaLleno = disponibles == 0
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color.White, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp).padding(bottom = 32.dp)) {
@@ -602,10 +608,26 @@ private fun DetalleEventoSheet(evento: Evento, estaInscrito: Boolean, onDismiss:
                     }
                 }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Ocupación del evento", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy); Text(if (isInscrito) "86 lugares disponibles" else "87 lugares disponibles", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EtdaBlue, maxLines = 1, softWrap = false) }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Ocupación del evento", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy)
+                Text(
+                    text = if (estaLleno) "Cupo lleno" else "$disponibles lugares disponibles",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (estaLleno) Color.Red else EtdaBlue,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
             Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(progress = { progresoCupo }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)), color = EtdaBlue, trackColor = Color(0xFFE2E8F0))
+            LinearProgressIndicator(
+                progress = { progresoReal },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                color = if (estaLleno) Color.Red else EtdaBlue,
+                trackColor = Color(0xFFE2E8F0)
+            )
             Spacer(modifier = Modifier.height(18.dp))
 
             AnimatedContent(targetState = isInscrito, label = "estadoInscripcion") { inscrito ->
@@ -637,11 +659,32 @@ private fun DetalleEventoSheet(evento: Evento, estaInscrito: Boolean, onDismiss:
             Spacer(modifier = Modifier.height(24.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.5.dp, EtdaNavy), colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaNavy), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Al calendario", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false) }
+
                 Button(
-                    onClick = { if (!isInscrito) { isInscrito = true; onToggleInscripcion(true) } },
-                    modifier = Modifier.weight(1.3f).height(48.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isInscrito) EtdaSuccess else EtdaOrange), elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp), contentPadding = PaddingValues(horizontal = 4.dp)
+                    onClick = { if (!isInscrito && !estaLleno) { isInscrito = true; onToggleInscripcion(true) } },
+                    enabled = !estaLleno || isInscrito,
+                    modifier = Modifier.weight(1.3f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isInscrito) EtdaSuccess else EtdaOrange,
+                        disabledContainerColor = Color.Gray.copy(alpha = 0.5f)
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp)
                 ) {
-                    Icon(if (isInscrito) Icons.Default.DoneAll else Icons.Default.HowToReg, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(modifier = Modifier.width(6.dp)); Text(if (isInscrito) "Inscrito" else "Inscribirme", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, maxLines = 1, softWrap = false)
+                    Icon(if (isInscrito) Icons.Default.DoneAll else Icons.Default.HowToReg, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = when {
+                            isInscrito -> "Inscrito"
+                            estaLleno -> "AGOTADO"
+                            else -> "Inscribirme"
+                        },
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }

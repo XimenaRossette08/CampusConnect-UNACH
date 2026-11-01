@@ -32,7 +32,11 @@ data class Evento(
     @SerializedName(value = "imagenUrl", alternate = ["imagen_url"]) val imagenUrl: String? = null,
     val categoria: String? = null,
     @SerializedName(value = "urlMaps", alternate = ["url_maps"]) val urlMaps: String? = null,
-    val archivos: List<ArchivoEvento>? = null
+    val archivos: List<ArchivoEvento>? = null,
+
+    // ✅ VARIABLES AGREGADAS PARA LA BARRA DINÁMICA DE CUPOS
+    @SerializedName(value = "capacidadTotal", alternate = ["capacidad_total"]) val capacidadTotal: Int? = null,
+    @SerializedName(value = "asientosOcupados", alternate = ["asientos_ocupados"]) val asientosOcupados: Int? = null
 ) {
     /** Archivos que deben ver los alumnos (las evidencias son solo para el panel de administración). */
     val materiales: List<ArchivoEvento> get() = archivos.orEmpty().filter { it.tipo == "material" }

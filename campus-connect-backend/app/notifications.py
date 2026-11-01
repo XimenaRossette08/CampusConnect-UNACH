@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -6,13 +7,14 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
+from .fechas import DURACION_EVENTO_HORAS, ahora_utc, asegurar_utc, evento_disponible, evento_finalizado
 from .models import Evento, EventoAsistencia
 from .models_auth import Usuario
 from .segmentacion import evento_visible_para
 
 logger = logging.getLogger("uvicorn.error")
 
-# Intentar cargar firebase_admin (si está instalado)
+# Intentar cargar firebase_admin
 try:
     import firebase_admin
     from firebase_admin import credentials, messaging
@@ -23,7 +25,7 @@ except ImportError:
     messaging = None
     FIREBASE_SDK_DISPONIBLE = False
 
-# Intentar cargar APScheduler para el trabajador en segundo plano (recordatorios 24h antes)
+# Intentar cargar APScheduler
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     APSCHEDULER_DISPONIBLE = True
@@ -37,24 +39,43 @@ _scheduler = None
 
 def inicializar_firebase() -> bool:
     """
-    1. Integrar Firebase Admin SDK:
-    Busca el archivo JSON de credenciales de Firebase en la variable de entorno
-    FIREBASE_CREDENTIALS_PATH (o por defecto 'serviceAccountKey.json' / 'firebase-credentials.json').
+    Inicializa Firebase Admin SDK soportando:
+    1. Variable de entorno FIREBASE_CREDENTIALS_JSON (ideal para Render: pega el contenido JSON directo).
+    2. Archivo en ruta FIREBASE_CREDENTIALS_PATH o 'serviceAccountKey.json' / '/etc/secrets/serviceAccountKey.json'.
     """
     global _firebase_inicializado
     if _firebase_inicializado:
         return True
 
     if not FIREBASE_SDK_DISPONIBLE:
-        logger.warning("[FCM] La librería 'firebase-admin' no está instalada. Ejecuta: pip install firebase-admin")
+        logger.warning("[FCM] La librería 'firebase-admin' no está instalada.")
         return False
 
     if firebase_admin._apps:
         _firebase_inicializado = True
         return True
 
+    # Opción 1: Leer JSON directo desde variable de entorno FIREBASE_CREDENTIALS_JSON en Render
+    raw_json = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
+    if raw_json:
+        try:
+            info_dict = json.loads(raw_json)
+            # Corregir saltos de línea escapados en private_key si Render los escapó
+            if "private_key" in info_dict and isinstance(info_dict["private_key"], str):
+                info_dict["private_key"] = info_dict["private_key"].replace("\\n", "\n")
+            cred = credentials.Certificate(info_dict)
+            firebase_admin.initialize_app(cred)
+            _firebase_inicializado = True
+            logger.info("[FCM] Firebase Admin SDK inicializado desde FIREBASE_CREDENTIALS_JSON.")
+            return True
+        except Exception as exc:
+            logger.error(f"[FCM] Error al leer FIREBASE_CREDENTIALS_JSON: {exc}")
+
+    # Opción 2: Buscar archivo en disco o Secret Files de Render (/etc/secrets/...)
     rutas_posibles = [
         os.getenv("FIREBASE_CREDENTIALS_PATH", "").strip(),
+        "/etc/secrets/serviceAccountKey.json",
+        "/etc/secrets/firebase-credentials.json",
         "serviceAccountKey.json",
         "firebase-credentials.json",
         os.path.join(os.path.dirname(__file__), "serviceAccountKey.json"),
@@ -64,8 +85,8 @@ def inicializar_firebase() -> bool:
 
     if not ruta_cred:
         logger.warning(
-            "[FCM] No se encontró 'serviceAccountKey.json'. Coloca el archivo JSON de Firebase en la raíz "
-            "del backend o define FIREBASE_CREDENTIALS_PATH en tu archivo .env."
+            "[FCM] No se encontró FIREBASE_CREDENTIALS_JSON ni 'serviceAccountKey.json'. "
+            "Configura FIREBASE_CREDENTIALS_JSON en Render Environment Variables."
         )
         return False
 
@@ -73,7 +94,7 @@ def inicializar_firebase() -> bool:
         cred = credentials.Certificate(ruta_cred)
         firebase_admin.initialize_app(cred)
         _firebase_inicializado = True
-        logger.info(f"[FCM] Firebase Admin SDK inicializado correctamente con: {ruta_cred}")
+        logger.info(f"[FCM] Firebase Admin SDK inicializado correctamente con archivo: {ruta_cred}")
         return True
     except Exception as exc:
         logger.error(f"[FCM] Error al inicializar Firebase Admin SDK: {exc}")
@@ -82,7 +103,7 @@ def inicializar_firebase() -> bool:
 
 def enviar_push_multicast(tokens: List[str], titulo: str, cuerpo: str, data_extra: Optional[dict] = None) -> dict:
     """
-    Envía una notificación push de Firebase a una lista de tokens FCM de dispositivos Android.
+    Envía una notificación push de Firebase con prioridad alta y canal Android 'campus_connect_channel'.
     """
     tokens_limpios = list({t.strip() for t in tokens if t and t.strip()})
     if not tokens_limpios:
@@ -94,23 +115,33 @@ def enviar_push_multicast(tokens: List[str], titulo: str, cuerpo: str, data_extr
     print(f"  • Mensaje: {cuerpo}\n")
 
     if not inicializar_firebase():
-        # Modo simulación segura en consola si aún no se ha colocado serviceAccountKey.json
         return {
-            "enviados": len(tokens_limpios),
+            "enviados": 0,
             "total_tokens": len(tokens_limpios),
-            "modo": "simulacion_consola",
+            "modo": "simulacion_consola_sin_credenciales",
             "titulo": titulo,
             "cuerpo": cuerpo,
         }
 
     enviados_ok = 0
     payload_data = {k: str(v) for k, v in (data_extra or {}).items()}
+    payload_data.setdefault("title", titulo)
+    payload_data.setdefault("body", cuerpo)
 
-    # Enviar usando send_each_for_multicast (API moderna de firebase-admin >= 6.x)
     try:
+        android_cfg = messaging.AndroidConfig(
+            priority="high",
+            notification=messaging.AndroidNotification(
+                channel_id="campus_connect_channel",
+                priority="high",
+                default_sound=True,
+                default_vibrate_timings=True,
+            ),
+        )
         mensaje = messaging.MulticastMessage(
             notification=messaging.Notification(title=titulo, body=cuerpo),
             data=payload_data,
+            android=android_cfg,
             tokens=tokens_limpios,
         )
         if hasattr(messaging, "send_each_for_multicast"):
@@ -127,10 +158,8 @@ def enviar_push_multicast(tokens: List[str], titulo: str, cuerpo: str, data_extr
 
 def enviar_notificacion_nuevo_evento(db: Session, evento: Evento) -> dict:
     """
-    2. Notificación de "Nuevo Evento":
-    En el mismo momento en que el administrador hace clic en "Publicar Evento" y los datos
-    se guardan en PostgreSQL, envía un mensaje masivo de Firebase a todos los tokens de los
-    alumnos registrados indicando: "¡Nuevo evento disponible: [Título del Evento]!".
+    Envía el push de aparición de evento a todos los usuarios activos con token FCM
+    (respetando segmentación si aplica) y marca `evento.notificacion_aparicion_enviada = True`.
     """
     usuarios_con_token = (
         db.query(Usuario)
@@ -138,98 +167,147 @@ def enviar_notificacion_nuevo_evento(db: Session, evento: Evento) -> dict:
         .all()
     )
 
-    # Filtrar alumnos a los que va dirigido el evento (o todos si el evento es general)
     tokens_destino = [
         u.fcm_token
         for u in usuarios_con_token
         if u.fcm_token and (evento.es_general or evento_visible_para(evento, u))
     ]
 
-    # Si ningún usuario coincide por segmentación pero hay tokens registrados, enviar a todos los registrados
     if not tokens_destino and usuarios_con_token:
         tokens_destino = [u.fcm_token for u in usuarios_con_token if u.fcm_token]
 
     titulo_push = f"¡Nuevo evento disponible: {evento.titulo}!"
-    cuerpo_push = f"Lugar: {evento.lugar} · Consulta los detalles e inscríbete en Campus Connect UNACH."
+    cuerpo_push = f"Sede: {evento.lugar} · Ya puedes consultar los detalles e inscribirte en Campus Connect UNACH."
 
-    return enviar_push_multicast(
+    res = enviar_push_multicast(
         tokens=tokens_destino,
         titulo=titulo_push,
         cuerpo=cuerpo_push,
         data_extra={
-            "tipo": "nuevo_evento",
+            "tipo": "evento_disponible",
             "evento_id": str(evento.id),
             "titulo": evento.titulo,
         },
     )
 
+    evento.notificacion_aparicion_enviada = True
+    db.commit()
+    return res
+
+
+def _enviar_aviso_30m_antes_de_finalizar(db: Session, ev: Evento) -> int:
+    """
+    Envía notificación ÚNICAMENTE a los alumnos inscritos en `evento_asistencias`
+    cuando faltan 30 minutos o menos para que el evento finalice (`fecha_fin`).
+    """
+    inscritos = (
+        db.query(Usuario)
+        .join(EventoAsistencia, EventoAsistencia.usuario_id == Usuario.id)
+        .filter(
+            EventoAsistencia.evento_id == ev.id,
+            Usuario.activo == True,  # noqa: E712
+            Usuario.fcm_token.isnot(None),
+        )
+        .all()
+    )
+    tokens_inscritos = [u.fcm_token for u in inscritos if u.fcm_token]
+
+    titulo_push = f"⏳ Últimos 30 minutos: {ev.titulo}"
+    cuerpo_push = f"El evento en {ev.lugar} está por finalizar en 30 minutos. ¡No olvides confirmar tu asistencia!"
+
+    res = enviar_push_multicast(
+        tokens=tokens_inscritos,
+        titulo=titulo_push,
+        cuerpo=cuerpo_push,
+        data_extra={
+            "tipo": "aviso_30m_fin",
+            "evento_id": str(ev.id),
+            "titulo": ev.titulo,
+        },
+    )
+    ev.notificacion_fin_30m_enviada = True
+    db.commit()
+    return res.get("total_tokens", 0)
+
 
 def verificar_y_enviar_recordatorios_24h() -> dict:
     """
-    3. Notificación de "Recordatorio" (Job Scheduler con APScheduler):
-    Se ejecuta automáticamente cada hora, busca en la base de datos:
-    "¿Qué eventos empiezan en las próximas 24 horas y aún no tienen recordatorio enviado?".
-    Si encuentra uno, busca qué alumnos están inscritos a ese evento (tabla evento_asistencias)
-    y les dispara la notificación a sus respectivos tokens FCM:
-    "Recordatorio: Mañana es el evento [Título]".
+    Trabajador que se ejecuta cada 1 minuto en segundo plano y verifica 3 condiciones:
+    1. Eventos programados cuya hora de aparición (`disponible_desde`) acaba de cumplirse
+       y aún no han enviado su notificación de aparición (`notificacion_aparicion_enviada == False`).
+    2. Eventos activos a los que les faltan 30 minutos o menos para alcanzar su hora de término (`fecha_fin`)
+       -> envía notificación SOLO a los alumnos inscritos (`notificacion_fin_30m_enviada == False`).
+    3. Recordatorio 24h antes de iniciar para los alumnos inscritos (`recordatorio_enviado == False`).
     """
     db = SessionLocal()
-    eventos_notificados = 0
-    alumnos_notificados = 0
+    apariciones_enviadas = 0
+    cierres_30m_enviados = 0
+    recordatorios_24h_enviados = 0
+
     try:
-        ahora = datetime.now(timezone.utc)
-        limite_24h = ahora + timedelta(hours=24)
+        ahora = ahora_utc()
+        todos_eventos = db.query(Evento).all()
 
-        eventos_proximos = (
-            db.query(Evento)
-            .filter(
-                Evento.fecha_hora > ahora,
-                Evento.fecha_hora <= limite_24h,
-                Evento.recordatorio_enviado == False,  # noqa: E712
+        for ev in todos_eventos:
+            fin_real = asegurar_utc(ev.fecha_fin) if ev.fecha_fin is not None else (
+                asegurar_utc(ev.fecha_hora) + timedelta(hours=DURACION_EVENTO_HORAS)
             )
-            .all()
-        )
+            ha_finalizado = evento_finalizado(ev.fecha_hora, ahora=ahora, fecha_fin=ev.fecha_fin)
+            esta_disponible = evento_disponible(ev.disponible_desde, ahora=ahora)
 
-        for ev in eventos_proximos:
-            # Buscar todos los alumnos inscritos a este evento en evento_asistencias
-            inscritos = (
-                db.query(Usuario)
-                .join(EventoAsistencia, EventoAsistencia.usuario_id == Usuario.id)
-                .filter(
-                    EventoAsistencia.evento_id == ev.id,
-                    Usuario.activo == True,  # noqa: E712
-                    Usuario.fcm_token.isnot(None),
+            # 1. ¿Acaba de aparecer en la app (`disponible_desde` cumplido) y no se ha notificado?
+            if esta_disponible and not ha_finalizado and not getattr(ev, "notificacion_aparicion_enviada", False):
+                enviar_notificacion_nuevo_evento(db, ev)
+                apariciones_enviadas += 1
+
+            # 2. ¿Faltan 30 minutos o menos para finalizar (`fin_real`) y no se ha enviado el aviso de 30 min?
+            if not ha_finalizado and fin_real is not None and not getattr(ev, "notificacion_fin_30m_enviada", False):
+                tiempo_restante = fin_real - ahora
+                if timedelta(seconds=0) < tiempo_restante <= timedelta(minutes=30):
+                    _enviar_aviso_30m_antes_de_finalizar(db, ev)
+                    cierres_30m_enviados += 1
+
+            # 3. Recordatorio 24h antes del inicio (solo a inscritos)
+            inicio_utc = asegurar_utc(ev.fecha_hora)
+            if (
+                not ha_finalizado
+                and inicio_utc is not None
+                and ahora < inicio_utc <= (ahora + timedelta(hours=24))
+                and not ev.recordatorio_enviado
+            ):
+                inscritos = (
+                    db.query(Usuario)
+                    .join(EventoAsistencia, EventoAsistencia.usuario_id == Usuario.id)
+                    .filter(
+                        EventoAsistencia.evento_id == ev.id,
+                        Usuario.activo == True,  # noqa: E712
+                        Usuario.fcm_token.isnot(None),
+                    )
+                    .all()
                 )
-                .all()
-            )
-            tokens_inscritos = [u.fcm_token for u in inscritos if u.fcm_token]
-
-            titulo_push = f"Recordatorio: Mañana es el evento {ev.titulo}"
-            cuerpo_push = f"Te esperamos en {ev.lugar}. ¡Prepara tu código QR de acceso en Campus Connect!"
-
-            res = enviar_push_multicast(
-                tokens=tokens_inscritos,
-                titulo=titulo_push,
-                cuerpo=cuerpo_push,
-                data_extra={
-                    "tipo": "recordatorio_24h",
-                    "evento_id": str(ev.id),
-                    "titulo": ev.titulo,
-                },
-            )
-
-            # Marcar como enviado para no repetir el recordatorio cada hora
-            ev.recordatorio_enviado = True
-            db.commit()
-            eventos_notificados += 1
-            alumnos_notificados += res.get("total_tokens", 0)
+                tokens_inscritos = [u.fcm_token for u in inscritos if u.fcm_token]
+                if tokens_inscritos:
+                    enviar_push_multicast(
+                        tokens=tokens_inscritos,
+                        titulo=f"Recordatorio: Próximo evento {ev.titulo}",
+                        cuerpo=f"Te esperamos en {ev.lugar}. ¡Prepara tu código QR en Campus Connect!",
+                        data_extra={
+                            "tipo": "recordatorio_24h",
+                            "evento_id": str(ev.id),
+                            "titulo": ev.titulo,
+                        },
+                    )
+                ev.recordatorio_enviado = True
+                db.commit()
+                recordatorios_24h_enviados += 1
 
         return {
-            "eventos_procesados": eventos_notificados,
-            "alumnos_notificados": alumnos_notificados,
+            "apariciones_notificadas": apariciones_enviadas,
+            "avisos_30m_fin_notificados": cierres_30m_enviados,
+            "recordatorios_24h_notificados": recordatorios_24h_enviados,
         }
     except Exception as exc:
-        logger.error(f"[Scheduler FCM] Error al procesar recordatorios de 24h: {exc}")
+        logger.error(f"[Scheduler FCM] Error al procesar notificaciones programadas: {exc}")
         return {"error": str(exc)}
     finally:
         db.close()
@@ -237,30 +315,27 @@ def verificar_y_enviar_recordatorios_24h() -> dict:
 
 def iniciar_scheduler_recordatorios() -> None:
     """
-    Inicia el trabajador en segundo plano (APScheduler) al arrancar FastAPI.
-    Se ejecuta cada 60 minutos de forma automática.
+    Inicia APScheduler revisando cada 1 MINUTO para que las notificaciones de aparición
+    y de 30 minutos antes de finalizar salgan puntualmente.
     """
     global _scheduler
     if _scheduler is not None:
         return
 
     if not APSCHEDULER_DISPONIBLE:
-        logger.warning(
-            "[Scheduler FCM] La librería 'apscheduler' no está instalada. "
-            "Ejecuta: pip install apscheduler"
-        )
+        logger.warning("[Scheduler FCM] La librería 'apscheduler' no está instalada.")
         return
 
     _scheduler = BackgroundScheduler(timezone="UTC")
     _scheduler.add_job(
         verificar_y_enviar_recordatorios_24h,
         trigger="interval",
-        hours=1,
-        id="job_recordatorios_eventos_24h",
+        minutes=1,
+        id="job_notificaciones_eventos_1min",
         replace_existing=True,
     )
     _scheduler.start()
-    logger.info("[Scheduler FCM] Trabajador APScheduler iniciado (revisión de recordatorios 24h cada 1 hora).")
+    logger.info("[Scheduler FCM] Trabajador APScheduler iniciado (revisión cada 1 minuto).")
 
 
 def detener_scheduler_recordatorios() -> None:

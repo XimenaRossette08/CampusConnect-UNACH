@@ -240,7 +240,11 @@ def crear_evento(
     usuario: Usuario = Depends(requiere_permiso("eventos:escribir")),
     db: Session = Depends(get_db),
 ):
-    nuevo = Evento(organizador_email=usuario.email)
+    nuevo = Evento(
+        organizador_email=usuario.email,
+        notificacion_aparicion_enviada=False,
+        notificacion_fin_30m_enviada=False,
+    )
     _aplicar_datos(nuevo, evento_in)
     db.add(nuevo)
     db.commit()
@@ -249,7 +253,9 @@ def crear_evento(
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento creado: {nuevo.titulo}")
 
-    if _evento_esta_disponible_ahora(nuevo):
+    # Si aparece de inmediato en la app, enviar push ahora; si es programado a futuro,
+    # el Scheduler (cada 1 min) enviará el push en cuanto llegue `disponible_desde`.
+    if _evento_esta_disponible_ahora(nuevo) and not _evento_ha_finalizado(nuevo):
         try:
             enviar_notificacion_nuevo_evento(db, nuevo)
         except Exception as exc:
@@ -267,9 +273,33 @@ def editar_evento(
     db: Session = Depends(get_db),
 ):
     evento = _buscar_evento(db, evento_id)
+    disp_anterior = asegurar_utc(evento.disponible_desde)
+    fin_anterior = asegurar_utc(evento.fecha_fin)
+
     _aplicar_datos(evento, evento_in)
+
+    # Si cambió la hora de aparición a una fecha futura, reprogramar la notificación de aparición
+    if asegurar_utc(evento.disponible_desde) != disp_anterior:
+        evento.notificacion_aparicion_enviada = False
+
+    # Si cambió la hora de finalización, permitir enviar el aviso de 30 minutos antes del nuevo fin
+    if asegurar_utc(evento.fecha_fin) != fin_anterior:
+        evento.notificacion_fin_30m_enviada = False
+
     db.commit()
     db.refresh(evento)
+
+    # Si tras editar ya está disponible ahora y aún no se había enviado su notificación de aparición, enviarla
+    if (
+        _evento_esta_disponible_ahora(evento)
+        and not _evento_ha_finalizado(evento)
+        and not getattr(evento, "notificacion_aparicion_enviada", False)
+    ):
+        try:
+            enviar_notificacion_nuevo_evento(db, evento)
+        except Exception as exc:
+            print(f"[FCM] Error no bloqueante al enviar push en edición: {exc}")
+
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento editado: {evento.titulo}")
     return _serializar(evento, _base_url(request))

@@ -35,8 +35,10 @@ class Evento(Base):
     id_carrera_destino = Column(String, nullable=True)
     grupos_destino = Column(ARRAY(String), nullable=True)
 
-    # Control para el Job Scheduler (APScheduler) de recordatorios 24h antes
+    # Control para el Job Scheduler (APScheduler): aparición en app, 30 min antes de finalizar y 24h antes
     recordatorio_enviado = Column(Boolean, default=False, nullable=False)
+    notificacion_aparicion_enviada = Column(Boolean, default=False, nullable=False)
+    notificacion_fin_30m_enviada = Column(Boolean, default=False, nullable=False)
 
     archivos = relationship(
         "EventoArchivo", back_populates="evento", cascade="all, delete-orphan",

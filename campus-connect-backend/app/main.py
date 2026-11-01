@@ -42,6 +42,8 @@ try:
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS recordatorio_enviado BOOLEAN NOT NULL DEFAULT FALSE"))
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS disponible_desde TIMESTAMPTZ"))
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS fecha_fin TIMESTAMPTZ"))
+        _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_aparicion_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_fin_30m_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 
@@ -172,8 +174,6 @@ async def cabeceras_seguras(request: Request, call_next):
     respuesta = await call_next(request)
     respuesta.headers["X-Content-Type-Options"] = "nosniff"
     respuesta.headers["X-Frame-Options"] = "DENY"
-    # Bloquear caché para que la app móvil y el panel web no retengan datos viejos
-    respuesta.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return respuesta
 
 

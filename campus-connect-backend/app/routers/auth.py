@@ -428,3 +428,23 @@ def restablecer_password(datos: RestablecerPasswordRequest, db: Session = Depend
 @router.get("/me", response_model=UsuarioOut)
 def obtener_perfil(usuario: Usuario = Depends(get_current_user)):
     return UsuarioOut.desde_usuario(usuario)
+
+
+class ActualizarFcmTokenRequest(BaseModel):
+    fcm_token: str
+
+
+@router.post("/fcm-token", status_code=status.HTTP_200_OK)
+def actualizar_fcm_token(
+    datos: ActualizarFcmTokenRequest,
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Guarda o actualiza el token FCM de Firebase del teléfono Android del usuario autenticado."""
+    token_limpio = (datos.fcm_token or "").strip()
+    if not token_limpio:
+        raise HTTPException(status_code=400, detail="Token FCM vacío")
+    usuario.fcm_token = token_limpio
+    db.commit()
+    print(f"[FCM] Token registrado en BD para {usuario.email}: {token_limpio[:18]}...")
+    return {"mensaje": "Token FCM actualizado correctamente"}

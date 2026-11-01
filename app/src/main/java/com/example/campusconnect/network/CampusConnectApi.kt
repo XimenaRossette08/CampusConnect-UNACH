@@ -32,6 +32,11 @@ interface CampusConnectApi {
         @Body request: Verificar2FARequest
     ): Response<TokenResponse>
 
+    @POST("auth/fcm-token")
+    suspend fun registrarFcmToken(
+        @Body body: Map<String, String>
+    ): Response<ResponseBody>
+
     @GET("eventos/feed")
     suspend fun obtenerEventos(): List<Evento>
 

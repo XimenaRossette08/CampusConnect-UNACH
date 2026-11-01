@@ -44,7 +44,9 @@ object ColorUnach {
 fun MainNavigationScreen(validarSesion: Boolean = true) {
     val context = LocalContext.current
     var pestañaSeleccionada by remember { mutableIntStateOf(0) }
-    var puntosUsuario by remember { mutableIntStateOf(250) }
+
+    // ✅ CORREGIDO: Inicializado en 0 para la prueba piloto
+    var puntosUsuario by remember { mutableIntStateOf(0) }
 
     val puntosAnimados by animateIntAsState(
         targetValue = puntosUsuario,
@@ -87,28 +89,25 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
         0 -> "Campus Connect" to "ETDA • Cartelera Universitaria"
         1 -> "Mis Insignias y Rewards" to "ETDA • Sistema de Asistencias"
         else -> "Mi Perfil Académico" to "ETDA • Credencial Digital"
-        // 3 -> "Rutas del Ocelobús" to "UNACH • Movilidad Universitaria" // Oculto
     }
 
     val coloresNavItem = NavigationBarItemDefaults.colors(
         selectedIconColor = Color.White,
         selectedTextColor = ColorUnach.AzulProfundo,
-        indicatorColor = ColorUnach.Dorado, // Píldora naranja #F57C00 al seleccionar
+        indicatorColor = ColorUnach.Dorado,
         unselectedIconColor = ColorUnach.TextoSecundario,
         unselectedTextColor = ColorUnach.TextoSecundario
     )
 
-    // Ajuste responsivo: Normaliza el fontScale y adapta ligeramente la densidad en pantallas angostas
     val currentDensity = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
-    // Si el teléfono es más angosto que 390dp, escala proporcionalmente para que nada se aplaste
     val factorEscalaPantalla = if (screenWidthDp < 390) (screenWidthDp / 390f).coerceAtLeast(0.85f) else 1f
 
     CompositionLocalProvider(
         LocalDensity provides Density(
             density = currentDensity.density * factorEscalaPantalla,
-            fontScale = 1.0f // Evita que la letra grande del sistema rompa los botones y tarjetas
+            fontScale = 1.0f
         )
     ) {
         Scaffold(
@@ -155,7 +154,6 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                         }
                     },
                     actions = {
-                        // Chip rápido de puntos en la esquina superior derecha
                         Surface(
                             onClick = { pestañaSeleccionada = 1 },
                             shape = RoundedCornerShape(50),
@@ -239,22 +237,6 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                         },
                         colors = coloresNavItem
                     )
-                    /* Apartado de Rutas oculto temporalmente
-                    NavigationBarItem(
-                        selected = pestañaSeleccionada == 3,
-                        onClick = { pestañaSeleccionada = 3 },
-                        icon = { Icon(Icons.Filled.DirectionsBus, contentDescription = null) },
-                        label = {
-                            Text(
-                                "Rutas",
-                                fontWeight = if (pestañaSeleccionada == 3) FontWeight.ExtraBold else FontWeight.Medium,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        },
-                        colors = coloresNavItem
-                    )
-                    */
                 }
             }
         ) { paddingValues ->
@@ -275,7 +257,6 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                             scope = scope
                         )
                         else -> PerfilScreen(puntos = puntosUsuario)
-                        // 3 -> RutasScreen() // Oculto temporalmente
                     }
                 }
             }

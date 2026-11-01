@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Bundle
-import android.util.Patterns
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,10 +30,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,13 +43,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.campusconnect.model.RegistroRequest
-import com.example.campusconnect.model.Verificar2FARequest
 import com.example.campusconnect.network.AuthRepository
 import com.example.campusconnect.network.RetrofitClient
 import com.example.campusconnect.ui.LoginState
 import com.example.campusconnect.ui.LoginViewModel
 import com.example.campusconnect.ui.theme.CampusConnectTheme
-import kotlinx.coroutines.launch
 
 val NavyBlue = Color(0xFF122652)
 val BrightBlue = Color(0xFF0093FF)
@@ -162,8 +159,8 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
 
     var correo by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
 
-    // Observamos el estado del ViewModel (Fase 3 completada)
     val estadoLogin by viewModel.loginState.collectAsState()
     val isLoading = estadoLogin is LoginState.Loading
 
@@ -192,7 +189,6 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         }
     }
 
-    // Escuchador actualizado con el estado RegisterSuccess
     LaunchedEffect(estadoLogin) {
         when (val estado = estadoLogin) {
             is LoginState.Requires2FA -> {
@@ -316,21 +312,122 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     Text("Ingresa con tu cuenta universitaria o huella dactilar", color = Color.Gray, fontSize = 12.sp)
 
                     if (biometriaDisponible) {
+                        val correoGuardado = TokenManager.obtenerEmail(context)
                         Spacer(modifier = Modifier.height(16.dp))
-                        Surface(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { iniciarConHuellaDactilar() }, color = BrightBlue.copy(alpha = 0.08f), border = BorderStroke(1.5.dp, BrightBlue)) {
-                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Surface(shape = CircleShape, color = NavyBlue, modifier = Modifier.size(42.dp)) { Icon(Icons.Default.Fingerprint, contentDescription = null, tint = VibrantOrange, modifier = Modifier.padding(8.dp)) }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) { Text("Ingresar con Huella", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = NavyBlue) }
-                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = BrightBlue)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { iniciarConHuellaDactilar() },
+                            shape = RoundedCornerShape(16.dp),
+                            color = BrightBlue.copy(alpha = 0.08f),
+                            border = BorderStroke(1.5.dp, BrightBlue)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = NavyBlue,
+                                        modifier = Modifier.size(42.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Fingerprint,
+                                            contentDescription = "Huella",
+                                            tint = VibrantOrange,
+                                            modifier = Modifier.padding(10.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(14.dp))
+
+                                    Column {
+                                        Text(
+                                            text = "Ingresar con Huella Dactilar",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 14.sp,
+                                            color = NavyBlue
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "Autorrellenar datos de\n${if (correoGuardado.isNotEmpty()) correoGuardado else "tu cuenta"}",
+                                            fontSize = 12.sp,
+                                            color = NavyBlue.copy(alpha = 0.7f),
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = BrightBlue,
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
-                    OutlinedTextField(value = correo, onValueChange = { correo = it }, label = { Text("Correo institucional") }, leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) }, singleLine = true, shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                    OutlinedTextField(
+                        value = correo,
+                        onValueChange = { correo = it },
+                        label = { Text("Correo institucional") },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrightBlue,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedLabelColor = NavyBlue,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
                     Spacer(modifier = Modifier.height(14.dp))
-                    OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Contraseña") }, leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = BrightBlue) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Contraseña", fontWeight = FontWeight.Bold) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = BrightBlue
+                            )
+                        },
+                        trailingIcon = {
+                            val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                            val description = if (passwordVisible) "Ocultar contraseña" else "Mostrar contraseña"
+
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(imageVector = image, contentDescription = description, tint = NavyBlue)
+                            }
+                        },
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrightBlue,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedLabelColor = NavyBlue,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        ),
+                        enabled = !isLoading
+                    )
                     Spacer(modifier = Modifier.height(22.dp))
 
                     Button(
@@ -343,33 +440,145 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp) else Text("INGRESAR", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 } else {
-                    Text(if (esAlumnoEgresado) "Registro de Alumno Egresado" else "Registro de Estudiante", fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = NavyBlue)
+                    Text(
+                        text = if (esAlumnoEgresado) "Registro Egresado" else "Registro Estudiante",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = NavyBlue
+                    )
                     Spacer(modifier = Modifier.height(14.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !esAlumnoEgresado, onClick = { esAlumnoEgresado = false }, label = { Text("Estudiante Activo") }, modifier = Modifier.weight(1f))
-                        FilterChip(selected = esAlumnoEgresado, onClick = { esAlumnoEgresado = true }, label = { Text("Alumno Egresado") }, modifier = Modifier.weight(1f))
+
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = LightBackground,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { esAlumnoEgresado = false },
+                                color = if (!esAlumnoEgresado) BrightBlue else Color.Transparent
+                            ) {
+                                Text("Activo", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (!esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                            }
+                            Surface(
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { esAlumnoEgresado = true },
+                                color = if (esAlumnoEgresado) BrightBlue else Color.Transparent
+                            ) {
+                                Text("Egresado", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                            }
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = regNombre,
+                        onValueChange = { regNombre = it },
+                        label = { Text("Nombre completo") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = BrightBlue) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
+                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
+
                     Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(value = regNombre, onValueChange = { regNombre = it }, label = { Text("Nombre completo") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(value = regCorreoPrincipal, onValueChange = { regCorreoPrincipal = it }, label = { Text(if (esAlumnoEgresado) "Correo 1" else "Correo institucional") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+
+                    OutlinedTextField(
+                        value = regCorreoPrincipal,
+                        onValueChange = { regCorreoPrincipal = it },
+                        label = { Text(if (esAlumnoEgresado) "Correo principal" else "Correo institucional") },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
+                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
 
                     AnimatedVisibility(visible = esAlumnoEgresado) {
                         Column {
                             Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedTextField(value = regCorreoSecundario, onValueChange = { regCorreoSecundario = it }, label = { Text("Correo 2") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                            OutlinedTextField(
+                                value = regCorreoSecundario,
+                                onValueChange = { regCorreoSecundario = it },
+                                label = { Text("Correo alternativo") },
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isLoading,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                            )
                             Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedTextField(value = regTelefonoPrincipal, onValueChange = { regTelefonoPrincipal = it }, label = { Text("Teléfono 1") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                            OutlinedTextField(
+                                value = regTelefonoPrincipal,
+                                onValueChange = { regTelefonoPrincipal = it },
+                                label = { Text("Teléfono principal") },
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = BrightBlue) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isLoading,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                            )
                             Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedTextField(value = regTelefonoSecundario, onValueChange = { regTelefonoSecundario = it }, label = { Text("Teléfono 2") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                            OutlinedTextField(
+                                value = regTelefonoSecundario,
+                                onValueChange = { regTelefonoSecundario = it },
+                                label = { Text("Teléfono secundario") },
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = BrightBlue) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isLoading,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                            )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(value = regPassword, onValueChange = { regPassword = it }, label = { Text("Contraseña") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
-                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // ¡Botón de Registro completamente limpio!
+                    OutlinedTextField(
+                        value = regPassword,
+                        onValueChange = { regPassword = it },
+                        label = { Text("Contraseña") },
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = BrightBlue) },
+                        trailingIcon = {
+                            val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                            val description = if (passwordVisible) "Ocultar contraseña" else "Mostrar contraseña"
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(imageVector = image, contentDescription = description, tint = NavyBlue)
+                            }
+                        },
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
+                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(22.dp))
+
                     Button(
                         onClick = {
                             if (regNombre.isBlank() || regCorreoPrincipal.isBlank() || regPassword.isBlank()) return@Button
@@ -377,29 +586,137 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                             viewModel.ejecutarRegistro(req)
                         },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = NavyBlue),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange),
                         enabled = !isLoading
                     ) {
-                        if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp)) else Text("REGISTRARME")
+                        if (isLoading) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                        } else {
+                            Text("REGISTRARME", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }
         }
 
-        Text("UNACH • ETDA", color = NavyBlue.copy(alpha = 0.55f), fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp))
+        Spacer(modifier = Modifier.weight(1f))
+
+        Text(
+            text = "UNACH • ETDA",
+            color = NavyBlue.copy(alpha = 0.55f),
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp)
+        )
 
         if (showOtpDialog) {
             AlertDialog(
                 onDismissRequest = {},
-                title = { Text("Verificación en 2 pasos") },
-                text = { OutlinedTextField(value = otpCode, onValueChange = { otpCode = it }, label = { Text("Código de 6 dígitos") }) },
+                shape = RoundedCornerShape(24.dp),
+                containerColor = Color.White,
+                title = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = BrightBlue.copy(alpha = 0.12f),
+                            modifier = Modifier.size(52.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = BrightBlue,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Verificación en 2 pasos",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = NavyBlue,
+                            fontSize = 20.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Ingresa el código de 6 dígitos enviado a tu correo institucional para verificar tu identidad e iniciar sesión.",
+                            color = Color.Gray,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(bottom = 20.dp)
+                        )
+                        OutlinedTextField(
+                            value = otpCode,
+                            onValueChange = {
+                                if (it.length <= 6 && it.all { char -> char.isDigit() }) {
+                                    otpCode = it
+                                }
+                            },
+                            placeholder = { Text("Código de 6 dígitos", color = Color.Gray) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            textStyle = TextStyle(
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavyBlue,
+                                textAlign = TextAlign.Center,
+                                letterSpacing = 8.sp
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrightBlue,
+                                unfocusedBorderColor = BrightBlue.copy(alpha = 0.5f),
+                                focusedContainerColor = BrightBlue.copy(alpha = 0.05f),
+                                unfocusedContainerColor = BrightBlue.copy(alpha = 0.05f)
+                            )
+                        )
+                    }
+                },
                 confirmButton = {
-                    // ¡Botón de 2FA completamente limpio!
                     Button(
                         onClick = { viewModel.verificar2FA(correo, otpCode, password) },
-                        enabled = !isLoading
+                        enabled = !isLoading && otpCode.length == 6,
+                        colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .height(44.dp)
+                            .padding(start = 8.dp)
                     ) {
-                        Text("Verificar")
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Verificar", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showOtpDialog = false
+                            otpCode = ""
+                        },
+                        enabled = !isLoading,
+                        modifier = Modifier.height(44.dp)
+                    ) {
+                        Text("Cancelar", fontWeight = FontWeight.Bold, color = Color.Gray)
                     }
                 }
             )
@@ -411,11 +728,14 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                 title = { Text("¿Activar Huella?") },
                 text = { Text("¿Quieres usar tu huella dactilar para iniciar sesión más rápido la próxima vez?") },
                 confirmButton = {
-                    Button(onClick = {
-                        TokenManager.guardarCredencialesBiometricas(context, correo.trim(), password.trim())
-                        mostrarModalOfrecerHuella = false
-                        onNavigateToAlumno()
-                    }) { Text("Sí, activar") }
+                    Button(
+                        onClick = {
+                            TokenManager.guardarCredencialesBiometricas(context, correo.trim(), password.trim())
+                            mostrarModalOfrecerHuella = false
+                            onNavigateToAlumno()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange)
+                    ) { Text("Sí, activar", color = Color.White) }
                 },
                 dismissButton = {
                     TextButton(onClick = { mostrarModalOfrecerHuella = false; onNavigateToAlumno() }) { Text("Ahora no") }

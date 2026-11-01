@@ -40,7 +40,6 @@ private val EtdaOrange = Color(0xFFF57C00)
 private val EtdaBg = Color(0xFFF4F7FB)
 private val EtdaSuccess = Color(0xFF10B981)
 
-// Estructura del perfil académico del estudiante
 private data class DatosAcademicosAlumno(
     val nombreCompleto: String,
     val iniciales: String,
@@ -54,7 +53,6 @@ private data class DatosAcademicosAlumno(
     val cicloEscolar: String
 )
 
-// Conecta directamente con el TokenManager encriptado (EncryptedSharedPreferences)
 private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
     val correoReal = TokenManager.obtenerEmail(context).trim().lowercase()
     val rolGuardado = TokenManager.obtenerRol(context)
@@ -68,37 +66,21 @@ private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
 
     val usuarioCorreo = correoReal.substringBefore("@")
 
-    // Reconocimiento directo de perfiles registrados o formateo inteligente desde el correo UNACH
     val (nombreFinal, inicialesFinal, matriculaFinal) = when {
-        correoReal.startsWith("luz.rossette") -> Triple(
-            "Luz Ximena Rossette Pérez",
-            "LX",
-            "100016853"
-        )
-        correoReal.contains("yasir") || correoReal.contains("estrada") -> Triple(
-            "Rodolfo Yasir Estrada Gálvez",
-            "RY",
-            "100016854"
-        )
+        correoReal.startsWith("luz.rossette") -> Triple("Luz Ximena Rossette Pérez", "LX", "100016853")
+        correoReal.contains("yasir") || correoReal.contains("estrada") -> Triple("Rodolfo Yasir Estrada Gálvez", "RY", "100016854")
         else -> {
-            val partesNombre = usuarioCorreo
-                .replace(Regex("[0-9]"), "")
-                .split(".", "_", "-")
-                .filter { it.isNotBlank() }
-                .map { it.replaceFirstChar { char -> char.uppercase() } }
-
+            val partesNombre = usuarioCorreo.replace(Regex("[0-9]"), "").split(".", "_", "-").filter { it.isNotBlank() }.map { it.replaceFirstChar { char -> char.uppercase() } }
             val nombre = when {
                 partesNombre.size >= 2 -> partesNombre.joinToString(" ")
                 partesNombre.size == 1 -> partesNombre[0]
                 else -> "Estudiante UNACH"
             }
-
             val ini = when {
                 partesNombre.size >= 2 -> "${partesNombre[0].first()}${partesNombre[1].first()}".uppercase()
                 partesNombre.size == 1 -> partesNombre[0].take(2).uppercase()
                 else -> "UN"
             }
-
             val digitos = usuarioCorreo.filter { it.isDigit() }.ifEmpty { "53" }
             Triple(nombre, ini, "1000168$digitos")
         }
@@ -135,19 +117,20 @@ fun PerfilScreen(puntos: Int) {
     var mostrarQrDialog by remember { mutableStateOf(false) }
     var mostrarCredencialExpandida by remember { mutableStateOf(true) }
 
+    // Todas las asistencias inicializadas en 0
     val categoriasAsistencia = remember {
         listOf(
-            ProgresoCategoriaPerfil("Talleres", 3, 5, Icons.Default.Build, Color(0xFF0284C7)),
-            ProgresoCategoriaPerfil("Conferencias", 4, 5, Icons.Default.RecordVoiceOver, EtdaOrange),
-            ProgresoCategoriaPerfil("Tutorías", 2, 3, Icons.Default.School, EtdaBlue),
-            ProgresoCategoriaPerfil("Académicos", 3, 4, Icons.Default.MenuBook, EtdaNavy),
-            ProgresoCategoriaPerfil("Deporte", 1, 3, Icons.Default.EmojiEvents, Color(0xFFEA580C)),
-            ProgresoCategoriaPerfil("Culturales", 2, 3, Icons.Default.TheaterComedy, Color(0xFF2563EB))
+            ProgresoCategoriaPerfil("Talleres", 0, 5, Icons.Default.Build, Color(0xFF0284C7)),
+            ProgresoCategoriaPerfil("Conferencias", 0, 5, Icons.Default.RecordVoiceOver, EtdaOrange),
+            ProgresoCategoriaPerfil("Tutorías", 0, 3, Icons.Default.School, EtdaBlue),
+            ProgresoCategoriaPerfil("Académicos", 0, 4, Icons.Default.MenuBook, EtdaNavy),
+            ProgresoCategoriaPerfil("Deporte", 0, 3, Icons.Default.EmojiEvents, Color(0xFFEA580C)),
+            ProgresoCategoriaPerfil("Culturales", 0, 3, Icons.Default.TheaterComedy, Color(0xFF2563EB))
         )
     }
 
     val totalEventosAsistidos = categoriasAsistencia.sumOf { it.asistencias }
-    val insigniasDesbloqueadas = 4
+    val insigniasDesbloqueadas = 0 // Inicializado en 0
 
     Column(
         modifier = Modifier
@@ -156,294 +139,99 @@ fun PerfilScreen(puntos: Int) {
             .verticalScroll(scrollState)
             .padding(bottom = 32.dp)
     ) {
-        // 1. ENCABEZADO SUPERIOR CON IDENTIDAD ETDA Y AVATAR DEL ALUMNO
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(EtdaNavy, Color(0xFF193773), EtdaBlue)
-                    ),
+                    brush = Brush.verticalGradient(listOf(EtdaNavy, Color(0xFF193773), EtdaBlue)),
                     shape = RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp)
                 )
                 .padding(top = 24.dp, bottom = 52.dp, start = 20.dp, end = 20.dp)
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Surface(
-                    color = Color.White.copy(alpha = 0.14f),
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Verified,
-                            contentDescription = null,
-                            tint = EtdaOrange,
-                            modifier = Modifier.size(14.dp)
-                        )
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(color = Color.White.copy(alpha = 0.14f), shape = RoundedCornerShape(50), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))) {
+                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Verified, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "CREDENCIAL DIGITAL • ETDA UNACH",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.8.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        Text("CREDENCIAL DIGITAL • ETDA UNACH", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp, maxLines = 1, softWrap = false)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
                 Box(contentAlignment = Alignment.BottomEnd) {
-                    Surface(
-                        modifier = Modifier.size(94.dp),
-                        shape = CircleShape,
-                        color = EtdaNavy,
-                        border = BorderStroke(3.dp, EtdaOrange),
-                        shadowElevation = 8.dp
-                    ) {
+                    Surface(modifier = Modifier.size(94.dp), shape = CircleShape, color = EtdaNavy, border = BorderStroke(3.dp, EtdaOrange), shadowElevation = 8.dp) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = datosAlumno.iniciales,
-                                color = Color.White,
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
+                            Text(datosAlumno.iniciales, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
 
-                    Surface(
-                        shape = CircleShape,
-                        color = EtdaSuccess,
-                        border = BorderStroke(2.dp, Color.White),
-                        modifier = Modifier.size(26.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Activo",
-                            tint = Color.White,
-                            modifier = Modifier.padding(4.dp)
-                        )
+                    Surface(shape = CircleShape, color = EtdaSuccess, border = BorderStroke(2.dp, Color.White), modifier = Modifier.size(26.dp)) {
+                        Icon(Icons.Default.Check, contentDescription = "Activo", tint = Color.White, modifier = Modifier.padding(4.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = datosAlumno.nombreCompleto,
-                    color = Color.White,
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
+                Text(datosAlumno.nombreCompleto, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Email,
-                        contentDescription = null,
-                        tint = Color(0xFFFFB74D),
-                        modifier = Modifier.size(15.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    Icon(Icons.Default.Email, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = datosAlumno.correo,
-                        color = Color.White.copy(alpha = 0.92f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text(datosAlumno.correo, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Surface(
-                        color = EtdaOrange,
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = datosAlumno.rol.uppercase(),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
+                    Surface(color = EtdaOrange, shape = RoundedCornerShape(50)) {
+                        Text(datosAlumno.rol.uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                     }
-
-                    Surface(
-                        color = EtdaSuccess.copy(alpha = 0.25f),
-                        shape = RoundedCornerShape(50),
-                        border = BorderStroke(1.dp, EtdaSuccess)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(12.dp)
-                            )
+                    Surface(color = EtdaSuccess.copy(alpha = 0.25f), shape = RoundedCornerShape(50), border = BorderStroke(1.dp, EtdaSuccess)) {
+                        Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "2FA Activo",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            Text("2FA Activo", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         }
                     }
                 }
             }
         }
 
-        // 2. TARJETA FLOTANTE DE ESTADÍSTICAS RÁPIDAS
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .offset(y = (-28).dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).offset(y = (-28).dp),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp, horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    IndicadorRapidoPerfil(
-                        valor = "$totalEventosAsistidos",
-                        etiqueta = "Asistencias",
-                        icono = Icons.Default.EventAvailable,
-                        color = EtdaBlue
-                    )
-                }
-                VerticalDivider(
-                    modifier = Modifier.height(36.dp),
-                    color = Color(0xFFE2E8F0)
-                )
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    IndicadorRapidoPerfil(
-                        valor = "$insigniasDesbloqueadas",
-                        etiqueta = "Insignias",
-                        icono = Icons.Default.WorkspacePremium,
-                        color = EtdaOrange
-                    )
-                }
-                VerticalDivider(
-                    modifier = Modifier.height(36.dp),
-                    color = Color(0xFFE2E8F0)
-                )
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    IndicadorRapidoPerfil(
-                        valor = "$puntos pts",
-                        etiqueta = "Rewards",
-                        icono = Icons.Default.Stars,
-                        color = EtdaNavy
-                    )
-                }
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { IndicadorRapidoPerfil("$totalEventosAsistidos", "Asistencias", Icons.Default.EventAvailable, EtdaBlue) }
+                VerticalDivider(modifier = Modifier.height(36.dp), color = Color(0xFFE2E8F0))
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { IndicadorRapidoPerfil("$insigniasDesbloqueadas", "Insignias", Icons.Default.WorkspacePremium, EtdaOrange) }
+                VerticalDivider(modifier = Modifier.height(36.dp), color = Color(0xFFE2E8F0))
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { IndicadorRapidoPerfil("$puntos pts", "Rewards", Icons.Default.Stars, EtdaNavy) }
             }
         }
 
-        // 3. EXPEDIENTE ACADÉMICO E INSTITUCIONAL DEL ESTUDIANTE
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .offset(y = (-12).dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).offset(y = (-12).dp),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                // ✅ FILA RESPONSIVA CORREGIDA: El texto usa weight(1f) y el botón Mi QR nunca se aplasta
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { mostrarCredencialExpandida = !mostrarCredencialExpandida },
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = EtdaNavy.copy(alpha = 0.08f),
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountBalance,
-                            contentDescription = null,
-                            tint = EtdaNavy,
-                            modifier = Modifier.padding(8.dp)
-                        )
+                Row(modifier = Modifier.fillMaxWidth().clickable { mostrarCredencialExpandida = !mostrarCredencialExpandida }, horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = EtdaNavy.copy(alpha = 0.08f), modifier = Modifier.size(38.dp)) {
+                        Icon(Icons.Default.AccountBalance, contentDescription = null, tint = EtdaNavy, modifier = Modifier.padding(8.dp))
                     }
-
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Expediente Académico",
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.sp,
-                            color = EtdaNavy,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "Datos oficiales de adscripción UNACH",
-                            fontSize = 11.sp,
-                            color = Color.Gray,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Text("Expediente Académico", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Datos oficiales de adscripción UNACH", fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-
-                    Surface(
-                        onClick = { mostrarQrDialog = true },
-                        color = EtdaOrange.copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.QrCode2,
-                                contentDescription = "Mi QR",
-                                tint = EtdaOrange,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Text(
-                                text = "Mi QR",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = EtdaOrange,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                    Surface(onClick = { mostrarQrDialog = true }, color = EtdaOrange.copy(alpha = 0.14f), shape = RoundedCornerShape(12.dp)) {
+                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Icon(Icons.Default.QrCode2, contentDescription = "Mi QR", tint = EtdaOrange, modifier = Modifier.size(17.dp))
+                            Text("Mi QR", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = EtdaOrange, maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -452,59 +240,19 @@ fun PerfilScreen(puntos: Int) {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         HorizontalDivider(color = Color(0xFFEEF2F6))
                         Spacer(modifier = Modifier.height(14.dp))
-
-                        ItemDatoAcademico(
-                            icono = Icons.Default.Domain,
-                            titulo = "Escuela / Facultad",
-                            valor = datosAlumno.escuela,
-                            colorIcono = EtdaBlue
-                        )
+                        ItemDatoAcademico(Icons.Default.Domain, "Escuela / Facultad", datosAlumno.escuela, EtdaBlue)
                         Spacer(modifier = Modifier.height(14.dp))
-
-                        ItemDatoAcademico(
-                            icono = Icons.Default.Computer,
-                            titulo = "Programa Educativo (Carrera)",
-                            valor = datosAlumno.carrera,
-                            colorIcono = EtdaOrange
-                        )
+                        ItemDatoAcademico(Icons.Default.Computer, "Programa Educativo (Carrera)", datosAlumno.carrera, EtdaOrange)
                         Spacer(modifier = Modifier.height(14.dp))
-
                         Row(modifier = Modifier.fillMaxWidth()) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                ItemDatoAcademico(
-                                    icono = Icons.Default.Badge,
-                                    titulo = "Matrícula",
-                                    valor = datosAlumno.matricula,
-                                    colorIcono = EtdaNavy
-                                )
-                            }
+                            Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Badge, "Matrícula", datosAlumno.matricula, EtdaNavy) }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Box(modifier = Modifier.weight(1f)) {
-                                ItemDatoAcademico(
-                                    icono = Icons.Default.Groups,
-                                    titulo = "Semestre y Grupo",
-                                    valor = datosAlumno.semestreGrupo,
-                                    colorIcono = EtdaBlue
-                                )
-                            }
+                            Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Groups, "Semestre y Grupo", datosAlumno.semestreGrupo, EtdaBlue) }
                         }
-
                         Spacer(modifier = Modifier.height(14.dp))
-
-                        ItemDatoAcademico(
-                            icono = Icons.Default.LocationOn,
-                            titulo = "Modalidad y Sede",
-                            valor = datosAlumno.modalidad,
-                            colorIcono = EtdaSuccess
-                        )
+                        ItemDatoAcademico(Icons.Default.LocationOn, "Modalidad y Sede", datosAlumno.modalidad, EtdaSuccess)
                         Spacer(modifier = Modifier.height(14.dp))
-
-                        ItemDatoAcademico(
-                            icono = Icons.Default.DateRange,
-                            titulo = "Ciclo Escolar Vigente",
-                            valor = datosAlumno.cicloEscolar,
-                            colorIcono = EtdaOrange
-                        )
+                        ItemDatoAcademico(Icons.Default.DateRange, "Ciclo Escolar Vigente", datosAlumno.cicloEscolar, EtdaOrange)
                     }
                 }
             }
@@ -512,65 +260,23 @@ fun PerfilScreen(puntos: Int) {
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // 4. DESGLOSE DE PARTICIPACIÓN POR CATEGORÍA
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = EtdaOrange.copy(alpha = 0.12f),
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Insights,
-                            contentDescription = null,
-                            tint = EtdaOrange,
-                            modifier = Modifier.padding(8.dp)
-                        )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = EtdaOrange.copy(alpha = 0.12f), modifier = Modifier.size(38.dp)) {
+                        Icon(Icons.Default.Insights, contentDescription = null, tint = EtdaOrange, modifier = Modifier.padding(8.dp))
                     }
-
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Asistencias por Categoría",
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.sp,
-                            color = EtdaNavy,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "Tu progreso para desbloquear recompensas",
-                            fontSize = 11.sp,
-                            color = Color.Gray,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Text("Asistencias por Categoría", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Tu progreso para desbloquear recompensas", fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-
-                    Surface(
-                        color = EtdaBlue.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = "Nivel Oro",
-                            color = EtdaBlue,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
+                    Surface(color = EtdaBlue.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
+                        Text("Nivel Oro", color = EtdaBlue, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                     }
                 }
 
@@ -578,57 +284,18 @@ fun PerfilScreen(puntos: Int) {
 
                 categoriasAsistencia.forEach { itemCat ->
                     val porcentaje = (itemCat.asistencias.toFloat() / itemCat.meta.toFloat()).coerceIn(0f, 1f)
-                    val animProgreso by animateFloatAsState(
-                        targetValue = porcentaje,
-                        animationSpec = tween(700),
-                        label = "barraCat"
-                    )
-
+                    val animProgreso by animateFloatAsState(targetValue = porcentaje, animationSpec = tween(700), label = "barraCat")
                     Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = itemCat.icono,
-                                    contentDescription = null,
-                                    tint = itemCat.color,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(itemCat.icono, contentDescription = null, tint = itemCat.color, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = itemCat.categoria,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = EtdaNavy,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Text(itemCat.categoria, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Text(
-                                text = "${itemCat.asistencias} / ${itemCat.meta} eventos",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = itemCat.color,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            Text("${itemCat.asistencias} / ${itemCat.meta} eventos", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = itemCat.color, maxLines = 1, softWrap = false)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
-                        LinearProgressIndicator(
-                            progress = { animProgreso },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(7.dp)
-                                .clip(RoundedCornerShape(4.dp)),
-                            color = itemCat.color,
-                            trackColor = Color(0xFFE2E8F0)
-                        )
+                        LinearProgressIndicator(progress = { animProgreso }, modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)), color = itemCat.color, trackColor = Color(0xFFE2E8F0))
                     }
                 }
             }
@@ -636,7 +303,6 @@ fun PerfilScreen(puntos: Int) {
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // 5. BOTÓN DE CERRAR SESIÓN
         Button(
             onClick = {
                 TokenManager.cerrarSesion(context)
@@ -644,114 +310,44 @@ fun PerfilScreen(puntos: Int) {
                 intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                 context.startActivity(intent)
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .height(52.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(52.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFFEF2F2),
-                contentColor = Color(0xFFDC2626)
-            ),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFEF2F2), contentColor = Color(0xFFDC2626)),
             border = BorderStroke(1.dp, Color(0xFFFECACA)),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
         ) {
             Icon(Icons.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Cerrar sesión segura",
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 14.sp,
-                maxLines = 1,
-                softWrap = false
-            )
+            Text("Cerrar sesión segura", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, maxLines = 1, softWrap = false)
         }
     }
 
-    // MODAL DE CÓDIGO QR DE ASISTENCIA DEL ESTUDIANTE
     if (mostrarQrDialog) {
         AlertDialog(
-            onDismissRequest = { mostrarQrDialog = false },
-            shape = RoundedCornerShape(24.dp),
-            containerColor = Color.White,
+            onDismissRequest = { mostrarQrDialog = false }, shape = RoundedCornerShape(24.dp), containerColor = Color.White,
             title = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Surface(
-                        color = EtdaNavy,
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = "PASE DE ASISTENCIA ETDA",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Surface(color = EtdaNavy, shape = RoundedCornerShape(50)) {
+                        Text("PASE DE ASISTENCIA ETDA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                     }
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = datosAlumno.nombreCompleto,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 18.sp,
-                        color = EtdaNavy,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        text = "Matrícula: ${datosAlumno.matricula}",
-                        fontSize = 12.sp,
-                        color = EtdaOrange,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text(datosAlumno.nombreCompleto, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = EtdaNavy, textAlign = TextAlign.Center)
+                    Text("Matrícula: ${datosAlumno.matricula}", fontSize = 12.sp, color = EtdaOrange, fontWeight = FontWeight.Bold)
                 }
             },
             text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = EtdaBg,
-                        border = BorderStroke(2.dp, EtdaBlue.copy(alpha = 0.3f)),
-                        modifier = Modifier.size(190.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.QrCode2,
-                                contentDescription = "Código QR Estudiante",
-                                tint = EtdaNavy,
-                                modifier = Modifier.size(150.dp)
-                            )
-                        }
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Surface(shape = RoundedCornerShape(20.dp), color = EtdaBg, border = BorderStroke(2.dp, EtdaBlue.copy(alpha = 0.3f)), modifier = Modifier.size(190.dp)) {
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.QrCode2, contentDescription = "Código QR Estudiante", tint = EtdaNavy, modifier = Modifier.size(150.dp)) }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = datosAlumno.correo,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = EtdaNavy,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Text(datosAlumno.correo, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = EtdaNavy, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Muestra este código al organizador del evento para validar tu asistencia y sumar puntos.",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 16.sp
-                    )
+                    Text("Muestra este código al organizador del evento para validar tu asistencia y sumar puntos.", fontSize = 12.sp, color = Color.Gray, textAlign = TextAlign.Center, lineHeight = 16.sp)
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = { mostrarQrDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Button(onClick = { mostrarQrDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                     Text("Entendido", fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
@@ -760,88 +356,24 @@ fun PerfilScreen(puntos: Int) {
 }
 
 @Composable
-private fun IndicadorRapidoPerfil(
-    valor: String,
-    etiqueta: String,
-    icono: ImageVector,
-    color: Color
-) {
+private fun IndicadorRapidoPerfil(valor: String, etiqueta: String, icono: ImageVector, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(
-            shape = CircleShape,
-            color = color.copy(alpha = 0.12f),
-            modifier = Modifier.size(34.dp)
-        ) {
-            Icon(
-                imageVector = icono,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.padding(7.dp)
-            )
-        }
+        Surface(shape = CircleShape, color = color.copy(alpha = 0.12f), modifier = Modifier.size(34.dp)) { Icon(icono, contentDescription = null, tint = color, modifier = Modifier.padding(7.dp)) }
         Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = valor,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 15.sp,
-            color = EtdaNavy,
-            maxLines = 1,
-            softWrap = false
-        )
-        Text(
-            text = etiqueta,
-            fontSize = 11.sp,
-            color = Color.Gray,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            softWrap = false
-        )
+        Text(valor, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = EtdaNavy, maxLines = 1, softWrap = false)
+        Text(etiqueta, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
     }
 }
 
 @Composable
-private fun ItemDatoAcademico(
-    icono: ImageVector,
-    titulo: String,
-    valor: String,
-    colorIcono: Color
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = colorIcono.copy(alpha = 0.12f),
-            modifier = Modifier.size(34.dp)
-        ) {
-            Icon(
-                imageVector = icono,
-                contentDescription = null,
-                tint = colorIcono,
-                modifier = Modifier.padding(7.dp)
-            )
-        }
+private fun ItemDatoAcademico(icono: ImageVector, titulo: String, valor: String, colorIcono: Color) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Surface(shape = RoundedCornerShape(10.dp), color = colorIcono.copy(alpha = 0.12f), modifier = Modifier.size(34.dp)) { Icon(icono, contentDescription = null, tint = colorIcono, modifier = Modifier.padding(7.dp)) }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = titulo,
-                fontSize = 11.sp,
-                color = Color.Gray,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Text(titulo, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = valor,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = EtdaNavy,
-                lineHeight = 18.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            Text(valor, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EtdaNavy, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -42,6 +43,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.campusconnect.model.CarreraCatalogoDto
 import com.example.campusconnect.model.RegistroRequest
 import com.example.campusconnect.network.AuthRepository
 import com.example.campusconnect.network.RetrofitClient
@@ -53,6 +55,19 @@ val NavyBlue = Color(0xFF122652)
 val BrightBlue = Color(0xFF0093FF)
 val VibrantOrange = Color(0xFFF57C00)
 val LightBackground = Color(0xFFF4F7FB)
+
+fun formatearEtiquetaGrupo(codigoGrupo: String): String {
+    val limpio = codigoGrupo.trim()
+    val regex = Regex("^([0-9]+)([A-Za-z]+)$")
+    val match = regex.matchEntire(limpio)
+    return if (match != null) {
+        val sem = match.groupValues[1]
+        val grp = match.groupValues[2].uppercase()
+        "${sem}° Semestre • Grupo $grp"
+    } else {
+        limpio
+    }
+}
 
 class ComposeLoginActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -150,6 +165,7 @@ private fun mostrarPromptHuella(
     BiometricPrompt(activity, executor, callback).authenticate(promptInfo)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
     val context = LocalContext.current
@@ -173,10 +189,81 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
     var esAlumnoEgresado by remember { mutableStateOf(false) }
     var regNombre by remember { mutableStateOf("") }
     var regCorreoPrincipal by remember { mutableStateOf("") }
+    var regMatricula by remember { mutableStateOf("") }
     var regCorreoSecundario by remember { mutableStateOf("") }
     var regTelefonoPrincipal by remember { mutableStateOf("") }
     var regTelefonoSecundario by remember { mutableStateOf("") }
     var regPassword by remember { mutableStateOf("") }
+
+    // Catálogo dinámico de Carreras y sus Grupos sincronizado con Administración (/catalogos/facultad)
+    val carrerasPorDefecto = remember {
+        listOf(
+            CarreraCatalogoDto(
+                id = "LIDTS",
+                nombre = "Lic. en Ingeniería en Desarrollo y Tecnologías de Software",
+                facultadId = "ETDA",
+                grupos = listOf("1A", "1B", "3A", "3B", "5A", "5B", "7N", "7O", "8A")
+            ),
+            CarreraCatalogoDto(
+                id = "LSC",
+                nombre = "Lic. en Sistemas Computacionales",
+                facultadId = "FCA",
+                grupos = listOf("1A", "1B", "3A", "5A", "7A", "9A")
+            ),
+            CarreraCatalogoDto(
+                id = "IC",
+                nombre = "Ingeniería Civil",
+                facultadId = "FI",
+                grupos = listOf("1A", "2A", "3A", "4A", "5A", "6A", "7A", "8A")
+            )
+        )
+    }
+
+    var listaCarrerasCatalogo by remember { mutableStateOf(carrerasPorDefecto) }
+    var carreraSeleccionada by remember { mutableStateOf<CarreraCatalogoDto?>(carrerasPorDefecto.firstOrNull()) }
+    var grupoSeleccionado by remember {
+        mutableStateOf(carrerasPorDefecto.firstOrNull()?.grupos?.firstOrNull() ?: "1A")
+    }
+    var menuCarreraExpandido by remember { mutableStateOf(false) }
+    var menuGrupoExpandido by remember { mutableStateOf(false) }
+
+    // Al abrir la pantalla o cambiar a "Crear Cuenta", sincronizar carreras y grupos desde el servidor
+    LaunchedEffect(modoRegistro) {
+        try {
+            val api = RetrofitClient.obtenerApi(context)
+            val remoto = api.obtenerCatalogosFacultad()
+            val gruposGlobales = remoto.grupos?.takeIf { it.isNotEmpty() }
+                ?: listOf("1A", "1B", "3A", "3B", "5A", "5B", "7N", "7O", "8A")
+            val carrerasRemotas = remoto.carreras?.map { c ->
+                val gruposDeCarrera = c.grupos?.takeIf { it.isNotEmpty() } ?: gruposGlobales
+                c.copy(grupos = gruposDeCarrera)
+            }?.takeIf { it.isNotEmpty() }
+
+            if (carrerasRemotas != null) {
+                listaCarrerasCatalogo = carrerasRemotas
+                val coincide = carrerasRemotas.find {
+                    it.nombre.equals(carreraSeleccionada?.nombre, ignoreCase = true)
+                } ?: carrerasRemotas.first()
+                carreraSeleccionada = coincide
+                val gruposDisponibles = coincide.grupos.orEmpty()
+                if (grupoSeleccionado !in gruposDisponibles) {
+                    grupoSeleccionado = gruposDisponibles.firstOrNull() ?: ""
+                }
+            }
+
+            // Guardar datos institucionales estáticos en caché local para PerfilScreen
+            remoto.datosInstitucionales?.let { inst ->
+                val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("inst_escuela", inst.escuela ?: "Escuela de Tecnologías Digitales Aplicadas (ETDA)")
+                    .putString("inst_modalidad", inst.modalidadSede ?: "Escolarizada (Campus I, Tuxtla Gutiérrez)")
+                    .putString("inst_ciclo", inst.cicloEscolar ?: "Agosto - Diciembre 2026")
+                    .apply()
+            }
+        } catch (_: Exception) {
+            // Si no hay red al abrir, se mantienen las opciones por defecto de la UNACH
+        }
+    }
 
     fun finalizarAccesoOVincularHuella(emailAutenticado: String, passAutenticada: String) {
         val credsGuardadas = TokenManager.obtenerCredencialesBiometricas(context)
@@ -210,6 +297,17 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                 viewModel.resetState()
             }
             is LoginState.RegisterSuccess -> {
+                // Guardar en caché local del dispositivo los datos elegidos por el usuario al registrarse
+                val emailKey = regCorreoPrincipal.trim().lowercase()
+                val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("nombre_$emailKey", regNombre.trim())
+                    .putString("matricula_$emailKey", regMatricula.trim())
+                    .putString("carrera_$emailKey", carreraSeleccionada?.nombre ?: "")
+                    .putString("grupo_$emailKey", grupoSeleccionado.trim())
+                    .putString("facultad_$emailKey", carreraSeleccionada?.facultadId ?: "ETDA")
+                    .apply()
+
                 Toast.makeText(context, "Registro exitoso. Inicia sesión.", Toast.LENGTH_LONG).show()
                 modoRegistro = false
                 viewModel.resetState()
@@ -506,6 +604,149 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         )
                     )
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 1. CAMPO DE MATRÍCULA
+                    OutlinedTextField(
+                        value = regMatricula,
+                        onValueChange = { regMatricula = it },
+                        label = { Text("Matrícula") },
+                        placeholder = { Text("Ej. 100016853") },
+                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, tint = BrightBlue) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
+                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 2. MENÚ DESPLEGABLE DE PROGRAMA EDUCATIVO (CARRERA)
+                    ExposedDropdownMenuBox(
+                        expanded = menuCarreraExpandido,
+                        onExpandedChange = { if (!isLoading) menuCarreraExpandido = !menuCarreraExpandido },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = carreraSeleccionada?.nombre ?: "Selecciona tu carrera",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Programa Educativo (Carrera)") },
+                            leadingIcon = { Icon(Icons.Default.School, contentDescription = null, tint = VibrantOrange) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuCarreraExpandido) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            enabled = !isLoading,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
+                                focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent
+                            )
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = menuCarreraExpandido,
+                            onDismissRequest = { menuCarreraExpandido = false },
+                            modifier = Modifier.background(Color.White)
+                        ) {
+                            listaCarrerasCatalogo.forEach { opcionCarrera ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                text = opcionCarrera.nombre,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = NavyBlue,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (!opcionCarrera.facultadId.isNullOrBlank()) {
+                                                Text(
+                                                    text = "Facultad / Escuela: ${opcionCarrera.facultadId}",
+                                                    fontSize = 11.sp,
+                                                    color = Color.Gray
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        carreraSeleccionada = opcionCarrera
+                                        val gruposDeEstaCarrera = opcionCarrera.grupos.orEmpty()
+                                        grupoSeleccionado = gruposDeEstaCarrera.firstOrNull() ?: ""
+                                        menuCarreraExpandido = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 3. MENÚ DESPLEGABLE DE GRADO Y GRUPO (SEGÚN LA CARRERA ELEGIDA)
+                    val gruposDisponiblesCarrera = carreraSeleccionada?.grupos.orEmpty()
+                    ExposedDropdownMenuBox(
+                        expanded = menuGrupoExpandido,
+                        onExpandedChange = {
+                            if (!isLoading && gruposDisponiblesCarrera.isNotEmpty()) {
+                                menuGrupoExpandido = !menuGrupoExpandido
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = if (grupoSeleccionado.isNotBlank()) formatearEtiquetaGrupo(grupoSeleccionado) else "Selecciona tu grado y grupo",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Grado y Grupo (Semestre y Grupo)") },
+                            leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, tint = BrightBlue) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuGrupoExpandido) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            enabled = !isLoading,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
+                                focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent
+                            )
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = menuGrupoExpandido,
+                            onDismissRequest = { menuGrupoExpandido = false },
+                            modifier = Modifier.background(Color.White)
+                        ) {
+                            gruposDisponiblesCarrera.forEach { codigoGrupo ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "${formatearEtiquetaGrupo(codigoGrupo)} ($codigoGrupo)",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = NavyBlue
+                                        )
+                                    },
+                                    onClick = {
+                                        grupoSeleccionado = codigoGrupo
+                                        menuGrupoExpandido = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     AnimatedVisibility(visible = esAlumnoEgresado) {
                         Column {
                             Spacer(modifier = Modifier.height(12.dp))
@@ -581,8 +822,28 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
 
                     Button(
                         onClick = {
-                            if (regNombre.isBlank() || regCorreoPrincipal.isBlank() || regPassword.isBlank()) return@Button
-                            val req = RegistroRequest(regNombre, regCorreoPrincipal, regPassword, esAlumnoEgresado, regCorreoSecundario, regTelefonoPrincipal, regTelefonoSecundario)
+                            val carreraNombre = carreraSeleccionada?.nombre?.trim().orEmpty()
+                            if (regNombre.isBlank() || regCorreoPrincipal.isBlank() || regPassword.isBlank()) {
+                                Toast.makeText(context, "Completa tu nombre, correo y contraseña.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (regMatricula.isBlank() || carreraNombre.isBlank() || grupoSeleccionado.isBlank()) {
+                                Toast.makeText(context, "Ingresa tu matrícula y selecciona tu carrera y grupo.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val req = RegistroRequest(
+                                nombre = regNombre.trim(),
+                                email = regCorreoPrincipal.trim(),
+                                password = regPassword,
+                                esEgresado = esAlumnoEgresado,
+                                emailSecundario = regCorreoSecundario.takeIf { it.isNotBlank() },
+                                telefonoPrincipal = regTelefonoPrincipal.takeIf { it.isNotBlank() },
+                                telefonoSecundario = regTelefonoSecundario.takeIf { it.isNotBlank() },
+                                matricula = regMatricula.trim(),
+                                carrera = carreraNombre,
+                                semestreGrupo = grupoSeleccionado.trim(),
+                                idFacultad = carreraSeleccionada?.facultadId ?: "ETDA"
+                            )
                             viewModel.ejecutarRegistro(req)
                         },
                         modifier = Modifier.fillMaxWidth().height(52.dp),

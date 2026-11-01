@@ -1,3 +1,4 @@
+import json
 import os
 import random
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..auditoria import registrar_auditoria
@@ -39,8 +41,6 @@ limiter = Limiter(key_func=get_remote_address)
 # ==============================================================================
 # CONFIGURACIÓN DEL TIEMPO DE VIGENCIA DEL 2FA Y SESIÓN (1 MES VS PRUEBAS)
 # ==============================================================================
-# Pon MODO_PRUEBAS_2FA = True para que en tus pruebas el 2FA venza en 1 minuto.
-# Déjalo en False para que la sesión y el 2FA duren 30 DÍAS (1 mes) sin pedir código.
 MODO_PRUEBAS_2FA = False
 
 DURACION_VIGENCIA_2FA = timedelta(minutes=1) if MODO_PRUEBAS_2FA else timedelta(days=30)
@@ -54,16 +54,11 @@ REFRESH_COOKIE_MAX_AGE = 120 if MODO_PRUEBAS_2FA else (30 * 24 * 60 * 60)
 MAX_INTENTOS_FALLIDOS = 5
 TIEMPO_BLOQUEO_SEGUNDOS = 180  # 3 minutos de bloqueo temporal tras 5 fallos consecutivos
 
-# Estructura: clave -> (conteo_fallos_consecutivos, bloqueado_hasta_utc)
 _intentos_fallidos: Dict[str, Tuple[int, Optional[datetime]]] = {}
 _candado_fuerza_bruta = Lock()
 
 
 def _verificar_bloqueo_fuerza_bruta(ip: str, email: str) -> None:
-    """
-    Revisa si la IP o la cuenta de correo están bloqueadas temporalmente tras
-    acumular 5 intentos fallidos consecutivos (devuelve HTTP 429 en el 6.º intento).
-    """
     ahora = datetime.now(timezone.utc)
     claves = [f"ip:{ip}", f"email:{email.lower()}"] if email else [f"ip:{ip}"]
 
@@ -84,16 +79,10 @@ def _verificar_bloqueo_fuerza_bruta(ip: str, email: str) -> None:
                         ),
                     )
                 else:
-                    # El tiempo de bloqueo temporal ya expiró; se reinicia el contador
                     _intentos_fallidos.pop(clave, None)
 
 
 def _registrar_fallo_fuerza_bruta(ip: str, email: str) -> bool:
-    """
-    Incrementa el contador de intentos fallidos consecutivos.
-    Devuelve True si en este intento ya se superó el límite de 5 fallos consecutivos
-    (es decir, a partir del 6.º intento consecutivo).
-    """
     ahora = datetime.now(timezone.utc)
     claves = [f"ip:{ip}", f"email:{email.lower()}"] if email else [f"ip:{ip}"]
     supero_limite = False
@@ -117,7 +106,6 @@ def _registrar_fallo_fuerza_bruta(ip: str, email: str) -> bool:
 
 
 def _limpiar_fuerza_bruta(ip: str, email: str) -> None:
-    """Al iniciar sesión exitosamente, reinicia el conteo de fallos consecutivos."""
     with _candado_fuerza_bruta:
         _intentos_fallidos.pop(f"ip:{ip}", None)
         if email:
@@ -132,13 +120,13 @@ class RegistroUsuarioInput(BaseModel):
     email_secundario: Optional[EmailStr] = None
     telefono_principal: Optional[str] = None
     telefono_secundario: Optional[str] = None
+    matricula: Optional[str] = None
+    carrera: Optional[str] = None
+    semestre_grupo: Optional[str] = None
+    id_facultad: Optional[str] = None
 
 
 class LoginUsuarioInput(BaseModel):
-    # Se usa Optional[str] en lugar de EmailStr para:
-    # 1. Devolver 400 (y no 422) cuando los campos van vacíos (Caso 4 de Postman).
-    # 2. Permitir que el payload de prueba de Inyección SQL (' OR '1'='1) llegue a la
-    #    consulta preparada de SQLAlchemy y sea rechazado con 401 (Caso 5 de Postman).
     email: Optional[str] = ""
     correo: Optional[str] = None
     password: Optional[str] = ""
@@ -175,6 +163,30 @@ def _set_cookies_de_sesion(response: Response, access_token: str, refresh_token:
     )
 
 
+def _obtener_datos_institucionales_estaticos(db: Session) -> Dict[str, str]:
+    """Lee Escuela, Modalidad/Sede y Ciclo Escolar configurados por el administrador en Catálogos."""
+    por_defecto = {
+        "escuela": "Escuela de Tecnologías Digitales Aplicadas (ETDA)",
+        "modalidad_sede": "Escolarizada (Campus I, Tuxtla Gutiérrez)",
+        "ciclo_escolar": "Agosto - Diciembre 2026",
+    }
+    try:
+        row = db.execute(text("SELECT payload_json FROM catalogos_institucionales WHERE id = 1")).fetchone()
+        if row and row[0]:
+            payload = json.loads(row[0])
+            if isinstance(payload, dict):
+                inst = payload.get("datosInstitucionales") or {}
+                if isinstance(inst, dict):
+                    return {
+                        "escuela": (inst.get("escuela") or por_defecto["escuela"]).strip(),
+                        "modalidad_sede": (inst.get("modalidadSede") or inst.get("modalidad_sede") or por_defecto["modalidad_sede"]).strip(),
+                        "ciclo_escolar": (inst.get("cicloEscolar") or inst.get("ciclo_escolar") or por_defecto["ciclo_escolar"]).strip(),
+                    }
+    except Exception:
+        pass
+    return por_defecto
+
+
 @router.post("/registro", response_model=UsuarioOut, status_code=status.HTTP_201_CREATED)
 def registrar_usuario(datos: RegistroUsuarioInput, db: Session = Depends(get_db)):
     email_principal = datos.email.strip().lower()
@@ -205,6 +217,11 @@ def registrar_usuario(datos: RegistroUsuarioInput, db: Session = Depends(get_db)
     if rol_por_defecto is None:
         raise HTTPException(status_code=500, detail="No fue posible completar el registro")
 
+    carrera_limpia = (datos.carrera or "").strip() or None
+    grupo_limpio = (datos.semestre_grupo or "").strip() or None
+    facultad_limpia = (datos.id_facultad or "ETDA").strip() or "ETDA"
+    matricula_limpia = (datos.matricula or "").strip() or None
+
     nuevo_usuario = Usuario(
         nombre=datos.nombre.strip(),
         email=email_principal,
@@ -215,10 +232,92 @@ def registrar_usuario(datos: RegistroUsuarioInput, db: Session = Depends(get_db)
         telefono_principal=tel_1,
         telefono_secundario=tel_2,
     )
+
+    # Guardar carrera, facultad y grupo en el modelo Usuario si están definidos
+    if hasattr(nuevo_usuario, "id_facultad"):
+        nuevo_usuario.id_facultad = facultad_limpia
+    if hasattr(nuevo_usuario, "id_carrera") and carrera_limpia:
+        nuevo_usuario.id_carrera = carrera_limpia
+    if hasattr(nuevo_usuario, "grupos") and grupo_limpio:
+        nuevo_usuario.grupos = [grupo_limpio]
+    if hasattr(nuevo_usuario, "matricula") and matricula_limpia:
+        setattr(nuevo_usuario, "matricula", matricula_limpia)
+
     db.add(nuevo_usuario)
     db.commit()
     db.refresh(nuevo_usuario)
+
+    # Asegurar persistencia directa en la tabla usuarios para matricula, id_carrera e id_facultad
+    try:
+        db.execute(
+            text("""
+                UPDATE usuarios
+                SET matricula = COALESCE(:mat, matricula),
+                    id_carrera = COALESCE(:car, id_carrera),
+                    id_facultad = COALESCE(:fac, id_facultad)
+                WHERE id = :uid
+            """),
+            {
+                "mat": matricula_limpia,
+                "car": carrera_limpia,
+                "fac": facultad_limpia,
+                "uid": nuevo_usuario.id,
+            },
+        )
+        db.commit()
+    except Exception as e:
+        print(f"[Registro] Aviso al guardar campos académicos en usuarios: {e}")
+
     return UsuarioOut.desde_usuario(nuevo_usuario)
+
+
+@router.get("/expediente")
+def obtener_expediente_alumno(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve los datos académicos del alumno (elegidos al crear su cuenta) junto con
+    los datos institucionales estáticos (Escuela, Modalidad/Sede y Ciclo Escolar)
+    configurados por el Administrador en el Panel Web.
+    """
+    matricula_db = getattr(usuario, "matricula", None)
+    carrera_db = getattr(usuario, "id_carrera", None)
+    facultad_db = getattr(usuario, "id_facultad", None) or "ETDA"
+    grupos_db = getattr(usuario, "grupos", None) or []
+
+    try:
+        row = db.execute(
+            text("SELECT matricula, id_carrera, id_facultad FROM usuarios WHERE id = :uid"),
+            {"uid": usuario.id},
+        ).fetchone()
+        if row:
+            if row[0]:
+                matricula_db = row[0]
+            if row[1]:
+                carrera_db = row[1]
+            if row[2]:
+                facultad_db = row[2]
+    except Exception:
+        pass
+
+    semestre_grupo = grupos_db[0] if isinstance(grupos_db, list) and len(grupos_db) > 0 else ""
+    estaticos = _obtener_datos_institucionales_estaticos(db)
+    rol_nombre = usuario.rol.nombre if usuario.rol else "Usuario Regular"
+
+    return {
+        "nombre": usuario.nombre,
+        "email": usuario.email,
+        "rol": rol_nombre,
+        "es_egresado": bool(getattr(usuario, "es_egresado", False)),
+        "matricula": matricula_db or "",
+        "carrera": carrera_db or "",
+        "semestre_grupo": semestre_grupo or "",
+        "id_facultad": facultad_db,
+        "escuela": estaticos["escuela"],
+        "modalidad_sede": estaticos["modalidad_sede"],
+        "ciclo_escolar": estaticos["ciclo_escolar"],
+    }
 
 
 @router.post("/login")
@@ -232,17 +331,14 @@ def iniciar_sesion(
     email_ingresado = (datos.email if datos.email is not None and datos.email != "" else (datos.correo or "")).strip()
     password_ingresada = (datos.password or "").strip()
 
-    # Caso 4 de la rúbrica: Campos vacíos -> Error de validación (400)
     if not email_ingresado or not password_ingresada:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Error de validación: Debes proporcionar correo y contraseña",
         )
 
-    # Caso 6 de la rúbrica: Verificar si ya acumula 5 intentos fallidos consecutivos -> 429
     _verificar_bloqueo_fuerza_bruta(ip, email_ingresado)
 
-    # Fase 2 y Fase 4 (Inyección SQL): Consulta parametrizada mediante ORM SQLAlchemy
     usuario = db.query(Usuario).filter(Usuario.email == email_ingresado.lower()).first()
 
     credenciales_validas = (
@@ -254,13 +350,11 @@ def iniciar_sesion(
     if not credenciales_validas:
         registrar_auditoria(db, usuario_email=email_ingresado, ip=ip, accion="login", exitoso=False)
         _registrar_fallo_fuerza_bruta(ip, email_ingresado)
-        # Casos 2, 3 y 5 de la rúbrica: Mismo código 401 y mensaje genérico exacto
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales inválidas",
         )
 
-    # Login exitoso: reiniciar contador de fuerza bruta y registrar en bitácora
     _limpiar_fuerza_bruta(ip, email_ingresado)
     registrar_auditoria(db, usuario_email=usuario.email, ip=ip, accion="login", exitoso=True)
 
@@ -269,7 +363,6 @@ def iniciar_sesion(
     user_agent = (request.headers.get("user-agent") or "").lower()
     es_cliente_postman = "postman" in user_agent
 
-    # Verificar si el usuario ya validó su 2FA dentro de los 30 días o si es prueba directa en Postman
     vigencia_2fa_activa = False
     if ultima_2fa is not None and bool(usuario.codigo_2fa):
         if ultima_2fa.tzinfo is None:
@@ -281,7 +374,6 @@ def iniciar_sesion(
         rol_nombre = usuario.rol.nombre if usuario.rol else "Usuario Regular"
         access_token = crear_access_token(usuario.email, rol=rol_nombre)
         refresh_token = crear_refresh_token(usuario.email)
-        # En Postman no seteamos cookies para que la prueba de Ruta Protegida SIN Token dé 401 directo
         if not es_cliente_postman:
             _set_cookies_de_sesion(response, access_token, refresh_token)
         return {
@@ -294,14 +386,12 @@ def iniciar_sesion(
             "email": usuario.email,
         }
 
-    # Si es la primera vez o ya venció el mes (30 días), generar código con vigencia de 1 mes
     codigo_6_digitos = f"{random.randint(100000, 999999)}"
     usuario.codigo_2fa = codigo_6_digitos
     usuario.codigo_2fa_expiracion = ahora + DURACION_VIGENCIA_2FA
     usuario.ultima_verificacion_2fa = None
     db.commit()
 
-    # Nota Fase 4 (Revisión de registros): Nunca se imprimen contraseñas ni tokens JWT en consola
     print("\n==========================================")
     print(f"[2FA] CÓDIGO GENERADO PARA {usuario.email}: {codigo_6_digitos} (Vigente por 30 días)")
     print("==========================================\n")
@@ -342,7 +432,6 @@ def verificar_2fa(
         if ahora > expiracion:
             raise HTTPException(status_code=400, detail="El código ha expirado, solicita uno nuevo")
 
-    # Conservar el código y la marca de verificación vigentes durante 1 mes (30 días)
     usuario.codigo_2fa_expiracion = ahora + DURACION_VIGENCIA_2FA
     usuario.ultima_verificacion_2fa = ahora
     db.commit()
@@ -361,7 +450,6 @@ def verificar_2fa(
 
 @router.post("/logout")
 def cerrar_sesion(response: Response):
-    """Elimina las cookies HttpOnly de sesión al salir del panel web."""
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return {"mensaje": "Sesión cerrada correctamente"}

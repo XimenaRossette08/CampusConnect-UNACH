@@ -48,7 +48,7 @@ try:
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 
-# 1b. Asegurar columnas de Alumnos Egresados, vigencia de 2FA y Token FCM de Firebase en usuarios
+# 1b. Asegurar columnas de Alumnos Egresados, Expediente Académico (matricula, carrera, facultad), 2FA y FCM en usuarios
 try:
     with engine.begin() as _conn:
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_egresado BOOLEAN NOT NULL DEFAULT FALSE"))
@@ -57,8 +57,11 @@ try:
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono_secundario VARCHAR"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultima_verificacion_2fa TIMESTAMPTZ"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS fcm_token VARCHAR"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS matricula VARCHAR"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS id_facultad VARCHAR"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS id_carrera VARCHAR"))
 except Exception as e:
-    logger.warning(f"No se pudo alterar la tabla usuarios para egresados/2FA/FCM: {e}")
+    logger.warning(f"No se pudo alterar la tabla usuarios para expediente/egresados/2FA/FCM: {e}")
 
 # 2. Sembrar únicamente la facultad ETDA
 try:
@@ -137,7 +140,7 @@ sembrar_datos_iniciales()
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    # Inicializar Firebase Admin SDK y el Job Scheduler (APScheduler) de recordatorios 24h
+    # Inicializar Firebase Admin SDK y el Job Scheduler (APScheduler) de notificaciones
     inicializar_firebase()
     iniciar_scheduler_recordatorios()
     yield
@@ -178,7 +181,6 @@ async def cabeceras_seguras(request: Request, call_next):
     return respuesta
 
 
-
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^https://.*\.vercel\.app$|^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
@@ -216,8 +218,43 @@ def health_check():
 
 
 # ==============================================================================
-# PERSISTENCIA DEL CATÁLOGO DE FACULTAD, CARRERAS, GRUPOS Y AUDITORIOS (ASIENTOS)
+# PERSISTENCIA DEL CATÁLOGO DE FACULTAD, CARRERAS CON GRUPOS Y DATOS ESTÁTICOS
 # ==============================================================================
+CATALOGO_INSTITUCIONAL_DEFECTO = {
+    "facultadActiva": "ETDA",
+    "datosInstitucionales": {
+        "escuela": "Escuela de Tecnologías Digitales Aplicadas (ETDA)",
+        "modalidadSede": "Escolarizada (Campus I, Tuxtla Gutiérrez)",
+        "cicloEscolar": "Agosto - Diciembre 2026",
+    },
+    "facultades": [
+        {"id": "ETDA", "nombre": "Escuela de Tecnologías Digitales Aplicadas (ETDA)"},
+        {"id": "FCA", "nombre": "Facultad de Contaduría y Administración (FCA)"},
+        {"id": "FI", "nombre": "Facultad de Ingeniería (FI)"},
+    ],
+    "carreras": [
+        {
+            "id": "LIDTS",
+            "nombre": "Lic. en Ingeniería en Desarrollo y Tecnologías de Software",
+            "facultadId": "ETDA",
+            "grupos": ["1A", "1B", "3A", "3B", "5A", "5B", "7N", "7O", "8A"],
+        },
+        {
+            "id": "LSC",
+            "nombre": "Lic. en Sistemas Computacionales",
+            "facultadId": "FCA",
+            "grupos": ["1A", "1B", "3A", "5A", "7A", "9A"],
+        },
+        {
+            "id": "IC",
+            "nombre": "Ingeniería Civil",
+            "facultadId": "FI",
+            "grupos": ["1A", "2A", "3A", "4A", "5A", "6A", "7A", "8A"],
+        },
+    ],
+    "grupos": ["1A", "1B", "2A", "3A", "3B", "4A", "5A", "5B", "6A", "7A", "7N", "7O", "8A", "9A"],
+}
+
 try:
     with engine.begin() as _conn:
         _conn.execute(text("""
@@ -236,10 +273,24 @@ def obtener_catalogos_facultad():
         row = conn.execute(text("SELECT payload_json FROM catalogos_institucionales WHERE id = 1")).fetchone()
         if row and row[0]:
             try:
-                return json.loads(row[0])
+                guardado = json.loads(row[0])
+                if isinstance(guardado, dict):
+                    # Asegurar que datosInstitucionales y grupos por carrera existan siempre
+                    datos_inst = dict(CATALOGO_INSTITUCIONAL_DEFECTO["datosInstitucionales"])
+                    if isinstance(guardado.get("datosInstitucionales"), dict):
+                        datos_inst.update({k: v for k, v in guardado["datosInstitucionales"].items() if v})
+                    guardado["datosInstitucionales"] = datos_inst
+
+                    grupos_globales = guardado.get("grupos") or CATALOGO_INSTITUCIONAL_DEFECTO["grupos"]
+                    carreras_guardadas = guardado.get("carreras") or CATALOGO_INSTITUCIONAL_DEFECTO["carreras"]
+                    for c in carreras_guardadas:
+                        if isinstance(c, dict) and not c.get("grupos"):
+                            c["grupos"] = list(grupos_globales)
+                    guardado["carreras"] = carreras_guardadas
+                    return guardado
             except Exception:
                 pass
-    return {}
+    return CATALOGO_INSTITUCIONAL_DEFECTO
 
 
 @app.put("/catalogos/facultad")

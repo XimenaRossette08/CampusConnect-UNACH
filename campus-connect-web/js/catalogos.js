@@ -33,8 +33,16 @@ const MEMBRETE_ETDA_POR_DEFECTO = {
     logoDerecho: LOGO_EDUCACION_DER_DEFAULT
 };
 
+
+const DATOS_INSTITUCIONALES_POR_DEFECTO = {
+    escuela: "Escuela de Tecnologías Digitales Aplicadas (ETDA)",
+    modalidadSede: "Escolarizada (Campus I, Tuxtla Gutiérrez)",
+    cicloEscolar: "Agosto - Diciembre 2026"
+};
+
 const CATALOGO_POR_DEFECTO = {
     membrete: JSON.parse(JSON.stringify(MEMBRETE_ETDA_POR_DEFECTO)),
+    datosInstitucionales: JSON.parse(JSON.stringify(DATOS_INSTITUCIONALES_POR_DEFECTO)),
     facultadActiva: "ETDA",
     facultades: [
         { id: "ETDA", nombre: "Escuela de Tecnologías Digitales Aplicadas (ETDA)" },
@@ -42,11 +50,26 @@ const CATALOGO_POR_DEFECTO = {
         { id: "FI", nombre: "Facultad de Ingeniería (FI)" }
     ],
     carreras: [
-        { id: "LIDTS", nombre: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software", facultadId: "ETDA" },
-        { id: "LSC", nombre: "Lic. en Sistemas Computacionales", facultadId: "FCA" },
-        { id: "IC", nombre: "Ingeniería Civil", facultadId: "FI" }
+        {
+            id: "LIDTS",
+            nombre: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software",
+            facultadId: "ETDA",
+            grupos: ["1A", "1B", "3A", "3B", "5A", "5B", "7N", "7O", "8A"]
+        },
+        {
+            id: "LSC",
+            nombre: "Lic. en Sistemas Computacionales",
+            facultadId: "FCA",
+            grupos: ["1A", "1B", "3A", "5A", "7A", "9A"]
+        },
+        {
+            id: "IC",
+            nombre: "Ingeniería Civil",
+            facultadId: "FI",
+            grupos: ["1A", "2A", "3A", "4A", "5A", "6A", "7A", "8A"]
+        }
     ],
-    grupos: ["1A", "1B", "3A", "3B", "5A", "5B", "7N", "7O", "8A"],
+    grupos: ["1A", "1B", "2A", "3A", "3B", "4A", "5A", "5B", "6A", "7A", "7N", "7O", "8A", "9A"],
     auditorios: [
         { id: "aud-etda", nombre: "Auditorio Principal ETDA", asientos: 180, ubicacion: "Edificio Principal ETDA" },
         { id: "sala-av1", nombre: "Sala Audiovisual 1", asientos: 60, ubicacion: "Planta Alta ETDA" },
@@ -58,6 +81,40 @@ const CATALOGO_POR_DEFECTO = {
     categorias: ["Académicos", "Conferencias", "Talleres", "Tutorías", "Culturales", "Deporte"]
 };
 
+function normalizarCarrerasConGrupos(carrerasRaw, gruposGlobales) {
+    const fallbackGrupos = Array.isArray(gruposGlobales) && gruposGlobales.length
+        ? gruposGlobales
+        : [...CATALOGO_POR_DEFECTO.grupos];
+    const lista = Array.isArray(carrerasRaw) && carrerasRaw.length
+        ? carrerasRaw
+        : JSON.parse(JSON.stringify(CATALOGO_POR_DEFECTO.carreras));
+    return lista.map(c => {
+        const def = CATALOGO_POR_DEFECTO.carreras.find(
+            d => d.nombre.toLowerCase() === (c.nombre || "").toLowerCase()
+        );
+        const gruposCarrera = Array.isArray(c.grupos) && c.grupos.length
+            ? c.grupos.map(g => String(g).trim().toUpperCase()).filter(Boolean)
+            : (def && Array.isArray(def.grupos) ? [...def.grupos] : [...fallbackGrupos]);
+        return {
+            id: c.id || (c.nombre || "CARRERA").slice(0, 12).toUpperCase().replace(/\s+/g, "_"),
+            nombre: c.nombre,
+            facultadId: c.facultadId || "ETDA",
+            grupos: Array.from(new Set(gruposCarrera))
+        };
+    });
+}
+
+function sincronizarGruposGlobalesDesdeCarreras(catalogoObj) {
+    const setGrupos = new Set((catalogoObj.grupos || []).map(g => String(g).trim().toUpperCase()).filter(Boolean));
+    (catalogoObj.carreras || []).forEach(c => {
+        (c.grupos || []).forEach(g => {
+            const limpio = String(g).trim().toUpperCase();
+            if (limpio) setGrupos.add(limpio);
+        });
+    });
+    catalogoObj.grupos = Array.from(setGrupos).sort();
+}
+
 let estadoCatalogos = cargarCatalogosLocal();
 
 function cargarCatalogosLocal() {
@@ -65,15 +122,23 @@ function cargarCatalogosLocal() {
         const raw = localStorage.getItem(STORAGE_CATALOGOS_KEY);
         if (!raw) return JSON.parse(JSON.stringify(CATALOGO_POR_DEFECTO));
         const parsed = JSON.parse(raw);
-        return {
+        const gruposBase = Array.isArray(parsed.grupos) && parsed.grupos.length ? parsed.grupos : [...CATALOGO_POR_DEFECTO.grupos];
+        const carrerasNorm = normalizarCarrerasConGrupos(parsed.carreras, gruposBase);
+        const obj = {
             facultadActiva: parsed.facultadActiva || CATALOGO_POR_DEFECTO.facultadActiva,
             facultades: Array.isArray(parsed.facultades) && parsed.facultades.length ? parsed.facultades : [...CATALOGO_POR_DEFECTO.facultades],
-            carreras: Array.isArray(parsed.carreras) && parsed.carreras.length ? parsed.carreras : [...CATALOGO_POR_DEFECTO.carreras],
-            grupos: Array.isArray(parsed.grupos) && parsed.grupos.length ? parsed.grupos : [...CATALOGO_POR_DEFECTO.grupos],
+            carreras: carrerasNorm,
+            grupos: gruposBase,
             auditorios: Array.isArray(parsed.auditorios) && parsed.auditorios.length ? parsed.auditorios : [...CATALOGO_POR_DEFECTO.auditorios],
             categorias: Array.isArray(parsed.categorias) && parsed.categorias.length ? parsed.categorias : [...CATALOGO_POR_DEFECTO.categorias],
+            datosInstitucionales: {
+                ...DATOS_INSTITUCIONALES_POR_DEFECTO,
+                ...(parsed.datosInstitucionales || {})
+            },
             membrete: { ...MEMBRETE_ETDA_POR_DEFECTO, ...(parsed.membrete || {}) }
         };
+        sincronizarGruposGlobalesDesdeCarreras(obj);
+        return obj;
     } catch (_) {
         return JSON.parse(JSON.stringify(CATALOGO_POR_DEFECTO));
     }
@@ -82,16 +147,23 @@ function cargarCatalogosLocal() {
 async function sincronizarCatalogosDesdeServidor() {
     try {
         const remoto = await api("/catalogos/facultad");
-        if (remoto && typeof remoto === "object" && Array.isArray(remoto.auditorios)) {
+        if (remoto && typeof remoto === "object" && (Array.isArray(remoto.auditorios) || Array.isArray(remoto.carreras))) {
+            const gruposRemotos = remoto.grupos?.length ? remoto.grupos : estadoCatalogos.grupos;
             estadoCatalogos = {
                 facultadActiva: remoto.facultadActiva || estadoCatalogos.facultadActiva,
                 facultades: remoto.facultades?.length ? remoto.facultades : estadoCatalogos.facultades,
-                carreras: remoto.carreras?.length ? remoto.carreras : estadoCatalogos.carreras,
-                grupos: remoto.grupos?.length ? remoto.grupos : estadoCatalogos.grupos,
+                carreras: normalizarCarrerasConGrupos(remoto.carreras?.length ? remoto.carreras : estadoCatalogos.carreras, gruposRemotos),
+                grupos: gruposRemotos,
                 auditorios: remoto.auditorios?.length ? remoto.auditorios : estadoCatalogos.auditorios,
                 categorias: remoto.categorias?.length ? remoto.categorias : estadoCatalogos.categorias,
+                datosInstitucionales: {
+                    ...DATOS_INSTITUCIONALES_POR_DEFECTO,
+                    ...(estadoCatalogos.datosInstitucionales || {}),
+                    ...(remoto.datosInstitucionales || {})
+                },
                 membrete: { ...MEMBRETE_ETDA_POR_DEFECTO, ...(estadoCatalogos.membrete || {}), ...(remoto.membrete || {}) }
             };
+            sincronizarGruposGlobalesDesdeCarreras(estadoCatalogos);
             localStorage.setItem(STORAGE_CATALOGOS_KEY, JSON.stringify(estadoCatalogos));
         }
     } catch (_) {
@@ -100,6 +172,7 @@ async function sincronizarCatalogosDesdeServidor() {
 }
 
 async function persistirCatalogos(mensajeToast = "Catálogo institucional actualizado.") {
+    sincronizarGruposGlobalesDesdeCarreras(estadoCatalogos);
     localStorage.setItem(STORAGE_CATALOGOS_KEY, JSON.stringify(estadoCatalogos));
     try {
         await api("/catalogos/facultad", {
@@ -202,23 +275,45 @@ function renderizarVistaCatalogos() {
         `).join("");
     }
 
-    // 4. Lista de Carreras / Programas Educativos
+    // 4. Lista de Carreras / Programas Educativos CON SUS GRUPOS ESPECÍFICOS
     const contCarreras = document.getElementById("lista-cat-carreras");
     if (contCarreras) {
-        contCarreras.innerHTML = (estadoCatalogos.carreras || []).map((c, idx) => `
-            <div class="flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50">
-                <div>
-                    <span class="inline-block text-[10px] font-extrabold bg-sky-100 text-[#0093FF] px-2 py-0.5 rounded mr-1.5">${esc(c.facultadId || "UNACH")}</span>
-                    <span class="text-xs font-bold text-[#122652]">${esc(c.nombre)}</span>
+        contCarreras.innerHTML = (estadoCatalogos.carreras || []).map((c, idx) => {
+            const gruposCarrera = Array.isArray(c.grupos) ? c.grupos : [];
+            const chipsGruposHtml = gruposCarrera.map((g, gIdx) => `
+                <span class="inline-flex items-center gap-1 bg-white border border-slate-300 text-[#122652] text-[10px] font-extrabold px-2 py-0.5 rounded-lg">
+                    <span>${esc(g)}</span>
+                    <button type="button" onclick="eliminarGrupoDeCarreraCatalogo(${idx}, ${gIdx})" class="text-slate-400 hover:text-red-600 font-bold ml-0.5" title="Quitar grupo de esta carrera">×</button>
+                </span>
+            `).join("");
+            return `
+            <div class="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                    <div>
+                        <span class="inline-block text-[10px] font-extrabold bg-sky-100 text-[#0093FF] px-2 py-0.5 rounded mr-1.5">${esc(c.facultadId || "UNACH")}</span>
+                        <span class="text-xs font-bold text-[#122652]">${esc(c.nombre)}</span>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <button type="button" onclick="editarGruposDeCarreraCatalogo(${idx})"
+                            class="text-[11px] font-bold text-[#0093FF] bg-white hover:bg-sky-50 border border-sky-200 px-2 py-1 rounded-lg transition"
+                            title="Agregar o editar grupos de esta carrera">
+                            <i class="fa-solid fa-users-rectangle mr-1"></i>+ Grupos
+                        </button>
+                        <button type="button" onclick="eliminarCarreraCatalogo(${idx})" class="text-red-500 hover:text-red-700 text-xs px-2 py-1" title="Eliminar carrera">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
                 </div>
-                <button type="button" onclick="eliminarCarreraCatalogo(${idx})" class="text-red-500 hover:text-red-700 text-xs px-2 py-1">
-                    <i class="fa-solid fa-trash-can"></i>
-                </button>
+                <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-200/70">
+                    <span class="text-[10px] font-extrabold text-slate-500 mr-1"><i class="fa-solid fa-layer-group text-[#F57C00] mr-1"></i>Grupos de la carrera:</span>
+                    ${chipsGruposHtml || `<span class="text-[10px] text-slate-400 italic">Sin grupos asignados (haz clic en + Grupos)</span>`}
+                </div>
             </div>
-        `).join("");
+            `;
+        }).join("");
     }
 
-    // 5. Chips de Grupos Académicos
+    // 5. Chips de Grupos Académicos Globales
     const contGrupos = document.getElementById("lista-cat-grupos");
     if (contGrupos) {
         contGrupos.innerHTML = (estadoCatalogos.grupos || []).map((g, idx) => `
@@ -229,6 +324,18 @@ function renderizarVistaCatalogos() {
             </span>
         `).join("");
     }
+
+    // 5b. Datos Institucionales Estáticos (Escuela, Modalidad/Sede, Ciclo Escolar)
+    const datosInst = {
+        ...DATOS_INSTITUCIONALES_POR_DEFECTO,
+        ...(estadoCatalogos.datosInstitucionales || {})
+    };
+    const inpEsc = document.getElementById("cat-inst-escuela");
+    const inpMod = document.getElementById("cat-inst-modalidad");
+    const inpCiclo = document.getElementById("cat-inst-ciclo");
+    if (inpEsc) inpEsc.value = datosInst.escuela || "";
+    if (inpMod) inpMod.value = datosInst.modalidadSede || "";
+    if (inpCiclo) inpCiclo.value = datosInst.cicloEscolar || "";
 
     renderizarResumenMembreteEnCatalogos();
 
@@ -320,16 +427,54 @@ function agregarCarreraCatalogo(e) {
     e.preventDefault();
     const facultadId = document.getElementById("cat-nueva-carrera-facultad").value;
     const nombre = document.getElementById("cat-nueva-carrera-nombre").value.trim();
+    const rawGrupos = (document.getElementById("cat-nueva-carrera-grupos")?.value || "").trim();
     if (!nombre) return;
-    if (!estadoCatalogos.carreras.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) {
+
+    const gruposIngresados = rawGrupos
+        ? rawGrupos.split(",").map(g => g.trim().toUpperCase()).filter(Boolean)
+        : [...(estadoCatalogos.grupos || ["1A", "3A", "5A", "7N"])];
+
+    const existente = estadoCatalogos.carreras.find(c => c.nombre.toLowerCase() === nombre.toLowerCase());
+    if (existente) {
+        existente.facultadId = facultadId;
+        existente.grupos = Array.from(new Set([...(existente.grupos || []), ...gruposIngresados]));
+    } else {
         estadoCatalogos.carreras.push({
             id: nombre.slice(0, 12).toUpperCase().replace(/\s+/g, "_"),
             nombre,
-            facultadId
+            facultadId,
+            grupos: Array.from(new Set(gruposIngresados))
         });
     }
+
     document.getElementById("cat-nueva-carrera-nombre").value = "";
-    persistirCatalogos(`Carrera "${nombre}" agregada a ${facultadId}.`);
+    const inpGrupos = document.getElementById("cat-nueva-carrera-grupos");
+    if (inpGrupos) inpGrupos.value = "";
+    persistirCatalogos(`Carrera "${nombre}" guardada con sus grupos en ${facultadId}.`);
+}
+
+function editarGruposDeCarreraCatalogo(idx) {
+    const carrera = estadoCatalogos.carreras[idx];
+    if (!carrera) return;
+    const actuales = Array.isArray(carrera.grupos) ? carrera.grupos.join(", ") : "";
+    const respuesta = prompt(
+        `Configura los grupos de la carrera "${carrera.nombre}" (separados por coma):`,
+        actuales || "1A, 1B, 3A, 3B, 5A, 5B, 7N, 7O, 8A"
+    );
+    if (respuesta === null) return;
+    const nuevosGrupos = respuesta
+        .split(",")
+        .map(g => g.trim().toUpperCase())
+        .filter(Boolean);
+    carrera.grupos = Array.from(new Set(nuevosGrupos));
+    persistirCatalogos(`Grupos de "${carrera.nombre}" actualizados.`);
+}
+
+function eliminarGrupoDeCarreraCatalogo(carreraIdx, grupoIdx) {
+    const carrera = estadoCatalogos.carreras[carreraIdx];
+    if (!carrera || !Array.isArray(carrera.grupos)) return;
+    carrera.grupos.splice(grupoIdx, 1);
+    persistirCatalogos(`Grupo eliminado de "${carrera.nombre}".`);
 }
 
 function eliminarCarreraCatalogo(idx) {
@@ -355,6 +500,23 @@ function agregarGruposCatalogo(e) {
 function eliminarGrupoCatalogo(idx) {
     estadoCatalogos.grupos.splice(idx, 1);
     persistirCatalogos("Grupo eliminado del catálogo.");
+}
+
+function guardarDatosInstitucionalesCatalogo(e) {
+    if (e) e.preventDefault();
+    const escuela = (document.getElementById("cat-inst-escuela")?.value || "").trim()
+        || DATOS_INSTITUCIONALES_POR_DEFECTO.escuela;
+    const modalidadSede = (document.getElementById("cat-inst-modalidad")?.value || "").trim()
+        || DATOS_INSTITUCIONALES_POR_DEFECTO.modalidadSede;
+    const cicloEscolar = (document.getElementById("cat-inst-ciclo")?.value || "").trim()
+        || DATOS_INSTITUCIONALES_POR_DEFECTO.cicloEscolar;
+
+    estadoCatalogos.datosInstitucionales = {
+        escuela,
+        modalidadSede,
+        cicloEscolar
+    };
+    persistirCatalogos("Datos institucionales estáticos del expediente guardados y sincronizados con la App.");
 }
 
 function agregarCategoriaCatalogo(e) {

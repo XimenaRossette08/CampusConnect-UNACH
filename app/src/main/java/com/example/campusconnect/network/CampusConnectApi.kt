@@ -1,7 +1,9 @@
 package com.example.campusconnect.network
 
+import com.example.campusconnect.model.CatalogoFacultadResponse
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.model.EventoCreateRequest
+import com.example.campusconnect.model.ExpedienteAlumnoResponse
 import com.example.campusconnect.model.LoginRequest
 import com.example.campusconnect.model.LoginResponse
 import com.example.campusconnect.model.RegistroRequest
@@ -36,6 +38,12 @@ interface CampusConnectApi {
     suspend fun registrarFcmToken(
         @Body body: Map<String, String>
     ): Response<ResponseBody>
+
+    @GET("auth/expediente")
+    suspend fun obtenerExpedienteAlumno(): ExpedienteAlumnoResponse
+
+    @GET("catalogos/facultad")
+    suspend fun obtenerCatalogosFacultad(): CatalogoFacultadResponse
 
     @GET("eventos/feed")
     suspend fun obtenerEventos(): List<Evento>

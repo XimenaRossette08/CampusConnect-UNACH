@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.campusconnect.ComposeLoginActivity
 import com.example.campusconnect.TokenManager
+import com.example.campusconnect.formatearEtiquetaGrupo
+import com.example.campusconnect.network.RetrofitClient
 
 // Paleta Oficial ETDA - UNACH
 private val EtdaNavy = Color(0xFF122652)
@@ -53,20 +55,45 @@ private data class DatosAcademicosAlumno(
     val cicloEscolar: String
 )
 
+private fun calcularInicialesNombre(nombreCompleto: String): String {
+    val partes = nombreCompleto.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    return when {
+        partes.size >= 2 -> "${partes[0].first()}${partes[1].first()}".uppercase()
+        partes.size == 1 -> partes[0].take(2).uppercase()
+        else -> "UN"
+    }
+}
+
+private fun formatearRolAlumno(rolGuardado: String?, esEgresado: Boolean = false): String {
+    if (esEgresado) return "Alumno Egresado"
+    return when (rolGuardado?.lowercase()) {
+        "admin", "administrador", "superadmin" -> "Administrador ETDA"
+        "organizador", "docente", "editor" -> "Organizador Académico"
+        "alumno", "estudiante", "usuario_regular", "usuario regular" -> "Estudiante Activo"
+        else -> if (!rolGuardado.isNullOrBlank()) rolGuardado else "Estudiante Activo"
+    }
+}
+
 private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
     val correoReal = TokenManager.obtenerEmail(context).trim().lowercase()
     val rolGuardado = TokenManager.obtenerRol(context)
+    val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
 
-    val rolFormateado = when (rolGuardado?.lowercase()) {
-        "admin", "administrador", "superadmin" -> "Administrador ETDA"
-        "organizador", "docente" -> "Organizador Académico"
-        "alumno", "estudiante", "usuario_regular" -> "Estudiante Activo"
-        else -> if (!rolGuardado.isNullOrBlank()) rolGuardado else "Estudiante Activo"
-    }
+    val nombreGuardado = prefs.getString("nombre_$correoReal", null)?.takeIf { it.isNotBlank() }
+    val matriculaGuardada = prefs.getString("matricula_$correoReal", null)?.takeIf { it.isNotBlank() }
+    val carreraGuardada = prefs.getString("carrera_$correoReal", null)?.takeIf { it.isNotBlank() }
+    val grupoGuardado = prefs.getString("grupo_$correoReal", null)?.takeIf { it.isNotBlank() }
+
+    val escuelaEstatica = prefs.getString("inst_escuela", null)?.takeIf { it.isNotBlank() }
+        ?: "Escuela de Tecnologías Digitales Aplicadas (ETDA)"
+    val modalidadEstatica = prefs.getString("inst_modalidad", null)?.takeIf { it.isNotBlank() }
+        ?: "Escolarizada (Campus I, Tuxtla Gutiérrez)"
+    val cicloEstatico = prefs.getString("inst_ciclo", null)?.takeIf { it.isNotBlank() }
+        ?: "Agosto - Diciembre 2026"
 
     val usuarioCorreo = correoReal.substringBefore("@")
 
-    val (nombreFinal, inicialesFinal, matriculaFinal) = when {
+    val (nombreFallback, inicialesFallback, matriculaFallback) = when {
         correoReal.startsWith("luz.rossette") -> Triple("Luz Ximena Rossette Pérez", "LX", "100016853")
         correoReal.contains("yasir") || correoReal.contains("estrada") -> Triple("Rodolfo Yasir Estrada Gálvez", "RY", "100016854")
         else -> {
@@ -76,27 +103,33 @@ private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
                 partesNombre.size == 1 -> partesNombre[0]
                 else -> "Estudiante UNACH"
             }
-            val ini = when {
-                partesNombre.size >= 2 -> "${partesNombre[0].first()}${partesNombre[1].first()}".uppercase()
-                partesNombre.size == 1 -> partesNombre[0].take(2).uppercase()
-                else -> "UN"
-            }
+            val ini = calcularInicialesNombre(nombre)
             val digitos = usuarioCorreo.filter { it.isDigit() }.ifEmpty { "53" }
             Triple(nombre, ini, "1000168$digitos")
         }
+    }
+
+    val nombreFinal = nombreGuardado ?: nombreFallback
+    val inicialesFinal = if (nombreGuardado != null) calcularInicialesNombre(nombreGuardado) else inicialesFallback
+    val matriculaFinal = matriculaGuardada ?: matriculaFallback
+    val carreraFinal = carreraGuardada ?: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software"
+    val semestreGrupoFinal = if (!grupoGuardado.isNullOrBlank()) {
+        formatearEtiquetaGrupo(grupoGuardado)
+    } else {
+        "7° Semestre • Grupo N"
     }
 
     return DatosAcademicosAlumno(
         nombreCompleto = nombreFinal,
         iniciales = inicialesFinal,
         correo = correoReal,
-        rol = rolFormateado,
+        rol = formatearRolAlumno(rolGuardado),
         matricula = matriculaFinal,
-        escuela = "Escuela de Tecnologías Digitales Aplicadas (ETDA)",
-        carrera = "Lic. en Ingeniería en Desarrollo y Tecnologías de Software",
-        semestreGrupo = "7° Semestre • Grupo N",
-        modalidad = "Escolarizada (Campus I, Tuxtla Gutiérrez)",
-        cicloEscolar = "Agosto - Diciembre 2026"
+        escuela = escuelaEstatica,
+        carrera = carreraFinal,
+        semestreGrupo = semestreGrupoFinal,
+        modalidad = modalidadEstatica,
+        cicloEscolar = cicloEstatico
     )
 }
 
@@ -112,7 +145,45 @@ private data class ProgresoCategoriaPerfil(
 fun PerfilScreen(puntos: Int) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
-    val datosAlumno = remember { obtenerDatosSesionAlumno(context) }
+    var datosAlumno by remember { mutableStateOf(obtenerDatosSesionAlumno(context)) }
+
+    // Sincronizar en tiempo real el expediente del alumno y los datos estáticos de Administración
+    LaunchedEffect(Unit) {
+        val api = RetrofitClient.obtenerApi(context)
+        val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
+        val correoReal = TokenManager.obtenerEmail(context).trim().lowercase()
+
+        try {
+            val exp = api.obtenerExpedienteAlumno()
+            val editor = prefs.edit()
+            if (!exp.nombre.isNullOrBlank()) editor.putString("nombre_$correoReal", exp.nombre)
+            if (!exp.matricula.isNullOrBlank()) editor.putString("matricula_$correoReal", exp.matricula)
+            if (!exp.carrera.isNullOrBlank()) editor.putString("carrera_$correoReal", exp.carrera)
+            if (!exp.semestreGrupo.isNullOrBlank()) editor.putString("grupo_$correoReal", exp.semestreGrupo)
+            if (!exp.escuela.isNullOrBlank()) editor.putString("inst_escuela", exp.escuela)
+            if (!exp.modalidadSede.isNullOrBlank()) editor.putString("inst_modalidad", exp.modalidadSede)
+            if (!exp.cicloEscolar.isNullOrBlank()) editor.putString("inst_ciclo", exp.cicloEscolar)
+            editor.apply()
+
+            val actualizado = obtenerDatosSesionAlumno(context)
+            datosAlumno = actualizado.copy(
+                rol = formatearRolAlumno(exp.rol ?: TokenManager.obtenerRol(context), exp.esEgresado == true)
+            )
+        } catch (_: Exception) {
+            // Si /auth/expediente falla, intentar actualizar los datos institucionales desde /catalogos/facultad
+            try {
+                val cat = api.obtenerCatalogosFacultad()
+                cat.datosInstitucionales?.let { inst ->
+                    prefs.edit()
+                        .putString("inst_escuela", inst.escuela ?: datosAlumno.escuela)
+                        .putString("inst_modalidad", inst.modalidadSede ?: datosAlumno.modalidad)
+                        .putString("inst_ciclo", inst.cicloEscolar ?: datosAlumno.cicloEscolar)
+                        .apply()
+                    datosAlumno = obtenerDatosSesionAlumno(context)
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     var mostrarQrDialog by remember { mutableStateOf(false) }
     var mostrarCredencialExpandida by remember { mutableStateOf(true) }
@@ -130,7 +201,7 @@ fun PerfilScreen(puntos: Int) {
     }
 
     val totalEventosAsistidos = categoriasAsistencia.sumOf { it.asistencias }
-    val insigniasDesbloqueadas = 0 // Inicializado en 0
+    val insigniasDesbloqueadas = 0
 
     Column(
         modifier = Modifier
@@ -240,18 +311,24 @@ fun PerfilScreen(puntos: Int) {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         HorizontalDivider(color = Color(0xFFEEF2F6))
                         Spacer(modifier = Modifier.height(14.dp))
+                        // Estático (configurado desde Administración)
                         ItemDatoAcademico(Icons.Default.Domain, "Escuela / Facultad", datosAlumno.escuela, EtdaBlue)
                         Spacer(modifier = Modifier.height(14.dp))
+                        // Elegido por el alumno al registrarse
                         ItemDatoAcademico(Icons.Default.Computer, "Programa Educativo (Carrera)", datosAlumno.carrera, EtdaOrange)
                         Spacer(modifier = Modifier.height(14.dp))
                         Row(modifier = Modifier.fillMaxWidth()) {
+                            // Ingresado por el alumno al registrarse
                             Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Badge, "Matrícula", datosAlumno.matricula, EtdaNavy) }
                             Spacer(modifier = Modifier.width(8.dp))
+                            // Elegido por el alumno al registrarse
                             Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Groups, "Semestre y Grupo", datosAlumno.semestreGrupo, EtdaBlue) }
                         }
                         Spacer(modifier = Modifier.height(14.dp))
+                        // Estático (configurado desde Administración)
                         ItemDatoAcademico(Icons.Default.LocationOn, "Modalidad y Sede", datosAlumno.modalidad, EtdaSuccess)
                         Spacer(modifier = Modifier.height(14.dp))
+                        // Estático (configurado desde Administración)
                         ItemDatoAcademico(Icons.Default.DateRange, "Ciclo Escolar Vigente", datosAlumno.cicloEscolar, EtdaOrange)
                     }
                 }

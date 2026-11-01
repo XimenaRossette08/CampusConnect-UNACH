@@ -132,7 +132,7 @@ def enviar_push_multicast(tokens: List[str], titulo: str, cuerpo: str, data_extr
         android_cfg = messaging.AndroidConfig(
             priority="high",
             notification=messaging.AndroidNotification(
-                channel_id="campus_connect_channel",
+                channel_id="campus_connect_alertas_v2",
                 priority="high",
                 default_sound=True,
                 default_vibrate_timings=True,

@@ -1,9 +1,17 @@
 package com.example.campusconnect.ui
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.example.campusconnect.MyFirebaseMessagingService
+import com.google.firebase.messaging.FirebaseMessaging
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -49,6 +57,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
@@ -58,6 +67,7 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
+// Paleta Oficial ETDA - UNACH
 private val EtdaNavy = Color(0xFF122652)
 private val EtdaBlue = Color(0xFF0093FF)
 private val EtdaOrange = Color(0xFFF57C00)
@@ -67,7 +77,9 @@ private val EtdaSuccess = Color(0xFF10B981)
 private val zonaHorariaMx: TimeZone = TimeZone.getTimeZone("America/Mexico_City")
 private val localeMx = Locale("es", "MX")
 
-private fun obtenerCalendarioLocalMx(): Calendar = Calendar.getInstance(zonaHorariaMx, localeMx)
+private fun obtenerCalendarioLocalMx(): Calendar {
+    return Calendar.getInstance(zonaHorariaMx, localeMx)
+}
 
 private data class DiaMesContext(
     val dia: Int,
@@ -108,44 +120,67 @@ private fun detectarCategoriaEvento(evento: Evento): InfoCategoria {
     }
 }
 
-private val zoneIdMx: ZoneId = ZoneId.of("America/Mexico_City")
-
-private fun parsearZonedDateTimeMx(raw: String?): ZonedDateTime? {
-    if (raw.isNullOrBlank()) return null
-    val limpio = raw.trim()
-    return try { OffsetDateTime.parse(limpio).atZoneSameInstant(zoneIdMx) } catch (_: Exception) {
-        try { Instant.parse(limpio).atZone(zoneIdMx) } catch (_: Exception) {
-            try {
-                val norm = limpio.replace(" ", "T").take(19)
-                val padded = if (norm.length == 16) "$norm:00" else norm
-                LocalDateTime.parse(padded).atZone(zoneIdMx)
-            } catch (_: Exception) { null }
-        }
-    }
-}
-
-private fun fechaIsoLocalMx(raw: String?): String {
-    val zdt = parsearZonedDateTimeMx(raw) ?: return (raw ?: "").take(10)
-    return String.format(Locale.US, "%04d-%02d-%02d", zdt.year, zdt.monthValue, zdt.dayOfMonth)
-}
-
 private fun extraerFechaVisual(fechaHora: String?): Triple<String, String, String> {
     if (fechaHora.isNullOrBlank()) return Triple("OCT", "15", "10:00")
-    val meses = listOf("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
-    parsearZonedDateTimeMx(fechaHora)?.let { zdt ->
-        val mesTxt = meses.getOrElse(zdt.monthValue - 1) { "OCT" }
-        val diaTxt = String.format(Locale.US, "%02d", zdt.dayOfMonth)
-        val horaTxt = String.format(Locale.US, "%02d:%02d", zdt.hour, zdt.minute)
-        return Triple(mesTxt, diaTxt, horaTxt)
-    }
     return try {
+        val meses = listOf("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
         val partes = fechaHora.split("T", " ")
         val fechaPartes = partes[0].split("-")
         val mesIdx = (fechaPartes.getOrNull(1)?.toIntOrNull() ?: 10) - 1
         val dia = fechaPartes.getOrNull(2)?.take(2) ?: "15"
         val hora = partes.getOrNull(1)?.take(5) ?: "10:00"
         Triple(meses.getOrElse(mesIdx) { "OCT" }, dia, hora)
-    } catch (e: Exception) { Triple("OCT", "15", "10:00") }
+    } catch (e: Exception) {
+        Triple("OCT", "15", "10:00")
+    }
+}
+
+private fun parsearInstanteEventoMx(raw: String?): Instant? {
+    if (raw.isNullOrBlank()) return null
+    val limpio = raw.trim()
+    val zoneMx = ZoneId.of("America/Mexico_City")
+    return try {
+        OffsetDateTime.parse(limpio).toInstant()
+    } catch (_: Exception) {
+        try {
+            Instant.parse(limpio)
+        } catch (_: Exception) {
+            try {
+                val norm = limpio.replace(" ", "T").take(19)
+                val padded = if (norm.length == 16) "$norm:00" else norm
+                LocalDateTime.parse(padded).atZone(zoneMx).toInstant()
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+}
+
+private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscritos: List<String>) {
+    val estaInscrito = inscritos.contains(ev.id) || inscritos.contains(ev.titulo)
+    if (!estaInscrito) return
+
+    val ahora = Instant.now()
+    val finInstant = parsearInstanteEventoMx(ev.fechaFin)
+        ?: parsearInstanteEventoMx(ev.fechaHora)?.plus(Duration.ofHours(4))
+        ?: return
+
+    val segundosRestantes = Duration.between(ahora, finInstant).seconds
+    // Si quedan entre 1 segundo y 30 minutos (1800 segundos) para que termine el evento
+    if (segundosRestantes in 1..1800) {
+        val prefs = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
+        val clave = "notificado_aviso_30m_fin_${ev.id}"
+        if (!prefs.getBoolean(clave, false)) {
+            prefs.edit().putBoolean(clave, true).apply()
+            val minRestantes = ((segundosRestantes + 59) / 60).coerceAtLeast(1)
+            MyFirebaseMessagingService.mostrarNotificacion(
+                context = context,
+                titulo = "⏳ Últimos $minRestantes min: ${ev.titulo}",
+                cuerpo = "El evento en ${ev.lugar} está por finalizar. ¡No olvides confirmar tu asistencia!",
+                notifId = ("fin30_${ev.id}").hashCode()
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -158,66 +193,163 @@ fun EventosScreen(
     scope: CoroutineScope
 ) {
     val context = LocalContext.current
+
+    // ESTADO PARA CONTROLAR LA CÁMARA
     var mostrarEscaner by remember { mutableStateOf(false) }
 
     var searchQuery by remember { mutableStateOf("") }
     var filtroSeleccionado by remember { mutableStateOf("Todos") }
     var eventoSeleccionado by remember { mutableStateOf<Evento?>(null) }
     var calendarioExpandido by remember { mutableStateOf(true) }
+
     var tabVistaEventos by remember { mutableIntStateOf(0) }
-
-    // ✅ IMPLEMENTACIÓN DE GUARDADO LOCAL PARA LA PRUEBA PILOTO
-    val prefsLocal = context.getSharedPreferences("EventosPiloto", Context.MODE_PRIVATE)
-
-    // Cargamos los IDs de los eventos al iniciar
-    var eventosInscritos by remember {
-        mutableStateOf(prefsLocal.getStringSet("inscritos", emptySet()) ?: emptySet())
+    val prefsNotif = remember { context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE) }
+    val eventosInscritos = remember {
+        val guardados = prefsNotif.getStringSet("eventos_inscritos_set", emptySet()) ?: emptySet()
+        mutableStateListOf<String>().apply { addAll(guardados) }
     }
 
+    fun guardarInscritosEnPrefs() {
+        prefsNotif.edit().putStringSet("eventos_inscritos_set", eventosInscritos.toSet()).apply()
+    }
+
+    // Pedir permiso de notificaciones en Android 13+ y registrar token FCM automáticamente
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        try {
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                if (!token.isNullOrBlank()) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            RetrofitClient.obtenerApi(context).registrarFcmToken(mapOf("fcm_token" to token))
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Lista sincronizada en tiempo real con el servidor FastAPI (GET /eventos/feed)
     var eventosServidor by remember { mutableStateOf<List<Evento>>(emptyList()) }
     var yaSincronizoConServidor by remember { mutableStateOf(false) }
     var sincronizandoServidor by remember { mutableStateOf(false) }
     var errorServidor by remember { mutableStateOf<String?>(null) }
-    var pulsoReloj by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    fun evaluarNotificacionesDeEventos(listaVigentes: List<Evento>, esPrimeraCarga: Boolean) {
+        val ahora = Instant.now()
+        val idsConocidos = prefsNotif.getStringSet("ids_eventos_conocidos", null)
+
+        // Si es la primera vez que se instala la app, inicializar el conjunto base
+        // pero sí notificar cualquier evento cuya hora disponibleDesde haya ocurrido hace menos de 5 minutos
+        if (idsConocidos == null) {
+            val iniciales = mutableSetOf<String>()
+            for (ev in listaVigentes) {
+                val disp = parsearInstanteEventoMx(ev.disponibleDesde)
+                val aparecioRecien = disp != null && Duration.between(disp, ahora).seconds in 0..300
+                if (aparecioRecien) {
+                    val clave = "notificado_evento_disponible_${ev.id}"
+                    if (!prefsNotif.getBoolean(clave, false)) {
+                        prefsNotif.edit().putBoolean(clave, true).apply()
+                        MyFirebaseMessagingService.mostrarNotificacion(
+                            context = context,
+                            titulo = "¡Nuevo evento disponible: ${ev.titulo}!",
+                            cuerpo = "Sede: ${ev.lugar} · Ya puedes consultar los detalles e inscribirte en Campus Connect UNACH.",
+                            notifId = ("nuevo_${ev.id}").hashCode()
+                        )
+                    }
+                }
+                iniciales.add(ev.id)
+                verificarYDispararAviso30MinFin(context, ev, eventosInscritos)
+            }
+            prefsNotif.edit().putStringSet("ids_eventos_conocidos", iniciales).apply()
+            return
+        }
+
+        val nuevosConocidos = idsConocidos.toMutableSet()
+        for (ev in listaVigentes) {
+            val claveAparicion = "notificado_evento_disponible_${ev.id}"
+            val esNuevoEnFeed = !nuevosConocidos.contains(ev.id)
+            val disp = parsearInstanteEventoMx(ev.disponibleDesde)
+            val aparecioRecien = disp != null && Duration.between(disp, ahora).seconds in 0..300
+
+            if ((esNuevoEnFeed || aparecioRecien) && !prefsNotif.getBoolean(claveAparicion, false)) {
+                prefsNotif.edit().putBoolean(claveAparicion, true).apply()
+                MyFirebaseMessagingService.mostrarNotificacion(
+                    context = context,
+                    titulo = "¡Nuevo evento disponible: ${ev.titulo}!",
+                    cuerpo = "Sede: ${ev.lugar} · Ya puedes consultar los detalles e inscribirte en Campus Connect UNACH.",
+                    notifId = ("nuevo_${ev.id}").hashCode()
+                )
+            }
+            nuevosConocidos.add(ev.id)
+
+            // Verificar si faltan 30 minutos o menos para finalizar (solo si está inscrito)
+            verificarYDispararAviso30MinFin(context, ev, eventosInscritos)
+        }
+        prefsNotif.edit().putStringSet("ids_eventos_conocidos", nuevosConocidos).apply()
+    }
 
     fun recargarEventosDesdeServidor(mostrarMensaje: Boolean = false) {
         scope.launch {
             sincronizandoServidor = true
             try {
-                val remotos = withContext(Dispatchers.IO) { RetrofitClient.obtenerApi(context).obtenerEventos() }
+                val remotos = withContext(Dispatchers.IO) {
+                    RetrofitClient.obtenerApi(context).obtenerEventos()
+                }
+                val vigentes = remotos.filter { it.estaVigenteEnTiempoReal() }
+                evaluarNotificacionesDeEventos(vigentes, esPrimeraCarga = !yaSincronizoConServidor)
                 eventosServidor = remotos
                 yaSincronizoConServidor = true
                 errorServidor = null
-                if (mostrarMensaje) snackbarHostState.showSnackbar("Cartelera actualizada (${remotos.size} eventos)")
+                if (mostrarMensaje) {
+                    snackbarHostState.showSnackbar("Cartelera actualizada (${vigentes.size} eventos)")
+                }
             } catch (e: Exception) {
                 errorServidor = e.localizedMessage
-                if (mostrarMensaje) snackbarHostState.showSnackbar("No se pudo actualizar desde el servidor")
-            } finally { sincronizandoServidor = false }
+                if (mostrarMensaje) {
+                    snackbarHostState.showSnackbar("No se pudo actualizar desde el servidor")
+                }
+            } finally {
+                sincronizandoServidor = false
+            }
         }
     }
 
+    // Sincronización automática al abrir la pantalla y actualización periódica cada 15 segundos
     LaunchedEffect(Unit) {
         while (true) {
             try {
-                val remotos = withContext(Dispatchers.IO) { RetrofitClient.obtenerApi(context).obtenerEventos() }
+                val remotos = withContext(Dispatchers.IO) {
+                    RetrofitClient.obtenerApi(context).obtenerEventos()
+                }
+                val vigentes = remotos.filter { it.estaVigenteEnTiempoReal() }
+                evaluarNotificacionesDeEventos(vigentes, esPrimeraCarga = !yaSincronizoConServidor)
                 eventosServidor = remotos
                 yaSincronizoConServidor = true
                 errorServidor = null
-            } catch (_: Exception) {}
-            pulsoReloj = System.currentTimeMillis()
+            } catch (_: Exception) {
+            }
             delay(15_000L)
         }
     }
 
-    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor, pulsoReloj) {
-        val base = if (yaSincronizoConServidor) eventosServidor else eventos
-        base.filter { it.estaVigenteEnTiempoReal() }
+    // Mostrar siempre los eventos reales del servidor una vez sincronizado
+    val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor) {
+        if (yaSincronizoConServidor) eventosServidor else eventos
     }
 
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
     var fechaSeleccionada by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
 
-    val eventosFiltrados = remember(listaEventosActiva, searchQuery, filtroSeleccionado, tabVistaEventos, eventosInscritos) {
+    val eventosFiltrados = remember(listaEventosActiva, searchQuery, filtroSeleccionado, tabVistaEventos, eventosInscritos.size) {
         listaEventosActiva.filter { ev ->
             val catInfo = detectarCategoriaEvento(ev)
             val coincideBusqueda = searchQuery.isBlank() ||
@@ -225,10 +357,15 @@ fun EventosScreen(
                     ev.lugar.contains(searchQuery, ignoreCase = true) ||
                     ev.descripcion.contains(searchQuery, ignoreCase = true) ||
                     (ev.categoria ?: "").contains(searchQuery, ignoreCase = true)
-            val coincideCategoria = filtroSeleccionado == "Todos" || catInfo.nombre.equals(filtroSeleccionado, ignoreCase = true)
 
-            // ✅ Filtramos la pestaña de Mis Inscritos basándonos en el guardado local (usamos el título como ID único temporal)
-            val coincideTab = if (tabVistaEventos == 1) eventosInscritos.contains(ev.titulo) else true
+            val coincideCategoria = filtroSeleccionado == "Todos" ||
+                    catInfo.nombre.equals(filtroSeleccionado, ignoreCase = true)
+
+            val coincideTab = if (tabVistaEventos == 1) {
+                eventosInscritos.contains(ev.titulo)
+            } else {
+                true
+            }
 
             coincideBusqueda && coincideCategoria && coincideTab
         }
@@ -241,55 +378,147 @@ fun EventosScreen(
         cal.set(Calendar.DAY_OF_MONTH, 1)
 
         val longitudMes = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+
         var diaSemanaInicio = cal.get(Calendar.DAY_OF_WEEK) - 1
         if (diaSemanaInicio == 0) diaSemanaInicio = 7
 
         val mesInt = cal.get(Calendar.MONTH)
         val anioInt = cal.get(Calendar.YEAR)
 
-        for (i in 1 until diaSemanaInicio) dias.add(DiaMesContext(0, 0, 0))
+        for (i in 1 until diaSemanaInicio) {
+            dias.add(DiaMesContext(0, 0, 0))
+        }
+
         for (dia in 1..longitudMes) {
-            val esSeleccionado = (dia == fechaSeleccionada.get(Calendar.DAY_OF_MONTH) && mesInt == fechaSeleccionada.get(Calendar.MONTH) && anioInt == fechaSeleccionada.get(Calendar.YEAR))
+            val esSeleccionado = (dia == fechaSeleccionada.get(Calendar.DAY_OF_MONTH) &&
+                    mesInt == fechaSeleccionada.get(Calendar.MONTH) &&
+                    anioInt == fechaSeleccionada.get(Calendar.YEAR))
+
             val mesStr = String.format(Locale.getDefault(), "%02d", mesInt + 1)
             val diaStr = String.format(Locale.getDefault(), "%02d", dia)
             val fechaStr = "$anioInt-$mesStr-$diaStr"
-            val diaTieneEvento = listaEventosActiva.any { fechaIsoLocalMx(it.fechaHora) == fechaStr }
+
+            val diaTieneEvento = listaEventosActiva.any { (it.fechaHora ?: "").startsWith(fechaStr) }
             dias.add(DiaMesContext(dia, mesInt, anioInt, diaTieneEvento, esSeleccionado))
         }
         dias
     }
 
+    // RUTEO: MUESTRA EL ESCÁNER O LA LISTA DE EVENTOS
     if (mostrarEscaner) {
         EscanerQrScreen(onVolver = { mostrarEscaner = false })
     } else {
-        LazyColumn(modifier = Modifier.fillMaxSize().background(EtdaBg), contentPadding = PaddingValues(bottom = 32.dp)) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(EtdaBg),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
             item {
                 Box(
-                    modifier = Modifier.fillMaxWidth().background(brush = Brush.verticalGradient(colors = listOf(EtdaNavy, Color(0xFF1A3673))), shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)).padding(horizontal = 20.dp, vertical = 16.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(EtdaNavy, Color(0xFF1A3673))
+                            ),
+                            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
+                        )
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
                 ) {
                     Column {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Surface(color = EtdaOrange.copy(alpha = 0.2f), shape = RoundedCornerShape(50), border = BorderStroke(1.dp, EtdaOrange)) {
-                                    Text("ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS", color = Color(0xFFFFB74D), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp))
+                                Surface(
+                                    color = EtdaOrange.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, EtdaOrange)
+                                ) {
+                                    Text(
+                                        text = "ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS",
+                                        color = Color(0xFFFFB74D),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 0.6.sp,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                    )
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("Cartelera de Eventos", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                                Text("Participa, consulta materiales y suma asistencias", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                                Text(
+                                    text = "Cartelera de Eventos",
+                                    color = Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "Participa, consulta materiales y suma asistencias",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 12.sp
+                                )
                             }
-                            Surface(shape = CircleShape, color = EtdaBlue.copy(alpha = 0.2f), border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.5f)), modifier = Modifier.size(44.dp).clip(CircleShape).clickable { recargarEventosDesdeServidor(mostrarMensaje = true) }) {
-                                if (sincronizandoServidor) CircularProgressIndicator(color = EtdaOrange, strokeWidth = 2.dp, modifier = Modifier.padding(11.dp))
-                                else Icon(Icons.Default.Refresh, contentDescription = "Actualizar cartelera", tint = EtdaOrange, modifier = Modifier.padding(10.dp))
+
+                            Surface(
+                                shape = CircleShape,
+                                color = EtdaBlue.copy(alpha = 0.2f),
+                                border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .clickable { recargarEventosDesdeServidor(mostrarMensaje = true) }
+                            ) {
+                                if (sincronizandoServidor) {
+                                    CircularProgressIndicator(
+                                        color = EtdaOrange,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.padding(11.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Actualizar cartelera",
+                                        tint = EtdaOrange,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
                             }
                         }
+
                         Spacer(modifier = Modifier.height(14.dp))
+
                         OutlinedTextField(
-                            value = searchQuery, onValueChange = { searchQuery = it },
-                            placeholder = { Text("Buscar talleres, conferencias, tutorías...", fontSize = 13.sp, color = Color.Gray) },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Buscar", tint = EtdaBlue) },
-                            trailingIcon = { if (searchQuery.isNotEmpty()) IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = Color.Gray) } },
-                            singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.White, unfocusedContainerColor = Color.White, focusedBorderColor = EtdaOrange, unfocusedBorderColor = Color.Transparent, cursorColor = EtdaOrange)
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = {
+                                Text(
+                                    "Buscar talleres, conferencias, tutorías...",
+                                    fontSize = 13.sp,
+                                    color = Color.Gray
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, contentDescription = "Buscar", tint = EtdaBlue)
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = Color.Gray)
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedBorderColor = EtdaOrange,
+                                unfocusedBorderColor = Color.Transparent,
+                                cursorColor = EtdaOrange
+                            )
                         )
                     }
                 }
@@ -297,18 +526,63 @@ fun EventosScreen(
 
             item {
                 Column(modifier = Modifier.padding(top = 14.dp, bottom = 6.dp)) {
-                    Text("Categorías de participación", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EtdaNavy.copy(alpha = 0.7f), modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
-                    LazyRow(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Categorías de participación",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = EtdaNavy.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         itemsIndexed(listaCategorias) { _, cat ->
                             val seleccionado = filtroSeleccionado == cat.nombre
-                            val bgColor by animateColorAsState(targetValue = if (seleccionado) EtdaOrange else Color.White, animationSpec = tween(250), label = "chipBg")
-                            val contentColor by animateColorAsState(targetValue = if (seleccionado) Color.White else EtdaNavy, animationSpec = tween(250), label = "chipContent")
-                            val chipScale by animateFloatAsState(targetValue = if (seleccionado) 1.05f else 1f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "chipScale")
-                            Surface(modifier = Modifier.scale(chipScale).clickable { filtroSeleccionado = cat.nombre }, shape = RoundedCornerShape(50), color = bgColor, shadowElevation = if (seleccionado) 6.dp else 2.dp, border = if (seleccionado) null else BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.25f))) {
-                                Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(cat.icono, contentDescription = cat.nombre, tint = if (seleccionado) Color.White else EtdaBlue, modifier = Modifier.size(16.dp))
+                            val bgColor by animateColorAsState(
+                                targetValue = if (seleccionado) EtdaOrange else Color.White,
+                                animationSpec = tween(250),
+                                label = "chipBg"
+                            )
+                            val contentColor by animateColorAsState(
+                                targetValue = if (seleccionado) Color.White else EtdaNavy,
+                                animationSpec = tween(250),
+                                label = "chipContent"
+                            )
+                            val chipScale by animateFloatAsState(
+                                targetValue = if (seleccionado) 1.05f else 1f,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                label = "chipScale"
+                            )
+
+                            Surface(
+                                modifier = Modifier
+                                    .scale(chipScale)
+                                    .clickable { filtroSeleccionado = cat.nombre },
+                                shape = RoundedCornerShape(50),
+                                color = bgColor,
+                                shadowElevation = if (seleccionado) 6.dp else 2.dp,
+                                border = if (seleccionado) null else BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.25f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = cat.icono,
+                                        contentDescription = cat.nombre,
+                                        tint = if (seleccionado) Color.White else EtdaBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text(cat.nombre, color = contentColor, fontSize = 13.sp, fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Medium)
+                                    Text(
+                                        text = cat.nombre,
+                                        color = contentColor,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Medium
+                                    )
                                 }
                             }
                         }
@@ -317,24 +591,95 @@ fun EventosScreen(
             }
 
             item {
-                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth().clickable { calendarioExpandido = !calendarioExpandido }, horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { calendarioExpandido = !calendarioExpandido },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(shape = RoundedCornerShape(10.dp), color = EtdaBlue.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) { Icon(Icons.Default.CalendarMonth, contentDescription = "Calendario", tint = EtdaBlue, modifier = Modifier.padding(8.dp)) }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = EtdaBlue.copy(alpha = 0.12f),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarMonth,
+                                        contentDescription = "Calendario",
+                                        tint = EtdaBlue,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
-                                    Text("Agenda Académica", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = EtdaNavy)
-                                    val formatDia = SimpleDateFormat("EEEE d 'de' MMMM", localeMx).apply { timeZone = zonaHorariaMx }
-                                    Text(formatDia.format(fechaSeleccionada.time).replaceFirstChar { it.uppercase() }, fontSize = 12.sp, color = EtdaOrange, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = "Agenda Académica",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = EtdaNavy
+                                    )
+                                    val formatDia = SimpleDateFormat("EEEE d 'de' MMMM", localeMx).apply {
+                                        timeZone = zonaHorariaMx
+                                    }
+                                    Text(
+                                        text = formatDia.format(fechaSeleccionada.time).replaceFirstChar { it.uppercase() },
+                                        fontSize = 12.sp,
+                                        color = EtdaOrange,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
                             }
-                            IconButton(onClick = { calendarioExpandido = !calendarioExpandido }) { Icon(if (calendarioExpandido) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = "Expandir/Contraer", tint = EtdaNavy) }
+
+                            IconButton(onClick = { calendarioExpandido = !calendarioExpandido }) {
+                                Icon(
+                                    imageVector = if (calendarioExpandido) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = "Expandir/Contraer",
+                                    tint = EtdaNavy
+                                )
+                            }
                         }
-                        AnimatedVisibility(visible = calendarioExpandido, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+
+                        AnimatedVisibility(
+                            visible = calendarioExpandido,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
                             Column {
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color(0xFFEEF2F6))
-                                CalendarioMesGrid(mesActual = mesActual, diasDelMes = diasDelMes, onMesAnterior = { val nuevo = mesActual.clone() as Calendar; nuevo.add(Calendar.MONTH, -1); mesActual = nuevo }, onMesSiguiente = { val nuevo = mesActual.clone() as Calendar; nuevo.add(Calendar.MONTH, 1); mesActual = nuevo }, onDiaSeleccionado = { diaContext -> if (diaContext.esValido()) { val nuevo = obtenerCalendarioLocalMx(); nuevo.set(diaContext.anio, diaContext.mes, diaContext.dia); fechaSeleccionada = nuevo } })
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 12.dp),
+                                    color = Color(0xFFEEF2F6)
+                                )
+                                CalendarioMesGrid(
+                                    mesActual = mesActual,
+                                    diasDelMes = diasDelMes,
+                                    onMesAnterior = {
+                                        val nuevo = mesActual.clone() as Calendar
+                                        nuevo.add(Calendar.MONTH, -1)
+                                        mesActual = nuevo
+                                    },
+                                    onMesSiguiente = {
+                                        val nuevo = mesActual.clone() as Calendar
+                                        nuevo.add(Calendar.MONTH, 1)
+                                        mesActual = nuevo
+                                    },
+                                    onDiaSeleccionado = { diaContext ->
+                                        if (diaContext.esValido()) {
+                                            val nuevo = obtenerCalendarioLocalMx()
+                                            nuevo.set(diaContext.anio, diaContext.mes, diaContext.dia)
+                                            fechaSeleccionada = nuevo
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
@@ -342,55 +687,230 @@ fun EventosScreen(
             }
 
             item {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Surface(shape = RoundedCornerShape(16.dp), color = Color.White, shadowElevation = 2.dp, border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.08f)), modifier = Modifier.fillMaxWidth()) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(5.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White,
+                        shadowElevation = 2.dp,
+                        border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.08f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             val tab0Activa = tabVistaEventos == 0
-                            val bgTab0 by animateColorAsState(targetValue = if (tab0Activa) EtdaNavy else Color.Transparent, animationSpec = tween(250), label = "bgTab0")
-                            Surface(modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { tabVistaEventos = 0 }, color = bgTab0, shape = RoundedCornerShape(12.dp)) {
-                                Row(modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.EventAvailable, contentDescription = null, tint = if (tab0Activa) EtdaOrange else EtdaNavy.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                            val bgTab0 by animateColorAsState(
+                                targetValue = if (tab0Activa) EtdaNavy else Color.Transparent,
+                                animationSpec = tween(250),
+                                label = "bgTab0"
+                            )
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { tabVistaEventos = 0 },
+                                color = bgTab0,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.EventAvailable,
+                                        contentDescription = null,
+                                        tint = if (tab0Activa) EtdaOrange else EtdaNavy.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Próximos Eventos", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (tab0Activa) Color.White else EtdaNavy.copy(alpha = 0.7f))
+                                    Text(
+                                        text = "Próximos Eventos",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (tab0Activa) Color.White else EtdaNavy.copy(alpha = 0.7f)
+                                    )
                                 }
                             }
+
                             val tab1Activa = tabVistaEventos == 1
-                            val bgTab1 by animateColorAsState(targetValue = if (tab1Activa) EtdaNavy else Color.Transparent, animationSpec = tween(250), label = "bgTab1")
-                            Surface(modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { tabVistaEventos = 1 }, color = bgTab1, shape = RoundedCornerShape(12.dp)) {
-                                Row(modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.HowToReg, contentDescription = null, tint = if (tab1Activa) EtdaOrange else EtdaBlue, modifier = Modifier.size(16.dp))
+                            val bgTab1 by animateColorAsState(
+                                targetValue = if (tab1Activa) EtdaNavy else Color.Transparent,
+                                animationSpec = tween(250),
+                                label = "bgTab1"
+                            )
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { tabVistaEventos = 1 },
+                                color = bgTab1,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.HowToReg,
+                                        contentDescription = null,
+                                        tint = if (tab1Activa) EtdaOrange else EtdaBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Mis Inscritos", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (tab1Activa) Color.White else EtdaNavy.copy(alpha = 0.7f))
+                                    Text(
+                                        text = "Mis Inscritos",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (tab1Activa) Color.White else EtdaNavy.copy(alpha = 0.7f)
+                                    )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(shape = CircleShape, color = if (tab1Activa) EtdaOrange else EtdaOrange.copy(alpha = 0.15f)) {
-                                        Text("${eventosInscritos.size}", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = if (tab1Activa) Color.White else EtdaOrange, modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp))
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (tab1Activa) EtdaOrange else EtdaOrange.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = "${eventosInscritos.size}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (tab1Activa) Color.White else EtdaOrange,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp)
+                                        )
                                     }
                                 }
                             }
                         }
                     }
+
                     Spacer(modifier = Modifier.height(10.dp))
-                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text(when { tabVistaEventos == 1 -> "Eventos en los que participas"; filtroSeleccionado == "Todos" -> "Cartelera general disponible"; else -> "Categoría: $filtroSeleccionado" }, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = EtdaNavy)
-                        Surface(color = EtdaNavy.copy(alpha = 0.08f), shape = RoundedCornerShape(50)) { Text(if (tabVistaEventos == 1) "${eventosFiltrados.size} inscritos" else "${eventosFiltrados.size} disponibles", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EtdaNavy, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = when {
+                                tabVistaEventos == 1 -> "Eventos en los que participas"
+                                filtroSeleccionado == "Todos" -> "Cartelera general disponible"
+                                else -> "Categoría: $filtroSeleccionado"
+                            },
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = EtdaNavy
+                        )
+                        Surface(
+                            color = EtdaNavy.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text(
+                                text = if (tabVistaEventos == 1) "${eventosFiltrados.size} inscritos" else "${eventosFiltrados.size} disponibles",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EtdaNavy,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }
 
             when {
-                cargando -> item { Box(modifier = Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = EtdaOrange, strokeWidth = 3.dp) } }
-                error != null -> item { Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)), shape = RoundedCornerShape(16.dp)) { Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFDC2626)); Spacer(modifier = Modifier.width(12.dp)); Text(error, color = Color(0xFF991B1B), fontSize = 13.sp, fontWeight = FontWeight.Medium) } } }
+                cargando -> item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = EtdaOrange, strokeWidth = 3.dp)
+                    }
+                }
+                error != null -> item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFDC2626))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(error, color = Color(0xFF991B1B), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
                 eventosFiltrados.isEmpty() -> item {
-                    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Surface(shape = CircleShape, color = EtdaBlue.copy(alpha = 0.1f), modifier = Modifier.size(64.dp)) { Icon(if (tabVistaEventos == 1) Icons.Default.AssignmentLate else Icons.Default.EventBusy, contentDescription = null, tint = EtdaBlue, modifier = Modifier.padding(16.dp)) }
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = EtdaBlue.copy(alpha = 0.1f),
+                                modifier = Modifier.size(64.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (tabVistaEventos == 1) Icons.Default.AssignmentLate else Icons.Default.EventBusy,
+                                    contentDescription = null,
+                                    tint = EtdaBlue,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(if (tabVistaEventos == 1) "Aún no te has inscrito a ningún evento" else "No se encontraron eventos en esta categoría", color = EtdaNavy, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, textAlign = TextAlign.Center)
+                            Text(
+                                text = if (tabVistaEventos == 1)
+                                    "Aún no te has inscrito a ningún evento"
+                                else
+                                    "No se encontraron eventos en esta categoría",
+                                color = EtdaNavy,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center
+                            )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(if (tabVistaEventos == 1) "Explora la pestaña 'Próximos Eventos', inscríbete y aquí aparecerá tu agenda personal." else "Prueba cambiando el filtro de categoría o buscando otro término.", color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 17.sp)
+                            Text(
+                                text = if (tabVistaEventos == 1)
+                                    "Explora la pestaña 'Próximos Eventos', inscríbete y aquí aparecerá tu agenda personal."
+                                else
+                                    "Prueba cambiando el filtro de categoría o buscando otro término.",
+                                color = Color.Gray,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 17.sp
+                            )
+
                             if (tabVistaEventos == 1) {
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Button(onClick = { tabVistaEventos = 0 }, colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange), shape = RoundedCornerShape(12.dp)) {
+                                Button(
+                                    onClick = { tabVistaEventos = 0 },
+                                    colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
                                     Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("Explorar Eventos", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -399,7 +919,10 @@ fun EventosScreen(
                         }
                     }
                 }
-                else -> itemsIndexed(items = eventosFiltrados, key = { index, ev -> "${ev.titulo}_$index" }) { index, evento ->
+                else -> itemsIndexed(
+                    items = eventosFiltrados,
+                    key = { index, ev -> "${ev.titulo}_$index" }
+                ) { index, evento ->
                     val yaInscrito = eventosInscritos.contains(evento.titulo)
                     TarjetaEventoAnimada(
                         evento = evento,
@@ -417,41 +940,56 @@ fun EventosScreen(
                 evento = evento,
                 estaInscrito = yaInscrito,
                 onDismiss = { eventoSeleccionado = null },
-                onAbrirEscaner = { eventoSeleccionado = null; mostrarEscaner = true },
+                onAbrirEscaner = {
+                    eventoSeleccionado = null // Cerramos el detalle
+                    mostrarEscaner = true     // Abrimos la cámara
+                },
                 onToggleInscripcion = { inscribir ->
                     val cat = detectarCategoriaEvento(evento)
                     scope.launch {
                         if (inscribir) {
                             try {
-                                val resp = withContext(Dispatchers.IO) { RetrofitClient.obtenerApi(context).registrarAsistenciaEvento(evento.id) }
+                                val resp = withContext(Dispatchers.IO) {
+                                    RetrofitClient.obtenerApi(context).registrarAsistenciaEvento(evento.id)
+                                }
                                 if (resp.isSuccessful || resp.code() == 409) {
-
-                                    // ✅ GUARDAMOS EN EL DISPOSITIVO LOCALMENTE (Para la prueba piloto)
-                                    val nuevosInscritos = eventosInscritos.toMutableSet().apply { add(evento.titulo) }
-                                    eventosInscritos = nuevosInscritos
-                                    prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-
-                                    snackbarHostState.showSnackbar("¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})")
+                                    if (!eventosInscritos.contains(evento.titulo)) {
+                                        eventosInscritos.add(evento.titulo)
+                                    }
+                                    if (!eventosInscritos.contains(evento.id)) {
+                                        eventosInscritos.add(evento.id)
+                                    }
+                                    guardarInscritosEnPrefs()
+                                    verificarYDispararAviso30MinFin(context, evento, eventosInscritos)
+                                    snackbarHostState.showSnackbar(
+                                        "¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
+                                    )
                                 } else {
-                                    snackbarHostState.showSnackbar("No fue posible registrar tu inscripción en el servidor (${resp.code()})")
+                                    snackbarHostState.showSnackbar(
+                                        "No fue posible registrar tu inscripción en el servidor (${resp.code()})"
+                                    )
                                 }
                             } catch (e: Exception) {
-                                // ✅ SI FALLA EL SERVIDOR, LO GUARDA LOCALMENTE DE TODOS MODOS
-                                val nuevosInscritos = eventosInscritos.toMutableSet().apply { add(evento.titulo) }
-                                eventosInscritos = nuevosInscritos
-                                prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-
-                                snackbarHostState.showSnackbar("Inscrito localmente a: ${evento.titulo}")
+                                if (!eventosInscritos.contains(evento.titulo)) {
+                                    eventosInscritos.add(evento.titulo)
+                                }
+                                snackbarHostState.showSnackbar(
+                                    "Inscrito localmente a: ${evento.titulo}"
+                                )
                             }
                         } else {
-                            try { withContext(Dispatchers.IO) { RetrofitClient.obtenerApi(context).cancelarAsistenciaEvento(evento.id) } } catch (_: Exception) {}
-
-                            // ✅ ELIMINAMOS DEL DISPOSITIVO LOCALMENTE
-                            val nuevosInscritos = eventosInscritos.toMutableSet().apply { remove(evento.titulo) }
-                            eventosInscritos = nuevosInscritos
-                            prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-
-                            snackbarHostState.showSnackbar("Inscripción cancelada para: ${evento.titulo}")
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    RetrofitClient.obtenerApi(context).cancelarAsistenciaEvento(evento.id)
+                                }
+                            } catch (_: Exception) {
+                            }
+                            eventosInscritos.remove(evento.titulo)
+                            eventosInscritos.remove(evento.id)
+                            guardarInscritosEnPrefs()
+                            snackbarHostState.showSnackbar(
+                                "Inscripción cancelada para: ${evento.titulo}"
+                            )
                         }
                     }
                 }
@@ -461,92 +999,447 @@ fun EventosScreen(
 }
 
 @Composable
-private fun CalendarioMesGrid(mesActual: Calendar, diasDelMes: List<DiaMesContext>, onMesAnterior: () -> Unit, onMesSiguiente: () -> Unit, onDiaSeleccionado: (DiaMesContext) -> Unit) {
+private fun CalendarioMesGrid(
+    mesActual: Calendar,
+    diasDelMes: List<DiaMesContext>,
+    onMesAnterior: () -> Unit,
+    onMesSiguiente: () -> Unit,
+    onDiaSeleccionado: (DiaMesContext) -> Unit
+) {
     val hoyLocal = remember { obtenerCalendarioLocalMx() }
+
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onMesAnterior, modifier = Modifier.size(34.dp).clip(CircleShape).background(EtdaBg)) { Icon(Icons.Filled.ChevronLeft, contentDescription = "Mes anterior", tint = EtdaNavy) }
-            val formatMes = SimpleDateFormat("MMMM", localeMx).apply { timeZone = zonaHorariaMx }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onMesAnterior,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(EtdaBg)
+            ) {
+                Icon(Icons.Filled.ChevronLeft, contentDescription = "Mes anterior", tint = EtdaNavy)
+            }
+
+            val formatMes = SimpleDateFormat("MMMM", localeMx).apply {
+                timeZone = zonaHorariaMx
+            }
             val nombreMes = formatMes.format(mesActual.time).replaceFirstChar { it.uppercase() }
-            Text("$nombreMes ${mesActual.get(Calendar.YEAR)}", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = EtdaNavy)
-            IconButton(onClick = onMesSiguiente, modifier = Modifier.size(34.dp).clip(CircleShape).background(EtdaBg)) { Icon(Icons.Filled.ChevronRight, contentDescription = "Mes siguiente", tint = EtdaNavy) }
+            Text(
+                text = "$nombreMes ${mesActual.get(Calendar.YEAR)}",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = EtdaNavy
+            )
+
+            IconButton(
+                onClick = onMesSiguiente,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(EtdaBg)
+            ) {
+                Icon(Icons.Filled.ChevronRight, contentDescription = "Mes siguiente", tint = EtdaNavy)
+            }
         }
+
         Spacer(modifier = Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { listOf("L", "M", "M", "J", "V", "S", "D").forEach { dia -> Text(dia, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EtdaBlue, modifier = Modifier.weight(1f), textAlign = TextAlign.Center) } }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            listOf("L", "M", "M", "J", "V", "S", "D").forEach { dia ->
+                Text(
+                    text = dia,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = EtdaBlue,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
+
         diasDelMes.chunked(7).forEach { semana ->
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
                 semana.forEach { diaContext ->
-                    Box(modifier = Modifier.weight(1f).aspectRatio(1f), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
                         if (diaContext.esValido()) {
-                            val esHoy = (diaContext.dia == hoyLocal.get(Calendar.DAY_OF_MONTH) && diaContext.mes == hoyLocal.get(Calendar.MONTH) && diaContext.anio == hoyLocal.get(Calendar.YEAR))
-                            val bgDia by animateColorAsState(targetValue = when { diaContext.seleccionado -> EtdaOrange; esHoy -> EtdaBlue.copy(alpha = 0.12f); else -> Color.Transparent }, label = "bgDia")
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clip(CircleShape).clickable { onDiaSeleccionado(diaContext) }.padding(2.dp)) {
-                                Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(bgDia).border(width = if (esHoy && !diaContext.seleccionado) 1.5.dp else 0.dp, color = if (esHoy) EtdaBlue else Color.Transparent, shape = CircleShape), contentAlignment = Alignment.Center) {
-                                    Text(diaContext.dia.toString(), color = when { diaContext.seleccionado -> Color.White; esHoy -> EtdaBlue; else -> EtdaNavy }, fontWeight = if (diaContext.seleccionado || esHoy) FontWeight.Bold else FontWeight.Medium, fontSize = 14.sp)
+                            val esHoy = (diaContext.dia == hoyLocal.get(Calendar.DAY_OF_MONTH) &&
+                                    diaContext.mes == hoyLocal.get(Calendar.MONTH) &&
+                                    diaContext.anio == hoyLocal.get(Calendar.YEAR))
+
+                            val bgDia by animateColorAsState(
+                                targetValue = when {
+                                    diaContext.seleccionado -> EtdaOrange
+                                    esHoy -> EtdaBlue.copy(alpha = 0.12f)
+                                    else -> Color.Transparent
+                                },
+                                label = "bgDia"
+                            )
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable { onDiaSeleccionado(diaContext) }
+                                    .padding(2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(bgDia)
+                                        .border(
+                                            width = if (esHoy && !diaContext.seleccionado) 1.5.dp else 0.dp,
+                                            color = if (esHoy) EtdaBlue else Color.Transparent,
+                                            shape = CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = diaContext.dia.toString(),
+                                        color = when {
+                                            diaContext.seleccionado -> Color.White
+                                            esHoy -> EtdaBlue
+                                            else -> EtdaNavy
+                                        },
+                                        fontWeight = if (diaContext.seleccionado || esHoy) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 14.sp
+                                    )
                                 }
-                                if (diaContext.tieneEvento) { Spacer(modifier = Modifier.height(2.dp)); Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(if (diaContext.seleccionado) EtdaNavy else EtdaBlue)) } else Spacer(modifier = Modifier.height(7.dp))
+
+                                if (diaContext.tieneEvento) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (diaContext.seleccionado) EtdaNavy else EtdaBlue)
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.height(7.dp))
+                                }
                             }
                         }
                     }
                 }
-                repeat(7 - semana.size) { Spacer(modifier = Modifier.weight(1f)) }
+                repeat(7 - semana.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun TarjetaEventoAnimada(evento: Evento, index: Int, estaInscrito: Boolean, onClick: () -> Unit) {
+private fun TarjetaEventoAnimada(
+    evento: Evento,
+    index: Int,
+    estaInscrito: Boolean,
+    onClick: () -> Unit
+) {
     var isSaved by remember { mutableStateOf(false) }
     var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-    val alphaAnim by animateFloatAsState(targetValue = if (visible) 1f else 0f, animationSpec = tween(durationMillis = 400, delayMillis = (index * 60).coerceAtMost(300)), label = "alphaCard")
-    val slideAnim by animateFloatAsState(targetValue = if (visible) 0f else 40f, animationSpec = tween(durationMillis = 400, delayMillis = (index * 60).coerceAtMost(300)), label = "slideCard")
-    val heartScale by animateFloatAsState(targetValue = if (isSaved) 1.22f else 1f, animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy), label = "heartScale")
+
+    LaunchedEffect(Unit) {
+        visible = true
+    }
+
+    val alphaAnim by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 400, delayMillis = (index * 60).coerceAtMost(300)),
+        label = "alphaCard"
+    )
+    val slideAnim by animateFloatAsState(
+        targetValue = if (visible) 0f else 40f,
+        animationSpec = tween(durationMillis = 400, delayMillis = (index * 60).coerceAtMost(300)),
+        label = "slideCard"
+    )
+
+    val heartScale by animateFloatAsState(
+        targetValue = if (isSaved) 1.22f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy),
+        label = "heartScale"
+    )
+
     val catInfo = detectarCategoriaEvento(evento)
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
 
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = if (estaInscrito) Color(0xFFF8FAFC) else Color.White), // Ligeramente gris si está inscrito
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        border = if (estaInscrito) BorderStroke(1.5.dp, EtdaSuccess.copy(alpha = 0.6f)) else null, // ✅ MARCO VERDE SI ESTÁ INSCRITO
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp).graphicsLayer { alpha = alphaAnim; translationY = slideAnim }.clickable { onClick() }
+        border = if (estaInscrito) BorderStroke(1.5.dp, EtdaSuccess.copy(alpha = 0.5f)) else null,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 7.dp)
+            .graphicsLayer {
+                alpha = alphaAnim
+                translationY = slideAnim
+            }
+            .clickable { onClick() }
     ) {
-        Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            Box(modifier = Modifier.width(88.dp).fillMaxHeight().background(brush = Brush.verticalGradient(colors = listOf(EtdaNavy, EtdaBlue))).padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(88.dp)
+                    .fillMaxHeight()
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(EtdaNavy, EtdaBlue)
+                        )
+                    )
+                    .padding(vertical = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Surface(color = EtdaOrange, shape = RoundedCornerShape(6.dp)) { Text(mesTxt, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) }
+                    Surface(
+                        color = EtdaOrange,
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = mesTxt,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(diaTxt, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        text = diaTxt,
+                        color = Color.White,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
                     Spacer(modifier = Modifier.height(2.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Schedule, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(11.dp)); Spacer(modifier = Modifier.width(3.dp)); Text(horaTxt, color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = horaTxt,
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
-            Column(modifier = Modifier.weight(1f).padding(14.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = catInfo.color.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) { Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(catInfo.icono, contentDescription = null, tint = catInfo.color, modifier = Modifier.size(12.dp)); Spacer(modifier = Modifier.width(4.dp)); Text((evento.categoria ?: catInfo.nombre).uppercase(), color = catInfo.color, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold) } }
-                    IconButton(onClick = { isSaved = !isSaved }, modifier = Modifier.size(28.dp).scale(heartScale)) { Icon(if (isSaved) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder, contentDescription = "Guardar favorito", tint = if (isSaved) EtdaOrange else Color.LightGray, modifier = Modifier.size(20.dp)) }
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(evento.titulo, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = EtdaNavy, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.LocationOn, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(14.dp)); Spacer(modifier = Modifier.width(4.dp)); Text(evento.lugar, fontSize = 12.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Surface(color = EtdaBg, shape = RoundedCornerShape(6.dp)) { Text("Presencial", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)) }
-                        if (evento.materiales.isNotEmpty()) {
-                            Surface(color = EtdaBlue.copy(alpha = 0.12f), shape = RoundedCornerShape(6.dp)) { Row(modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.AttachFile, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(11.dp)); Spacer(modifier = Modifier.width(2.dp)); Text("${evento.materiales.size} arch.", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = EtdaBlue) } }
-                        } else {
-                            Surface(color = EtdaOrange.copy(alpha = 0.14f), shape = RoundedCornerShape(6.dp)) { Row(modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Stars, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(12.dp)); Spacer(modifier = Modifier.width(3.dp)); Text("+1 Sello", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = EtdaOrange) } }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        color = catInfo.color.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = catInfo.icono,
+                                contentDescription = null,
+                                tint = catInfo.color,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = (evento.categoria ?: catInfo.nombre).uppercase(),
+                                color = catInfo.color,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
                         }
                     }
+
+                    IconButton(
+                        onClick = { isSaved = !isSaved },
+                        modifier = Modifier
+                            .size(28.dp)
+                            .scale(heartScale)
+                    ) {
+                        Icon(
+                            imageVector = if (isSaved) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = "Guardar favorito",
+                            tint = if (isSaved) EtdaOrange else Color.LightGray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = evento.titulo,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    color = EtdaNavy,
+                    lineHeight = 20.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = EtdaBlue,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = evento.lugar,
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
+                            color = EtdaBg,
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "Presencial",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = EtdaNavy,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+
+                        if (evento.materiales.isNotEmpty()) {
+                            Surface(
+                                color = EtdaBlue.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AttachFile,
+                                        contentDescription = null,
+                                        tint = EtdaBlue,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = "${evento.materiales.size} arch.",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EtdaBlue
+                                    )
+                                }
+                            }
+                        } else {
+                            Surface(
+                                color = EtdaOrange.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Stars,
+                                        contentDescription = null,
+                                        tint = EtdaOrange,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "+1 Sello",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EtdaOrange
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     if (estaInscrito) {
-                        Surface(color = EtdaSuccess.copy(alpha = 0.14f), shape = RoundedCornerShape(50)) { Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(12.dp)); Spacer(modifier = Modifier.width(4.dp)); Text("Inscrito", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, color = EtdaSuccess) } }
+                        Surface(
+                            color = EtdaSuccess.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = EtdaSuccess,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Inscrito",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = EtdaSuccess
+                                )
+                            }
+                        }
                     } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) { Text("Ver más", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EtdaBlue); Icon(Icons.Default.ChevronRight, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(16.dp)) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Ver más",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EtdaBlue
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = EtdaBlue,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -556,92 +1449,415 @@ private fun TarjetaEventoAnimada(evento: Evento, index: Int, estaInscrito: Boole
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DetalleEventoSheet(evento: Evento, estaInscrito: Boolean, onDismiss: () -> Unit, onAbrirEscaner: () -> Unit, onToggleInscripcion: (Boolean) -> Unit) {
+private fun DetalleEventoSheet(
+    evento: Evento,
+    estaInscrito: Boolean,
+    onDismiss: () -> Unit,
+    onAbrirEscaner: () -> Unit, // NUEVO PARÁMETRO
+    onToggleInscripcion: (Boolean) -> Unit
+) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var isInscrito by remember(estaInscrito) { mutableStateOf(estaInscrito) }
     val catInfo = detectarCategoriaEvento(evento)
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
-    val progresoCupo by animateFloatAsState(targetValue = if (isInscrito) 0.85f else 0.80f, animationSpec = tween(600), label = "progresoCupo")
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color.White, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
-        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp).padding(bottom = 32.dp)) {
-            if (!evento.imagenUrl.isNullOrBlank()) { AsyncImage(model = evento.imagenUrl, contentDescription = "Flyer de ${evento.titulo}", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(18.dp))); Spacer(modifier = Modifier.height(14.dp)) }
-            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(brush = Brush.linearGradient(colors = listOf(EtdaNavy, EtdaBlue))).padding(20.dp)) {
+    val progresoCupo by animateFloatAsState(
+        targetValue = if (isInscrito) 0.85f else 0.80f,
+        animationSpec = tween(600),
+        label = "progresoCupo"
+    )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 22.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            if (!evento.imagenUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = evento.imagenUrl,
+                    contentDescription = "Flyer de ${evento.titulo}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        brush = Brush.linearGradient(
+                            colors = listOf(EtdaNavy, EtdaBlue)
+                        )
+                    )
+                    .padding(20.dp)
+            ) {
                 Column {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = EtdaOrange, shape = RoundedCornerShape(50)) { Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Icon(catInfo.icono, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp)); Spacer(modifier = Modifier.width(5.dp)); Text((evento.categoria ?: catInfo.nombre).uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false) } }
-                        Surface(color = Color.White.copy(alpha = 0.18f), shape = RoundedCornerShape(50)) { Text("$diaTxt $mesTxt | $horaTxt hrs", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(evento.titulo, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 24.sp)
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).clickable {
-                        if (!evento.urlMaps.isNullOrBlank()) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(evento.urlMaps))) }
-                        else {
-                            val query = Uri.encode("UNACH ETDA-CI ${evento.lugar}")
-                            val uri = Uri.parse("geo:0,0?q=$query")
-                            val intent = Intent(Intent.ACTION_VIEW, uri).apply { setPackage("com.google.android.apps.maps") }
-                            if (intent.resolveActivity(context.packageManager) != null) context.startActivity(intent) else context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=$query")))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = EtdaOrange,
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = catInfo.icono,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = (evento.categoria ?: catInfo.nombre).uppercase(),
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
-                    }, color = EtdaBg
+
+                        Surface(
+                            color = Color.White.copy(alpha = 0.18f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text(
+                                text = "$diaTxt $mesTxt | $horaTxt hrs",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = evento.titulo,
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        lineHeight = 24.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // TARJETAS DE UBICACIÓN CON LÓGICA HÍBRIDA
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable {
+                            if (!evento.urlMaps.isNullOrBlank()) {
+                                // Si Yasir guardó el link exacto, lo abre directo
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(evento.urlMaps))
+                                context.startActivity(intent)
+                            } else {
+                                // Si no hay link, busca por texto con el prefijo
+                                val query = Uri.encode("UNACH ETDA-CI ${evento.lugar}")
+                                val uri = Uri.parse("geo:0,0?q=$query")
+                                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                    setPackage("com.google.android.apps.maps")
+                                }
+                                if (intent.resolveActivity(context.packageManager) != null) {
+                                    context.startActivity(intent)
+                                } else {
+                                    val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query")
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+                                }
+                            }
+                        },
+                    color = EtdaBg
                 ) {
-                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.LocationOn, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp))
-                        Column { Text("Ubicación", fontSize = 10.sp, color = Color.Gray, maxLines = 1, softWrap = false); Text(evento.lugar, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis); Spacer(modifier = Modifier.height(2.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Text("Toca para abrir Maps", fontSize = 9.sp, color = EtdaBlue, fontWeight = FontWeight.SemiBold); Spacer(modifier = Modifier.width(2.dp)); Icon(Icons.Default.OpenInNew, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(9.dp)) } }
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.LocationOn, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text("Ubicación", fontSize = 10.sp, color = Color.Gray, maxLines = 1, softWrap = false)
+                            Text(
+                                text = evento.lugar,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EtdaNavy,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Toca para abrir Maps",
+                                    fontSize = 9.sp,
+                                    color = EtdaBlue,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = null,
+                                    tint = EtdaBlue,
+                                    modifier = Modifier.size(9.dp)
+                                )
+                            }
+                        }
                     }
                 }
-                Surface(modifier = Modifier.weight(1f), color = EtdaOrange.copy(alpha = 0.1f), shape = RoundedCornerShape(14.dp)) {
-                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.WorkspacePremium, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp))
-                        Column { Text("Recompensa", fontSize = 10.sp, color = EtdaOrange, maxLines = 1, softWrap = false); Text("+1 en ${catInfo.nombre}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EtdaNavy, maxLines = 2, lineHeight = 14.sp, overflow = TextOverflow.Ellipsis) }
+
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    color = EtdaOrange.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.WorkspacePremium, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text("Recompensa", fontSize = 10.sp, color = EtdaOrange, maxLines = 1, softWrap = false)
+                            Text(
+                                text = "+1 en ${catInfo.nombre}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EtdaNavy,
+                                maxLines = 2,
+                                lineHeight = 14.sp,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Ocupación del evento", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy); Text(if (isInscrito) "86 lugares disponibles" else "87 lugares disponibles", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EtdaBlue, maxLines = 1, softWrap = false) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Ocupación del evento", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy)
+                Text(
+                    text = if (isInscrito) "86 lugares disponibles" else "87 lugares disponibles",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = EtdaBlue,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
             Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(progress = { progresoCupo }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)), color = EtdaBlue, trackColor = Color(0xFFE2E8F0))
+            LinearProgressIndicator(
+                progress = { progresoCupo },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = EtdaBlue,
+                trackColor = Color(0xFFE2E8F0)
+            )
+
             Spacer(modifier = Modifier.height(18.dp))
 
-            AnimatedContent(targetState = isInscrito, label = "estadoInscripcion") { inscrito ->
+            AnimatedContent(
+                targetState = isInscrito,
+                label = "estadoInscripcion"
+            ) { inscrito ->
                 if (inscrito) {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)), border = BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.4f)), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    // NUEVA TARJETA CON EL BOTÓN DEL ESCÁNER QR
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)),
+                        border = BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(20.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Lugar asegurado", fontWeight = FontWeight.ExtraBold, color = Color(0xFF065F46), fontSize = 15.sp, maxLines = 1, softWrap = false) }
-                                TextButton(onClick = { isInscrito = false; onToggleInscripcion(false) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) { Text("Cancelar", color = Color(0xFFDC2626), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Lugar asegurado",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF065F46),
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        isInscrito = false
+                                        onToggleInscripcion(false)
+                                    },
+                                    contentPadding = PaddingValues(0.dp),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Text("Cancelar", color = Color(0xFFDC2626), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
+
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("Para validar tu asistencia y recibir la recompensa, el sistema requerirá:", color = Color(0xFF047857), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, lineHeight = 16.sp)
+                            Text(
+                                text = "Para validar tu asistencia y recibir la recompensa, el sistema requerirá:",
+                                color = Color(0xFF047857),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 16.sp
+                            )
+
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.Top) { Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp).padding(top = 2.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Escanear el código QR oficial del evento al llegar.", color = Color(0xFF064E3B), fontSize = 11.sp, lineHeight = 14.sp) }
+
+                            Row(verticalAlignment = Alignment.Top) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp).padding(top = 2.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Escanear el código QR oficial del evento al llegar.",
+                                    color = Color(0xFF064E3B),
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.Top) { Icon(Icons.Default.ShareLocation, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp).padding(top = 2.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Mantener tu ubicación GPS dentro de la sala desde el inicio hasta el fin del evento.", color = Color(0xFF064E3B), fontSize = 11.sp, lineHeight = 14.sp) }
+
+                            Row(verticalAlignment = Alignment.Top) {
+                                Icon(Icons.Default.ShareLocation, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp).padding(top = 2.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Mantener tu ubicación GPS dentro de la sala desde el inicio hasta el fin del evento.",
+                                    color = Color(0xFF064E3B),
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(12.dp))
-                            Button(onClick = onAbrirEscaner, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
-                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Escanear QR de Asistencia", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                            Button(
+                                onClick = onAbrirEscaner,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Escanear QR de Asistencia", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }
                 } else {
-                    Column { Text("Acerca del evento", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = EtdaNavy); Spacer(modifier = Modifier.height(6.dp)); Text(evento.descripcion, color = Color.DarkGray, fontSize = 13.sp, lineHeight = 18.sp) }
+                    Column {
+                        Text(
+                            text = "Acerca del evento",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp,
+                            color = EtdaNavy
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = evento.descripcion,
+                            color = Color.DarkGray,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                    }
                 }
             }
 
             ArchivosDelEvento(evento.materiales)
+
             Spacer(modifier = Modifier.height(24.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.5.dp, EtdaNavy), colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaNavy), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Al calendario", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false) }
-                Button(
-                    onClick = { if (!isInscrito) { isInscrito = true; onToggleInscripcion(true) } },
-                    modifier = Modifier.weight(1.3f).height(48.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isInscrito) EtdaSuccess else EtdaOrange), elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp), contentPadding = PaddingValues(horizontal = 4.dp)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.5.dp, EtdaNavy),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaNavy),
+                    contentPadding = PaddingValues(horizontal = 4.dp)
                 ) {
-                    Icon(if (isInscrito) Icons.Default.DoneAll else Icons.Default.HowToReg, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(modifier = Modifier.width(6.dp)); Text(if (isInscrito) "Inscrito" else "Inscribirme", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, maxLines = 1, softWrap = false)
+                    Text(
+                        text = "Al calendario",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        if (!isInscrito) {
+                            isInscrito = true
+                            onToggleInscripcion(true)
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isInscrito) EtdaSuccess else EtdaOrange
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isInscrito) Icons.Default.DoneAll else Icons.Default.HowToReg,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isInscrito) "Inscrito" else "Inscribirme",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }
@@ -652,18 +1868,70 @@ private fun DetalleEventoSheet(evento: Evento, estaInscrito: Boolean, onDismiss:
 private fun ArchivosDelEvento(archivos: List<ArchivoEvento>) {
     if (archivos.isEmpty()) return
     val context = LocalContext.current
-    val abrir: (ArchivoEvento) -> Unit = { archivo -> try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(archivo.url))) } catch (_: ActivityNotFoundException) {} }
-    Spacer(modifier = Modifier.height(20.dp)); Text("Archivos del evento", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = EtdaNavy); Spacer(modifier = Modifier.height(8.dp))
+    val abrir: (ArchivoEvento) -> Unit = { archivo ->
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(archivo.url)))
+        } catch (_: ActivityNotFoundException) {
+        }
+    }
+
+    Spacer(modifier = Modifier.height(20.dp))
+    Text(
+        text = "Archivos del evento",
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 16.sp,
+        color = EtdaNavy
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+
     val imagenes = archivos.filter { it.esImagen }
     if (imagenes.isNotEmpty()) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(imagenes) { img -> AsyncImage(model = img.url, contentDescription = img.nombre, contentScale = ContentScale.Crop, modifier = Modifier.size(110.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, EtdaBlue.copy(alpha = 0.25f), RoundedCornerShape(12.dp)).clickable { abrir(img) }) }
+            items(imagenes) { img ->
+                AsyncImage(
+                    model = img.url,
+                    contentDescription = img.nombre,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(110.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, EtdaBlue.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .clickable { abrir(img) }
+                )
+            }
         }
         Spacer(modifier = Modifier.height(8.dp))
     }
+
     archivos.filter { !it.esImagen }.forEach { doc ->
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(EtdaBg).border(1.dp, EtdaNavy.copy(alpha = 0.08f), RoundedCornerShape(12.dp)).clickable { abrir(doc) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.PictureAsPdf, contentDescription = "PDF", tint = Color(0xFFC62828), modifier = Modifier.size(24.dp)); Spacer(modifier = Modifier.width(12.dp)); Text(doc.nombre, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy); Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = EtdaBlue)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(EtdaBg)
+                .border(1.dp, EtdaNavy.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                .clickable { abrir(doc) }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PictureAsPdf,
+                contentDescription = "PDF",
+                tint = Color(0xFFC62828),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = doc.nombre,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = EtdaNavy
+            )
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = EtdaBlue)
         }
     }
 }

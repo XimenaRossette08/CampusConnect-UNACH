@@ -79,7 +79,7 @@ class EventosDemoActivity : ComponentActivity() {
 
     private fun crearCanalNotificaciones() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "campus_connect_channel"
+            val channelId = MyFirebaseMessagingService.CHANNEL_ID
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 channelId,

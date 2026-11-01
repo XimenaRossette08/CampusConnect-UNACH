@@ -47,7 +47,7 @@ private val EtdaOrange = Color(0xFFF57C00)
 private val EtdaBg = Color(0xFFF4F7FB)
 private val EtdaSuccess = Color(0xFF10B981)
 
-// Tonos Metálicos para las Medallas (Bronce -> Plata -> Oro)
+// Tonos Metálicos para las Medallas
 private val BroncePrimario = Color(0xFFD97706)
 private val BronceBrillo = Color(0xFFFBBF24)
 private val PlataPrimario = Color(0xFF475569)
@@ -108,49 +108,10 @@ private data class RecompensaCanjeable(
 )
 
 private val catalogoRecompensasUnach = listOf(
-    RecompensaCanjeable(
-        id = 1,
-        titulo = "Constancia de Valor Curricular (Créditos ETDA)",
-        descripcion = "Documento oficial avalado por la Coordinación Académica al acumular insignias.",
-        categoriaRequerida = "Académicos y Conferencias",
-        costoPuntos = 120,
-        icono = Icons.Default.VerifiedUser
-    ),
-    RecompensaCanjeable(
-        id = 2,
-        titulo = "Acceso Preferente a Talleres y Congresos",
-        descripcion = "Lugar reservado en primera fila y laboratorios durante los foros de la ETDA.",
-        categoriaRequerida = "Talleres y Tutorías",
-        costoPuntos = 100,
-        icono = Icons.Default.WorkspacePremium
-    ),
-    RecompensaCanjeable(
-        id = 3,
-        titulo = "Paquete de 30 Impresiones Gratis",
-        descripcion = "Válido en el Centro de Cómputo de la Escuela de Tecnologías Digitales Aplicadas.",
-        categoriaRequerida = "Cualquier categoría",
-        costoPuntos = 50,
-        icono = Icons.Default.Print
-    ),
-    RecompensaCanjeable(
-        id = 4,
-        titulo = "Descuento en Tienda y Souvenirs UNACH",
-        descripcion = "Aplica en termos oficiales Ocelotes, playeras conmemorativas y papelería.",
-        categoriaRequerida = "Culturales y Deporte",
-        costoPuntos = 80,
-        icono = Icons.Default.CardGiftcard
-    ),
-    RecompensaCanjeable(
-        id = 5,
-        titulo = "Bebida o Combo en Cafetería Universitaria",
-        descripcion = "Canjeable por café, frappé o bebida embotellada presentando tu QR estudiantil.",
-        categoriaRequerida = "Cualquier categoría",
-        costoPuntos = 40,
-        icono = Icons.Default.LocalCafe
-    )
+    RecompensaCanjeable(1, "Constancia de Valor Curricular", "Documento oficial.", "Académicos", 120, Icons.Default.VerifiedUser),
+    RecompensaCanjeable(2, "Acceso Preferente", "Lugar reservado.", "Talleres", 100, Icons.Default.WorkspacePremium)
 )
 
-// COMPONENTE GRÁFICO PERSONALIZADO: Dibuja una Medalla / Roseta Estrellada con listones
 @Composable
 private fun MedallaInsigniaETDA(
     icono: ImageVector,
@@ -164,12 +125,8 @@ private fun MedallaInsigniaETDA(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "medallaAnim")
     val giroBrillo by infiniteTransition.animateFloat(
-        initialValue = -6f,
-        targetValue = 6f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
+        initialValue = -6f, targetValue = 6f,
+        animationSpec = infiniteRepeatable(animation = tween(1400, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
         label = "giroMedalla"
     )
 
@@ -178,11 +135,7 @@ private fun MedallaInsigniaETDA(
     val cCinta = if (bloqueada) Color(0xFF64748B) else colorListon
 
     Box(
-        modifier = Modifier
-            .size(tamano)
-            .graphicsLayer {
-                if (destacada) rotationZ = giroBrillo
-            },
+        modifier = Modifier.size(tamano).graphicsLayer { if (destacada) rotationZ = giroBrillo },
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -193,27 +146,11 @@ private fun MedallaInsigniaETDA(
             val radioExterior = w * 0.40f
             val radioInterior = w * 0.33f
 
-            // 1. Listones inferiores de la medalla (Condecoración)
-            val listonIzq = Path().apply {
-                moveTo(cx - radioInterior * 0.55f, cy + radioInterior * 0.5f)
-                lineTo(cx - radioInterior * 0.85f, h * 0.96f)
-                lineTo(cx - radioInterior * 0.35f, h * 0.86f)
-                lineTo(cx - radioInterior * 0.10f, h * 0.98f)
-                lineTo(cx - radioInterior * 0.05f, cy + radioInterior * 0.6f)
-                close()
-            }
-            val listonDer = Path().apply {
-                moveTo(cx + radioInterior * 0.55f, cy + radioInterior * 0.5f)
-                lineTo(cx + radioInterior * 0.85f, h * 0.96f)
-                lineTo(cx + radioInterior * 0.35f, h * 0.86f)
-                lineTo(cx + radioInterior * 0.10f, h * 0.98f)
-                lineTo(cx + radioInterior * 0.05f, cy + radioInterior * 0.6f)
-                close()
-            }
+            val listonIzq = Path().apply { moveTo(cx - radioInterior * 0.55f, cy + radioInterior * 0.5f); lineTo(cx - radioInterior * 0.85f, h * 0.96f); lineTo(cx - radioInterior * 0.35f, h * 0.86f); lineTo(cx - radioInterior * 0.10f, h * 0.98f); lineTo(cx - radioInterior * 0.05f, cy + radioInterior * 0.6f); close() }
+            val listonDer = Path().apply { moveTo(cx + radioInterior * 0.55f, cy + radioInterior * 0.5f); lineTo(cx + radioInterior * 0.85f, h * 0.96f); lineTo(cx + radioInterior * 0.35f, h * 0.86f); lineTo(cx + radioInterior * 0.10f, h * 0.98f); lineTo(cx + radioInterior * 0.05f, cy + radioInterior * 0.6f); close() }
             drawPath(listonIzq, color = cCinta)
             drawPath(listonDer, color = cCinta.copy(alpha = 0.85f))
 
-            // 2. Escudo estrellado de 12 puntas (Roseta de insignia)
             val puntas = 24
             val estrellaPath = Path()
             for (i in 0 until puntas) {
@@ -225,64 +162,17 @@ private fun MedallaInsigniaETDA(
             }
             estrellaPath.close()
 
-            drawPath(
-                path = estrellaPath,
-                brush = Brush.linearGradient(
-                    colors = listOf(cBrillo, cPrimario, cBrillo),
-                    start = Offset(0f, 0f),
-                    end = Offset(w, h)
-                )
-            )
-            drawPath(
-                path = estrellaPath,
-                color = Color.White.copy(alpha = 0.7f),
-                style = Stroke(width = 1.5.dp.toPx())
-            )
-
-            // 3. Círculo central con profundidad
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(cPrimario, EtdaNavy),
-                    center = Offset(cx, cy),
-                    radius = radioInterior * 0.88f
-                ),
-                radius = radioInterior * 0.82f,
-                center = Offset(cx, cy)
-            )
-
-            // Anillo dorado/brillante interno
-            drawCircle(
-                color = cBrillo,
-                radius = radioInterior * 0.78f,
-                center = Offset(cx, cy),
-                style = Stroke(width = 1.8.dp.toPx())
-            )
+            drawPath(path = estrellaPath, brush = Brush.linearGradient(colors = listOf(cBrillo, cPrimario, cBrillo), start = Offset(0f, 0f), end = Offset(w, h)))
+            drawPath(path = estrellaPath, color = Color.White.copy(alpha = 0.7f), style = Stroke(width = 1.5.dp.toPx()))
+            drawCircle(brush = Brush.radialGradient(colors = listOf(cPrimario, EtdaNavy), center = Offset(cx, cy), radius = radioInterior * 0.88f), radius = radioInterior * 0.82f, center = Offset(cx, cy))
+            drawCircle(color = cBrillo, radius = radioInterior * 0.78f, center = Offset(cx, cy), style = Stroke(width = 1.8.dp.toPx()))
         }
 
-        // Ícono central y estrellitas de rango
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.offset(y = (-tamano.value * 0.05f).dp)
-        ) {
-            Icon(
-                imageVector = if (bloqueada) Icons.Default.Lock else icono,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(tamano * 0.34f)
-            )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(imageVector = if (bloqueada) Icons.Default.Lock else icono, contentDescription = null, tint = Color.White, modifier = Modifier.size(tamano * 0.34f))
             if (nivelEstrellas > 0) {
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(nivelEstrellas.coerceAtMost(3)) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = null,
-                            tint = Color(0xFFFFE082),
-                            modifier = Modifier.size(tamano * 0.11f)
-                        )
-                    }
+                Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    repeat(nivelEstrellas.coerceAtMost(3)) { Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFE082), modifier = Modifier.size(tamano * 0.11f)) }
                 }
             }
         }
@@ -296,110 +186,30 @@ fun RewardsScreen(
     snackbarHostState: SnackbarHostState,
     scope: CoroutineScope
 ) {
-    var tabActiva by remember { mutableIntStateOf(0) }
-
+    // 1. TODAS LAS MAQUETAS EN 0 PARA LA PRUEBA PILOTO
     val listaCategorias = remember {
         listOf(
-            CategoriaEvolutiva(
-                id = "cat_tutorias",
-                categoria = "Tutorías",
-                tituloBaseInsignia = "Mentor Ocelote",
-                subtituloMedalla = "Compromiso Tutorial",
-                descripcionBase = "Seguimiento académico y sesiones de tutoría en la ETDA.",
-                asistenciasIniciales = 5,
-                nivelInicialReclamado = 0,
-                icono = Icons.Default.School,
-                colorCategoria = EtdaBlue,
-                prefijoFolio = "ETDA-TUT-2026"
-            ),
-            CategoriaEvolutiva(
-                id = "cat_conferencias",
-                categoria = "Conferencias",
-                tituloBaseInsignia = "Vanguardia Tech",
-                subtituloMedalla = "Líder en Ponencias",
-                descripcionBase = "Participación en congresos, foros y pláticas tecnológicas.",
-                asistenciasIniciales = 7,
-                nivelInicialReclamado = 1,
-                icono = Icons.Default.RecordVoiceOver,
-                colorCategoria = EtdaOrange,
-                prefijoFolio = "ETDA-CONF-2026"
-            ),
-            CategoriaEvolutiva(
-                id = "cat_talleres",
-                categoria = "Talleres",
-                tituloBaseInsignia = "Arquitecto Dev",
-                subtituloMedalla = "Master en Talleres",
-                descripcionBase = "Talleres prácticos de software, redes, IA y ciberseguridad.",
-                asistenciasIniciales = 4,
-                nivelInicialReclamado = 0,
-                icono = Icons.Default.Terminal,
-                colorCategoria = Color(0xFF0284C7),
-                prefijoFolio = "ETDA-TAL-2026"
-            ),
-            CategoriaEvolutiva(
-                id = "cat_academicos",
-                categoria = "Académicos",
-                tituloBaseInsignia = "Mente Brillante",
-                subtituloMedalla = "Excelencia Académica",
-                descripcionBase = "Coloquios, ferias de proyectos y presentaciones de semestre.",
-                asistenciasIniciales = 5,
-                nivelInicialReclamado = 1,
-                icono = Icons.Default.AutoStories,
-                colorCategoria = EtdaNavy,
-                prefijoFolio = "ETDA-ACA-2026"
-            ),
-            CategoriaEvolutiva(
-                id = "cat_culturales",
-                categoria = "Culturales",
-                tituloBaseInsignia = "Legado Chiapas",
-                subtituloMedalla = "Embajador Cultural",
-                descripcionBase = "Muestras culturales, arte, música y festivales UNACH.",
-                asistenciasIniciales = 4,
-                nivelInicialReclamado = 0,
-                icono = Icons.Default.TheaterComedy,
-                colorCategoria = Color(0xFF2563EB),
-                prefijoFolio = "ETDA-CUL-2026"
-            ),
-            CategoriaEvolutiva(
-                id = "cat_deporte",
-                categoria = "Deporte",
-                tituloBaseInsignia = "Fuerza Ocelote",
-                subtituloMedalla = "Espíritu Deportivo",
-                descripcionBase = "Torneos deportivos, activación física y carreras atléticas.",
-                asistenciasIniciales = 2,
-                nivelInicialReclamado = 0,
-                icono = Icons.Default.EmojiEvents,
-                colorCategoria = Color(0xFFEA580C),
-                prefijoFolio = "ETDA-DEP-2026"
-            )
+            CategoriaEvolutiva("cat_tutorias", "Tutorías", "Mentor Ocelote", "Compromiso Tutorial", "Seguimiento académico y sesiones de tutoría en la ETDA.", 0, 0, Icons.Default.School, EtdaBlue, "ETDA-TUT-2026"),
+            CategoriaEvolutiva("cat_conferencias", "Conferencias", "Vanguardia Tech", "Líder en Ponencias", "Participación en congresos, foros y pláticas tecnológicas.", 0, 0, Icons.Default.RecordVoiceOver, EtdaOrange, "ETDA-CONF-2026"),
+            CategoriaEvolutiva("cat_talleres", "Talleres", "Arquitecto Dev", "Master en Talleres", "Talleres prácticos de software, redes, IA y ciberseguridad.", 0, 0, Icons.Default.Terminal, Color(0xFF0284C7), "ETDA-TAL-2026"),
+            CategoriaEvolutiva("cat_academicos", "Académicos", "Mente Brillante", "Excelencia Académica", "Coloquios, ferias de proyectos y presentaciones de semestre.", 0, 0, Icons.Default.AutoStories, EtdaNavy, "ETDA-ACA-2026"),
+            CategoriaEvolutiva("cat_culturales", "Culturales", "Legado Chiapas", "Embajador Cultural", "Muestras culturales, arte, música y festivales UNACH.", 0, 0, Icons.Default.TheaterComedy, Color(0xFF2563EB), "ETDA-CUL-2026"),
+            CategoriaEvolutiva("cat_deporte", "Deporte", "Fuerza Ocelote", "Espíritu Deportivo", "Torneos deportivos, activación física y carreras atléticas.", 0, 0, Icons.Default.EmojiEvents, Color(0xFFEA580C), "ETDA-DEP-2026")
         )
     }
 
-    val asistenciasMap = remember {
-        mutableStateMapOf<String, Int>().apply {
-            listaCategorias.forEach { put(it.categoria, it.asistenciasIniciales) }
-        }
-    }
-
-    val nivelesReclamadosMap = remember {
-        mutableStateMapOf<String, Int>().apply {
-            listaCategorias.forEach { put(it.categoria, it.nivelInicialReclamado) }
-        }
-    }
-
-    val recompensasCanjeadas = remember { mutableStateListOf<Int>() }
+    val asistenciasMap = remember { mutableStateMapOf<String, Int>().apply { listaCategorias.forEach { put(it.categoria, it.asistenciasIniciales) } } }
+    val nivelesReclamadosMap = remember { mutableStateMapOf<String, Int>().apply { listaCategorias.forEach { put(it.categoria, it.nivelInicialReclamado) } } }
     var modalLogro by remember { mutableStateOf<LogroDesbloqueadoModal?>(null) }
 
     val totalInsigniasGanadas = nivelesReclamadosMap.values.sum()
     val totalAsistenciasAcumuladas = asistenciasMap.values.sum()
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(EtdaBg),
+        modifier = Modifier.fillMaxSize().background(EtdaBg),
         contentPadding = PaddingValues(bottom = 32.dp)
     ) {
-        // 1. ENCABEZADO HERO + VITRINA DE MEDALLAS COLECCIONABLES
+        // ENCABEZADO HERO
         item {
             TarjetaEncabezadoYVitrina(
                 puntos = puntos,
@@ -411,282 +221,64 @@ fun RewardsScreen(
                     val niv = nivelesReclamadosMap[cat.categoria] ?: 0
                     if (niv > 0) {
                         val esc = nivelesProgresivos[(niv - 1).coerceAtLeast(0)]
-                        modalLogro = LogroDesbloqueadoModal(
-                            categoria = cat.categoria,
-                            nombreInsignia = "Medalla ${cat.tituloBaseInsignia}",
-                            nombreRango = esc.nombreRango,
-                            nivel = niv,
-                            metaAlcanzada = esc.metaAsistencias,
-                            siguienteMeta = nivelesProgresivos.getOrNull(niv)?.metaAsistencias,
-                            puntosGanados = esc.puntosPremio,
-                            folio = "${cat.prefijoFolio}-N$niv",
-                            icono = cat.icono,
-                            colorPrimario = esc.colorPrimario,
-                            colorBrillo = esc.colorBrillo
-                        )
+                        modalLogro = LogroDesbloqueadoModal(cat.categoria, "Medalla ${cat.tituloBaseInsignia}", esc.nombreRango, niv, esc.metaAsistencias, nivelesProgresivos.getOrNull(niv)?.metaAsistencias, esc.puntosPremio, "${cat.prefijoFolio}-N$niv", cat.icono, esc.colorPrimario, esc.colorBrillo)
                     }
                 }
             )
         }
 
-        // 2. SELECTOR DE PESTAÑAS (100% Responsivo en 1 sola línea)
+        // TEXTO DE INSIGNIAS DIRECTO (Se eliminó el tab selector)
         item {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White,
-                shadowElevation = 3.dp,
-                border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.08f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val tab0 = tabActiva == 0
-                    val bg0 by animateColorAsState(
-                        targetValue = if (tab0) EtdaNavy else Color.Transparent,
-                        animationSpec = tween(250),
-                        label = "tab0Bg"
-                    )
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { tabActiva = 0 },
-                        color = bg0,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MilitaryTech,
-                                contentDescription = null,
-                                tint = if (tab0) EtdaOrange else EtdaNavy.copy(alpha = 0.6f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Insignias (5•8•12)",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (tab0) Color.White else EtdaNavy.copy(alpha = 0.7f),
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    val tab1 = tabActiva == 1
-                    val bg1 by animateColorAsState(
-                        targetValue = if (tab1) EtdaNavy else Color.Transparent,
-                        animationSpec = tween(250),
-                        label = "tab1Bg"
-                    )
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { tabActiva = 1 },
-                        color = bg1,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Redeem,
-                                contentDescription = null,
-                                tint = if (tab1) EtdaOrange else EtdaBlue,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Canjear Puntos",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (tab1) Color.White else EtdaNavy.copy(alpha = 0.7f),
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
+                Text("Medallas por Categoría de Evento", fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Surface(color = EtdaOrange.copy(alpha = 0.14f), shape = RoundedCornerShape(50)) {
+                    Text("★ Bronce 5   •   ★★ Plata 8   •   ★★★ Oro 12", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = EtdaOrange, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                 }
+                Text("Gana tu primera medalla al cumplir 5 asistencias y evoluciona tu insignia hasta el rango Oro.", fontSize = 12.sp, color = Color.Gray, lineHeight = 16.sp)
             }
         }
 
-        // 3. CONTENIDO SEGÚN PESTAÑA
-        if (tabActiva == 0) {
-            item {
-                // ✅ CORREGIDO: En Column para que el globo de Bronce • Plata • Oro nunca se aplaste
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "Medallas por Categoría de Evento",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = EtdaNavy,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+        // LISTA DE MEDALLAS
+        itemsIndexed(items = listaCategorias, key = { _, item -> item.id }) { index, catItem ->
+            val asistencias = asistenciasMap[catItem.categoria] ?: catItem.asistenciasIniciales
+            val nivelReclamado = nivelesReclamadosMap[catItem.categoria] ?: catItem.nivelInicialReclamado
+            val indiceEscalafon = nivelReclamado.coerceAtMost(nivelesProgresivos.lastIndex)
+            val escalafonActual = nivelesProgresivos[indiceEscalafon]
+            val maximoAlcanzado = nivelReclamado >= nivelesProgresivos.size
 
-                    Surface(
-                        color = EtdaOrange.copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = "★ Bronce 5   •   ★★ Plata 8   •   ★★★ Oro 12",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = EtdaOrange,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
+            TarjetaCategoriaConMedalla(
+                item = catItem,
+                asistenciasActuales = asistencias,
+                nivelReclamado = nivelReclamado,
+                escalafonActivo = escalafonActual,
+                maximoCompletado = maximoAlcanzado,
+                index = index,
+                onSimularAsistencia = {
+                    if (asistencias < 12) {
+                        val nuevo = asistencias + 1
+                        asistenciasMap[catItem.categoria] = nuevo
+                        scope.launch { snackbarHostState.showSnackbar("+1 asistencia en ${catItem.categoria} ($nuevo/${escalafonActual.metaAsistencias})") }
                     }
-
-                    Text(
-                        text = "Gana tu primera medalla al cumplir 5 asistencias y evoluciona tu insignia hasta el rango Oro.",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        lineHeight = 16.sp
-                    )
+                },
+                onReclamarNivel = {
+                    if (!maximoAlcanzado && asistencias >= escalafonActual.metaAsistencias) {
+                        val nuevoNivelReclamado = nivelReclamado + 1
+                        nivelesReclamadosMap[catItem.categoria] = nuevoNivelReclamado
+                        onPuntosCambiados(puntos + escalafonActual.puntosPremio)
+                        val siguienteMeta = nivelesProgresivos.getOrNull(nuevoNivelReclamado)?.metaAsistencias
+                        modalLogro = LogroDesbloqueadoModal(catItem.categoria, "Medalla ${catItem.tituloBaseInsignia}", escalafonActual.nombreRango, nuevoNivelReclamado, escalafonActual.metaAsistencias, siguienteMeta, escalafonActual.puntosPremio, "${catItem.prefijoFolio}-N${escalafonActual.nivel}", catItem.icono, escalafonActual.colorPrimario, escalafonActual.colorBrillo)
+                    } else if (maximoAlcanzado) {
+                        modalLogro = LogroDesbloqueadoModal(catItem.categoria, "Medalla ${catItem.tituloBaseInsignia}", "Nivel III • Oro ETDA", 3, 12, null, 250, "${catItem.prefijoFolio}-ORO", catItem.icono, OroPrimario, OroBrillo)
+                    }
                 }
-            }
-
-            itemsIndexed(
-                items = listaCategorias,
-                key = { _, item -> item.id }
-            ) { index, catItem ->
-                val asistencias = asistenciasMap[catItem.categoria] ?: catItem.asistenciasIniciales
-                val nivelReclamado = nivelesReclamadosMap[catItem.categoria] ?: catItem.nivelInicialReclamado
-
-                val indiceEscalafon = nivelReclamado.coerceAtMost(nivelesProgresivos.lastIndex)
-                val escalafonActual = nivelesProgresivos[indiceEscalafon]
-                val maximoAlcanzado = nivelReclamado >= nivelesProgresivos.size
-
-                TarjetaCategoriaConMedalla(
-                    item = catItem,
-                    asistenciasActuales = asistencias,
-                    nivelReclamado = nivelReclamado,
-                    escalafonActivo = escalafonActual,
-                    maximoCompletado = maximoAlcanzado,
-                    index = index,
-                    onSimularAsistencia = {
-                        if (asistencias < 12) {
-                            val nuevo = asistencias + 1
-                            asistenciasMap[catItem.categoria] = nuevo
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    "+1 asistencia en ${catItem.categoria} ($nuevo/${escalafonActual.metaAsistencias})"
-                                )
-                            }
-                        }
-                    },
-                    onReclamarNivel = {
-                        if (!maximoAlcanzado && asistencias >= escalafonActual.metaAsistencias) {
-                            val nuevoNivelReclamado = nivelReclamado + 1
-                            nivelesReclamadosMap[catItem.categoria] = nuevoNivelReclamado
-                            onPuntosCambiados(puntos + escalafonActual.puntosPremio)
-
-                            val siguienteMeta = nivelesProgresivos.getOrNull(nuevoNivelReclamado)?.metaAsistencias
-                            modalLogro = LogroDesbloqueadoModal(
-                                categoria = catItem.categoria,
-                                nombreInsignia = "Medalla ${catItem.tituloBaseInsignia}",
-                                nombreRango = escalafonActual.nombreRango,
-                                nivel = nuevoNivelReclamado,
-                                metaAlcanzada = escalafonActual.metaAsistencias,
-                                siguienteMeta = siguienteMeta,
-                                puntosGanados = escalafonActual.puntosPremio,
-                                folio = "${catItem.prefijoFolio}-N${escalafonActual.nivel}",
-                                icono = catItem.icono,
-                                colorPrimario = escalafonActual.colorPrimario,
-                                colorBrillo = escalafonActual.colorBrillo
-                            )
-                        } else if (maximoAlcanzado) {
-                            modalLogro = LogroDesbloqueadoModal(
-                                categoria = catItem.categoria,
-                                nombreInsignia = "Medalla ${catItem.tituloBaseInsignia}",
-                                nombreRango = "Nivel III • Oro ETDA",
-                                nivel = 3,
-                                metaAlcanzada = 12,
-                                siguienteMeta = null,
-                                puntosGanados = 250,
-                                folio = "${catItem.prefijoFolio}-ORO",
-                                icono = catItem.icono,
-                                colorPrimario = OroPrimario,
-                                colorBrillo = OroBrillo
-                            )
-                        }
-                    }
-                )
-            }
-        } else {
-            item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                    Text(
-                        text = "Recompensas Disponibles",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = EtdaNavy
-                    )
-                    Text(
-                        text = "Canjea los puntos acumulados con tus medallas de asistencia",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                }
-            }
-
-            itemsIndexed(
-                items = catalogoRecompensasUnach,
-                key = { _, rec -> rec.id }
-            ) { index, recompensa ->
-                val yaCanjeada = recompensasCanjeadas.contains(recompensa.id)
-                TarjetaRecompensaEstilizada(
-                    recompensa = recompensa,
-                    puntosDisponibles = puntos,
-                    yaCanjeada = yaCanjeada,
-                    index = index,
-                    onCanjear = {
-                        if (puntos >= recompensa.costoPuntos && !yaCanjeada) {
-                            recompensasCanjeadas.add(recompensa.id)
-                            onPuntosCambiados(puntos - recompensa.costoPuntos)
-                            scope.launch {
-                                snackbarHostState.showSnackbar("¡Canjeaste exitosamente: ${recompensa.titulo}!")
-                            }
-                        } else if (!yaCanjeada) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Te faltan ${recompensa.costoPuntos - puntos} puntos para esta recompensa")
-                            }
-                        }
-                    }
-                )
-            }
+            )
         }
     }
 
-    // MODAL CON LA MEDALLA EN GRANDE AL RECLAMAR
-    modalLogro?.let { logro ->
-        ModalMedallaDesbloqueada(
-            logro = logro,
-            onDismiss = { modalLogro = null }
-        )
-    }
+    modalLogro?.let { logro -> ModalMedallaDesbloqueada(logro = logro, onDismiss = { modalLogro = null }) }
 }
 
 @Composable
@@ -698,164 +290,53 @@ private fun TarjetaEncabezadoYVitrina(
     nivelesReclamadosMap: Map<String, Int>,
     onClickMedallaVitrina: (CategoriaEvolutiva) -> Unit
 ) {
-    val puntosAnimados by animateIntAsState(
-        targetValue = puntos,
-        animationSpec = tween(durationMillis = 600),
-        label = "puntosAnim"
-    )
+    val puntosAnimados by animateIntAsState(targetValue = puntos, animationSpec = tween(durationMillis = 600), label = "puntosAnim")
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(EtdaNavy, Color(0xFF193773), EtdaBlue)
-                ),
-                shape = RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp)
-            )
-            .padding(vertical = 18.dp)
+        modifier = Modifier.fillMaxWidth().background(brush = Brush.verticalGradient(colors = listOf(EtdaNavy, Color(0xFF193773), EtdaBlue)), shape = RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp)).padding(vertical = 18.dp)
     ) {
         Column {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Surface(
-                        color = EtdaOrange.copy(alpha = 0.22f),
-                        shape = RoundedCornerShape(50),
-                        border = BorderStroke(1.dp, EtdaOrange)
-                    ) {
-                        Text(
-                            text = "VITRINA DE HONOR • ETDA UNACH",
-                            color = Color(0xFFFFB74D),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.7.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                        )
+                    Surface(color = EtdaOrange.copy(alpha = 0.22f), shape = RoundedCornerShape(50), border = BorderStroke(1.dp, EtdaOrange)) {
+                        Text("VITRINA DE HONOR • ETDA UNACH", color = Color(0xFFFFB74D), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.7.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp))
                     }
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Colección de Insignias",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "$totalInsignias medallas ganadas • $totalAsistencias asistencias registradas",
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text("Colección de Insignias", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("$totalInsignias medallas ganadas • $totalAsistencias asistencias registradas", color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = EtdaOrange,
-                    shadowElevation = 8.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                Surface(shape = RoundedCornerShape(20.dp), color = EtdaOrange, shadowElevation = 8.dp) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Stars,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            Icon(Icons.Default.Stars, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "$puntosAnimados",
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            Text("$puntosAnimados", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false)
                         }
-                        Text(
-                            text = "PUNTOS",
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        Text("PUNTOS", color = Color.White.copy(alpha = 0.9f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false)
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // CARRUSEL DE MEDALLAS COLECCIONABLES (VITRINA VISUAL)
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 itemsIndexed(categorias) { _, cat ->
                     val nivelGanado = nivelesReclamadosMap[cat.categoria] ?: 0
                     val desbloqueada = nivelGanado > 0
-                    val escalafonMedalla = if (desbloqueada) {
-                        nivelesProgresivos[(nivelGanado - 1).coerceAtLeast(0)]
-                    } else {
-                        nivelesProgresivos[0]
-                    }
+                    val escalafonMedalla = if (desbloqueada) nivelesProgresivos[(nivelGanado - 1).coerceAtLeast(0)] else nivelesProgresivos[0]
 
                     Surface(
-                        modifier = Modifier
-                            .width(106.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .clickable { onClickMedallaVitrina(cat) },
+                        modifier = Modifier.width(106.dp).clip(RoundedCornerShape(18.dp)).clickable { onClickMedallaVitrina(cat) },
                         color = if (desbloqueada) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.07f),
                         shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (desbloqueada) escalafonMedalla.colorBrillo.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.15f)
-                        )
+                        border = BorderStroke(1.dp, if (desbloqueada) escalafonMedalla.colorBrillo.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.15f))
                     ) {
-                        Column(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            MedallaInsigniaETDA(
-                                icono = cat.icono,
-                                colorPrincipal = escalafonMedalla.colorPrimario,
-                                colorSecundario = escalafonMedalla.colorBrillo,
-                                colorListon = cat.colorCategoria,
-                                nivelEstrellas = nivelGanado,
-                                bloqueada = !desbloqueada,
-                                destacada = desbloqueada,
-                                tamano = 56.dp
-                            )
+                        Column(modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            MedallaInsigniaETDA(icono = cat.icono, colorPrincipal = escalafonMedalla.colorPrimario, colorSecundario = escalafonMedalla.colorBrillo, colorListon = cat.colorCategoria, nivelEstrellas = nivelGanado, bloqueada = !desbloqueada, destacada = desbloqueada, tamano = 56.dp)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = cat.tituloBaseInsignia,
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                text = if (desbloqueada) escalafonMedalla.etiquetaCorta else "En curso",
-                                color = if (desbloqueada) Color(0xFFFFE082) else Color.White.copy(alpha = 0.55f),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            Text(cat.tituloBaseInsignia, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                            Text(if (desbloqueada) escalafonMedalla.etiquetaCorta else "En curso", color = if (desbloqueada) Color(0xFFFFE082) else Color.White.copy(alpha = 0.55f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -878,171 +359,45 @@ private fun TarjetaCategoriaConMedalla(
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
-    val alphaAnim by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 400, delayMillis = index * 60),
-        label = "alphaProg"
-    )
-    val slideAnim by animateFloatAsState(
-        targetValue = if (visible) 0f else 40f,
-        animationSpec = tween(durationMillis = 400, delayMillis = index * 60),
-        label = "slideProg"
-    )
-
+    val alphaAnim by animateFloatAsState(targetValue = if (visible) 1f else 0f, animationSpec = tween(durationMillis = 400, delayMillis = index * 60), label = "alphaProg")
+    val slideAnim by animateFloatAsState(targetValue = if (visible) 0f else 40f, animationSpec = tween(durationMillis = 400, delayMillis = index * 60), label = "slideProg")
     val metaActual = escalafonActivo.metaAsistencias
     val metaAlcanzada = asistenciasActuales >= metaActual && !maximoCompletado
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulsoNivel")
-    val pulsoScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (metaAlcanzada) 1.07f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(650, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "escalaNivel"
-    )
-
-    val progresoAnimado by animateFloatAsState(
-        targetValue = (asistenciasActuales.toFloat() / metaActual.toFloat()).coerceIn(0f, 1f),
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy),
-        label = "barraNivel"
-    )
-
+    val pulsoScale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = if (metaAlcanzada) 1.07f else 1f, animationSpec = infiniteRepeatable(animation = tween(650, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "escalaNivel")
+    val progresoAnimado by animateFloatAsState(targetValue = (asistenciasActuales.toFloat() / metaActual.toFloat()).coerceIn(0f, 1f), animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy), label = "barraNivel")
     val faltantes = (metaActual - asistenciasActuales).coerceAtLeast(0)
-    val siguienteMetaTexto = when (metaActual) {
-        5 -> "8 asistencias (Plata)"
-        8 -> "12 asistencias (Oro)"
-        else -> "Nivel Máximo"
-    }
+    val siguienteMetaTexto = when (metaActual) { 5 -> "8 asistencias (Plata)"; 8 -> "12 asistencias (Oro)"; else -> "Nivel Máximo" }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 7.dp)
-            .graphicsLayer {
-                alpha = alphaAnim
-                translationY = slideAnim
-            },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp).graphicsLayer { alpha = alphaAnim; translationY = slideAnim },
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = if (metaAlcanzada) 6.dp else 3.dp),
-        border = when {
-            metaAlcanzada -> BorderStroke(2.dp, EtdaOrange)
-            maximoCompletado -> BorderStroke(1.5.dp, OroPrimario)
-            nivelReclamado > 0 -> BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.45f))
-            else -> null
-        }
+        border = when { metaAlcanzada -> BorderStroke(2.dp, EtdaOrange); maximoCompletado -> BorderStroke(1.5.dp, OroPrimario); nivelReclamado > 0 -> BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.45f)); else -> null }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Medalla personalizada dibujada con Canvas
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.scale(pulsoScale)) {
-                        MedallaInsigniaETDA(
-                            icono = item.icono,
-                            colorPrincipal = escalafonActivo.colorPrimario,
-                            colorSecundario = escalafonActivo.colorBrillo,
-                            colorListon = item.colorCategoria,
-                            nivelEstrellas = if (maximoCompletado) 3 else (nivelReclamado + 1),
-                            bloqueada = false,
-                            destacada = metaAlcanzada,
-                            tamano = 60.dp
-                        )
+                        MedallaInsigniaETDA(icono = item.icono, colorPrincipal = escalafonActivo.colorPrimario, colorSecundario = escalafonActivo.colorBrillo, colorListon = item.colorCategoria, nivelEstrellas = if (maximoCompletado) 3 else (nivelReclamado + 1), bloqueada = false, destacada = metaAlcanzada, tamano = 60.dp)
                     }
-
                     Spacer(modifier = Modifier.width(10.dp))
-
                     Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Surface(
-                                color = item.colorCategoria.copy(alpha = 0.12f),
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Text(
-                                    text = item.categoria.uppercase(),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = item.colorCategoria,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                )
-                            }
-
-                            Surface(
-                                color = escalafonActivo.colorPrimario.copy(alpha = 0.15f),
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Text(
-                                    text = if (maximoCompletado) "★★★ ORO" else escalafonActivo.nombreRango.uppercase(),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = escalafonActivo.colorPrimario,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                )
-                            }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Surface(color = item.colorCategoria.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) { Text(item.categoria.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = item.colorCategoria, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)) }
+                            Surface(color = escalafonActivo.colorPrimario.copy(alpha = 0.15f), shape = RoundedCornerShape(50)) { Text(if (maximoCompletado) "★★★ ORO" else escalafonActivo.nombreRango.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = escalafonActivo.colorPrimario, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)) }
                         }
-
                         Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = "Medalla ${item.tituloBaseInsignia}",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = EtdaNavy,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = item.subtituloMedalla,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = EtdaBlue,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Text("Medalla ${item.tituloBaseInsignia}", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(item.subtituloMedalla, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EtdaBlue, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
 
-                // Contador dinámico 5/5 -> 5/8 -> 8/12 (Protegido con softWrap = false)
-                AnimatedContent(
-                    targetState = "$asistenciasActuales / $metaActual",
-                    label = "contadorMeta"
-                ) { textoContador ->
-                    Surface(
-                        color = when {
-                            maximoCompletado -> OroPrimario.copy(alpha = 0.18f)
-                            metaAlcanzada -> EtdaOrange.copy(alpha = 0.16f)
-                            else -> EtdaBg
-                        },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = textoContador,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = when {
-                                maximoCompletado -> BroncePrimario
-                                metaAlcanzada -> EtdaOrange
-                                else -> EtdaNavy
-                            },
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
-                        )
+                AnimatedContent(targetState = "$asistenciasActuales / $metaActual", label = "contadorMeta") { textoContador ->
+                    Surface(color = when { maximoCompletado -> OroPrimario.copy(alpha = 0.18f); metaAlcanzada -> EtdaOrange.copy(alpha = 0.16f); else -> EtdaBg }, shape = RoundedCornerShape(12.dp)) {
+                        Text(textoContador, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = when { maximoCompletado -> BroncePrimario; metaAlcanzada -> EtdaOrange; else -> EtdaNavy }, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
                     }
                 }
             }
@@ -1050,185 +405,56 @@ private fun TarjetaCategoriaConMedalla(
             Spacer(modifier = Modifier.height(8.dp))
 
             if (nivelReclamado > 0) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Verified,
-                        contentDescription = null,
-                        tint = EtdaSuccess,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    val rangosGanados = nivelesProgresivos.take(nivelReclamado).joinToString(" + ") {
-                        "${it.etiquetaCorta} (${it.metaAsistencias})"
-                    }
-                    Text(
-                        text = "Insignias ganadas: $rangosGanados",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = EtdaSuccess,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                    Icon(Icons.Default.Verified, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(14.dp))
+                    Text("Insignias ganadas: ${nivelesProgresivos.take(nivelReclamado).joinToString(" + ") { "${it.etiquetaCorta} (${it.metaAsistencias})" }}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EtdaSuccess, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
 
-            Text(
-                text = item.descripcionBase,
-                fontSize = 12.sp,
-                color = Color.Gray,
-                lineHeight = 16.sp
-            )
-
+            Text(item.descripcionBase, fontSize = 12.sp, color = Color.Gray, lineHeight = 16.sp)
             Spacer(modifier = Modifier.height(12.dp))
 
-            // SELLOS DE ASISTENCIA (5, luego 8, luego 12)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 for (numSello in 1..metaActual) {
                     val selloCompletado = numSello <= asistenciasActuales
                     val esHito = numSello == 5 || numSello == 8 || numSello == 12
 
                     Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(24.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                when {
-                                    selloCompletado && metaAlcanzada -> EtdaOrange
-                                    selloCompletado -> item.colorCategoria
-                                    else -> EtdaBg
-                                }
-                            )
-                            .border(
-                                width = if (esHito) 1.5.dp else 1.dp,
-                                color = when {
-                                    selloCompletado -> Color.Transparent
-                                    esHito -> EtdaOrange.copy(alpha = 0.6f)
-                                    else -> Color(0xFFCBD5E1)
-                                },
-                                shape = RoundedCornerShape(6.dp)
-                            ),
+                        modifier = Modifier.weight(1f).height(24.dp).clip(RoundedCornerShape(6.dp)).background(when { selloCompletado && metaAlcanzada -> EtdaOrange; selloCompletado -> item.colorCategoria; else -> EtdaBg }).border(width = if (esHito) 1.5.dp else 1.dp, color = when { selloCompletado -> Color.Transparent; esHito -> EtdaOrange.copy(alpha = 0.6f); else -> Color(0xFFCBD5E1) }, shape = RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (selloCompletado) {
-                            Icon(
-                                imageVector = if (esHito) Icons.Default.Star else Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(13.dp)
-                            )
-                        } else {
-                            Text(
-                                text = "$numSello",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (esHito) EtdaOrange else Color.Gray,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
+                        if (selloCompletado) Icon(if (esHito) Icons.Default.Star else Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                        else Text("$numSello", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (esHito) EtdaOrange else Color.Gray, maxLines = 1, softWrap = false)
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-
-            LinearProgressIndicator(
-                progress = { progresoAnimado },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(7.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = when {
-                    maximoCompletado -> OroPrimario
-                    metaAlcanzada -> EtdaOrange
-                    else -> item.colorCategoria
-                },
-                trackColor = Color(0xFFE2E8F0)
-            )
-
+            LinearProgressIndicator(progress = { progresoAnimado }, modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)), color = when { maximoCompletado -> OroPrimario; metaAlcanzada -> EtdaOrange; else -> item.colorCategoria }, trackColor = Color(0xFFE2E8F0))
             Spacer(modifier = Modifier.height(12.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = when {
-                        maximoCompletado -> "🏆 ¡Colección Oro completada (12/12)!"
-                        metaAlcanzada -> "¡Meta de $metaActual lograda! Reclama +${escalafonActivo.puntosPremio} pts y sube a $siguienteMetaTexto"
-                        faltantes == 1 -> "¡A solo 1 asistencia de ganar la medalla ${escalafonActivo.etiquetaCorta}!"
-                        else -> "Faltan $faltantes asistencias para medalla ${escalafonActivo.etiquetaCorta} (+${escalafonActivo.puntosPremio} pts)"
-                    },
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = when {
-                        maximoCompletado -> BroncePrimario
-                        metaAlcanzada -> EtdaOrange
-                        else -> EtdaNavy.copy(alpha = 0.75f)
-                    },
-                    lineHeight = 15.sp,
-                    modifier = Modifier.weight(1f)
+                    text = when { maximoCompletado -> "🏆 ¡Colección Oro completada (12/12)!"; metaAlcanzada -> "¡Meta de $metaActual lograda! Reclama +${escalafonActivo.puntosPremio} pts y sube a $siguienteMetaTexto"; faltantes == 1 -> "¡A solo 1 asistencia de ganar la medalla ${escalafonActivo.etiquetaCorta}!"; else -> "Faltan $faltantes asistencias para medalla ${escalafonActivo.etiquetaCorta} (+${escalafonActivo.puntosPremio} pts)" },
+                    fontSize = 11.sp, fontWeight = FontWeight.Bold, color = when { maximoCompletado -> BroncePrimario; metaAlcanzada -> EtdaOrange; else -> EtdaNavy.copy(alpha = 0.75f) }, lineHeight = 15.sp, modifier = Modifier.weight(1f)
                 )
-
                 Spacer(modifier = Modifier.width(8.dp))
 
                 if (metaAlcanzada || maximoCompletado) {
                     Button(
-                        onClick = onReclamarNivel,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (maximoCompletado) EtdaNavy else EtdaOrange
-                        ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                        modifier = Modifier
-                            .height(36.dp)
-                            .scale(pulsoScale)
+                        onClick = onReclamarNivel, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = if (maximoCompletado) EtdaNavy else EtdaOrange), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), modifier = Modifier.height(36.dp).scale(pulsoScale)
                     ) {
-                        Icon(
-                            imageVector = if (maximoCompletado) Icons.Default.WorkspacePremium else Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp)
-                        )
+                        Icon(if (maximoCompletado) Icons.Default.WorkspacePremium else Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = if (maximoCompletado) "Ver Medalla" else "¡Reclamar!",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        Text(if (maximoCompletado) "Ver Medalla" else "¡Reclamar!", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false)
                     }
                 } else {
                     OutlinedButton(
-                        onClick = onSimularAsistencia,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, EtdaBlue),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaBlue),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp)
+                        onClick = onSimularAsistencia, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, EtdaBlue), colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaBlue), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), modifier = Modifier.height(34.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AddTask,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
+                        Icon(Icons.Default.AddTask, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "+1 Asist.",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        Text("+1 Asist.", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -1237,287 +463,46 @@ private fun TarjetaCategoriaConMedalla(
 }
 
 @Composable
-private fun TarjetaRecompensaEstilizada(
-    recompensa: RecompensaCanjeable,
-    puntosDisponibles: Int,
-    yaCanjeada: Boolean,
-    index: Int,
-    onCanjear: () -> Unit
-) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-
-    val alphaAnim by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 380, delayMillis = index * 60),
-        label = "alphaRec"
-    )
-
-    val alcanza = puntosDisponibles >= recompensa.costoPuntos
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 7.dp)
-            .graphicsLayer { alpha = alphaAnim },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        border = if (yaCanjeada) BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.5f)) else null
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = if (yaCanjeada) EtdaSuccess.copy(alpha = 0.12f) else EtdaBlue.copy(alpha = 0.1f),
-                modifier = Modifier.size(54.dp)
-            ) {
-                Icon(
-                    imageVector = recompensa.icono,
-                    contentDescription = null,
-                    tint = if (yaCanjeada) EtdaSuccess else EtdaBlue,
-                    modifier = Modifier.padding(13.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Surface(
-                    color = EtdaNavy.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text(
-                        text = recompensa.categoriaRequerida,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = EtdaNavy,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = recompensa.titulo,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 15.sp,
-                    color = EtdaNavy,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = recompensa.descripcion,
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    maxLines = 2,
-                    lineHeight = 16.sp
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Stars,
-                            contentDescription = null,
-                            tint = EtdaOrange,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${recompensa.costoPuntos} pts",
-                            fontSize = 14.sp,
-                            color = EtdaOrange,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-
-                    Button(
-                        onClick = onCanjear,
-                        enabled = yaCanjeada || alcanza,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = when {
-                                yaCanjeada -> EtdaSuccess
-                                alcanza -> EtdaNavy
-                                else -> Color(0xFFE2E8F0)
-                            },
-                            disabledContainerColor = Color(0xFFE2E8F0)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Text(
-                            text = when {
-                                yaCanjeada -> "✓ Canjeado"
-                                alcanza -> "Canjear"
-                                else -> "Faltan ${recompensa.costoPuntos - puntosDisponibles} pts"
-                            },
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (yaCanjeada || alcanza) Color.White else Color.Gray,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModalMedallaDesbloqueada(
-    logro: LogroDesbloqueadoModal,
-    onDismiss: () -> Unit
-) {
+private fun ModalMedallaDesbloqueada(logro: LogroDesbloqueadoModal, onDismiss: () -> Unit) {
     AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        containerColor = Color.White,
+        onDismissRequest = onDismiss, shape = RoundedCornerShape(28.dp), containerColor = Color.White,
         title = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                MedallaInsigniaETDA(
-                    icono = logro.icono,
-                    colorPrincipal = logro.colorPrimario,
-                    colorSecundario = logro.colorBrillo,
-                    colorListon = EtdaOrange,
-                    nivelEstrellas = logro.nivel,
-                    bloqueada = false,
-                    destacada = true,
-                    tamano = 104.dp
-                )
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                MedallaInsigniaETDA(icono = logro.icono, colorPrincipal = logro.colorPrimario, colorSecundario = logro.colorBrillo, colorListon = EtdaOrange, nivelEstrellas = logro.nivel, bloqueada = false, destacada = true, tamano = 104.dp)
                 Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    color = EtdaSuccess.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text(
-                        text = "¡INSIGNIA ${logro.nombreRango.uppercase()}!",
-                        color = EtdaSuccess,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                }
+                Surface(color = EtdaSuccess.copy(alpha = 0.15f), shape = RoundedCornerShape(50)) { Text("¡INSIGNIA ${logro.nombreRango.uppercase()}!", color = EtdaSuccess, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = logro.nombreInsignia,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 20.sp,
-                    color = EtdaNavy,
-                    textAlign = TextAlign.Center
-                )
+                Text(logro.nombreInsignia, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = EtdaNavy, textAlign = TextAlign.Center)
             }
         },
         text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Has cumplido ${logro.metaAlcanzada} asistencias verificadas en la categoría de ${logro.categoria}.",
-                    fontSize = 13.sp,
-                    color = Color.DarkGray,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
-                )
-
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Has cumplido ${logro.metaAlcanzada} asistencias verificadas en la categoría de ${logro.categoria}.", fontSize = 13.sp, color = Color.DarkGray, textAlign = TextAlign.Center, lineHeight = 18.sp)
                 Spacer(modifier = Modifier.height(14.dp))
-
-                Surface(
-                    color = EtdaBg,
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "FOLIO DE INSIGNIA OFICIAL ETDA",
-                            fontSize = 10.sp,
-                            color = Color.Gray,
-                            fontWeight = FontWeight.Bold
-                        )
+                Surface(color = EtdaBg, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.3f)), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("FOLIO DE INSIGNIA OFICIAL ETDA", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = logro.folio,
-                            fontSize = 15.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = EtdaNavy
-                        )
+                        Text(logro.folio, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold, color = EtdaNavy)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "+${logro.puntosGanados} Puntos ETDA acreditados",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = EtdaOrange
-                        )
+                        Text("+${logro.puntosGanados} Puntos ETDA acreditados", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = EtdaOrange)
                     }
                 }
-
                 if (logro.siguienteMeta != null) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    Surface(
-                        color = EtdaOrange.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.TrendingUp,
-                                contentDescription = null,
-                                tint = EtdaOrange,
-                                modifier = Modifier.size(18.dp)
-                            )
+                    Surface(color = EtdaOrange.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "¡Siguiente evolución: ${logro.siguienteMeta} asistencias!",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = EtdaOrange
-                            )
+                            Text("¡Siguiente evolución: ${logro.siguienteMeta} asistencias!", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = EtdaOrange)
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-            ) {
-                Text(
-                    text = if (logro.siguienteMeta != null) "¡Ir por las ${logro.siguienteMeta} asistencias!" else "¡Excelente!",
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    fontSize = 14.sp
-                )
+            Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                Text(if (logro.siguienteMeta != null) "¡Ir por las ${logro.siguienteMeta} asistencias!" else "¡Excelente!", fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 14.sp)
             }
         }
     )

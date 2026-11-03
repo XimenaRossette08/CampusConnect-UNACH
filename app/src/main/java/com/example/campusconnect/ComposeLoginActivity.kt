@@ -11,6 +11,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,6 +36,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +64,7 @@ import com.example.campusconnect.ui.LoginState
 import com.example.campusconnect.ui.LoginViewModel
 import com.example.campusconnect.ui.theme.CampusConnectTheme
 
+// Paleta Institucional Intacta
 val NavyBlue = Color(0xFF122652)
 val BrightBlue = Color(0xFF0093FF)
 val VibrantOrange = Color(0xFFF57C00)
@@ -249,7 +260,6 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         return listaFacultadesCatalogo.find { it.id.equals(facultadId, ignoreCase = true) }?.nombre ?: facultadId
     }
 
-    // Al abrir la pantalla o cambiar a "Crear Cuenta", sincronizar catálogo y políticas desde el servidor
     LaunchedEffect(modoRegistro) {
         mensajeErrorValidacion = null
         try {
@@ -288,7 +298,6 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                 }
             }
 
-            // Guardar datos institucionales estáticos en caché local para PerfilScreen
             remoto.datosInstitucionales?.let { inst ->
                 editor.putString("inst_escuela", inst.escuela ?: "Escuela de Tecnologías Digitales Aplicadas (ETDA)")
                 editor.putString("inst_modalidad", inst.modalidadSede ?: "Escolarizada (Campus I, Tuxtla Gutiérrez)")
@@ -296,7 +305,6 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             }
             editor.apply()
         } catch (_: Exception) {
-            // Si no hay red al abrir, se mantienen las opciones locales de la UNACH
         }
     }
 
@@ -335,18 +343,26 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                 val emailKey = regCorreoPrincipal.trim().lowercase()
                 val facIdElegida = carreraSeleccionada?.facultadId ?: "ETDA"
                 val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
-                prefs.edit()
+                val editor = prefs.edit()
                     .putString("nombre_$emailKey", regNombre.trim())
-                    .putString("matricula_$emailKey", regMatricula.trim().uppercase())
-                    .putString("carrera_$emailKey", carreraSeleccionada?.nombre ?: "")
-                    .putString("grupo_$emailKey", grupoSeleccionado.trim().uppercase())
-                    .putString("facultad_$emailKey", facIdElegida)
-                    .putString("escuela_$emailKey", obtenerNombreFacultad(facIdElegida))
                     .putBoolean("egresado_$emailKey", esAlumnoEgresado)
-                    .putString("email_sec_$emailKey", regCorreoSecundario.trim().lowercase())
-                    .putString("tel1_$emailKey", regTelefonoPrincipal.trim())
-                    .putString("tel2_$emailKey", regTelefonoSecundario.trim())
-                    .apply()
+                    .putString("email_sec_$emailKey", if (esAlumnoEgresado) regCorreoSecundario.trim().lowercase() else "")
+                    .putString("tel1_$emailKey", if (esAlumnoEgresado) regTelefonoPrincipal.trim() else "")
+                    .putString("tel2_$emailKey", if (esAlumnoEgresado) regTelefonoSecundario.trim() else "")
+
+                if (esAlumnoEgresado) {
+                    // Para egresados no se guarda matrícula, licenciatura ni grupo
+                    editor.remove("matricula_$emailKey")
+                    editor.remove("carrera_$emailKey")
+                    editor.remove("grupo_$emailKey")
+                } else {
+                    editor.putString("matricula_$emailKey", regMatricula.trim().uppercase())
+                    editor.putString("carrera_$emailKey", carreraSeleccionada?.nombre ?: "")
+                    editor.putString("grupo_$emailKey", grupoSeleccionado.trim().uppercase())
+                    editor.putString("facultad_$emailKey", facIdElegida)
+                    editor.putString("escuela_$emailKey", obtenerNombreFacultad(facIdElegida))
+                }
+                editor.apply()
 
                 correo = emailKey
                 password = ""
@@ -405,51 +421,51 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             return
         }
 
-        // Validar dominio institucional si Administración lo configuró para estudiantes activos
-        if (!esAlumnoEgresado && configRegistro.restringirDominioCorreo) {
-            val dominios = configRegistro.dominiosPermitidos?.map { it.trim().lowercase().removePrefix("@") }
-                ?.filter { it.isNotBlank() }
-                .orEmpty()
-                .ifEmpty { listOf("unach.mx") }
-            val dominioUsuario = correoLimpio.substringAfterLast("@", "")
-            if (dominioUsuario !in dominios) {
-                val listaDominios = dominios.joinToString(", ") { "@$it" }
-                mensajeErrorValidacion = "Usa tu correo institucional autorizado ($listaDominios)."
-                return
+        if (!esAlumnoEgresado) {
+            // Validaciones exclusivas para Estudiante Activo
+            if (configRegistro.restringirDominioCorreo) {
+                val dominios = configRegistro.dominiosPermitidos?.map { it.trim().lowercase().removePrefix("@") }
+                    ?.filter { it.isNotBlank() }
+                    .orEmpty()
+                    .ifEmpty { listOf("unach.mx") }
+                val dominioUsuario = correoLimpio.substringAfterLast("@", "")
+                if (dominioUsuario !in dominios) {
+                    val listaDominios = dominios.joinToString(", ") { "@$it" }
+                    mensajeErrorValidacion = "Usa tu correo institucional autorizado ($listaDominios)."
+                    return
+                }
+            }
+
+            if (configRegistro.requerirMatricula || matriculaLimpia.isNotEmpty()) {
+                val minMat = configRegistro.longitudMinMatricula.coerceAtLeast(1)
+                val maxMat = configRegistro.longitudMaxMatricula.coerceAtLeast(minMat)
+                if (matriculaLimpia.isBlank()) {
+                    mensajeErrorValidacion = "La matrícula estudiantil es obligatoria."
+                    return
+                }
+                if (matriculaLimpia.length !in minMat..maxMat) {
+                    mensajeErrorValidacion = "La matrícula debe tener entre $minMat y $maxMat caracteres."
+                    return
+                }
+                if (configRegistro.soloDigitosMatricula && !matriculaLimpia.all { it.isDigit() }) {
+                    mensajeErrorValidacion = "La matrícula solo debe contener números."
+                    return
+                }
+                if (!Regex("^[A-Z0-9\\-]+$").matches(matriculaLimpia)) {
+                    mensajeErrorValidacion = "La matrícula solo puede contener letras, números o guiones."
+                    return
+                }
+            }
+
+            if (configRegistro.requerirCarreraGrupo) {
+                if (carreraNombre.isBlank() || grupoLimpio.isBlank()) {
+                    mensajeErrorValidacion = "Selecciona tu Programa Educativo (Carrera) y tu Grado/Grupo."
+                    return
+                }
             }
         }
 
-        // Validar Matrícula según configuración administrativa
-        if ((configRegistro.requerirMatricula && !esAlumnoEgresado) || matriculaLimpia.isNotEmpty()) {
-            val minMat = configRegistro.longitudMinMatricula.coerceAtLeast(1)
-            val maxMat = configRegistro.longitudMaxMatricula.coerceAtLeast(minMat)
-            if (matriculaLimpia.isBlank()) {
-                mensajeErrorValidacion = "La matrícula estudiantil es obligatoria."
-                return
-            }
-            if (matriculaLimpia.length !in minMat..maxMat) {
-                mensajeErrorValidacion = "La matrícula debe tener entre $minMat y $maxMat caracteres."
-                return
-            }
-            if (configRegistro.soloDigitosMatricula && !matriculaLimpia.all { it.isDigit() }) {
-                mensajeErrorValidacion = "La matrícula solo debe contener números."
-                return
-            }
-            if (!Regex("^[A-Z0-9\\-]+$").matches(matriculaLimpia)) {
-                mensajeErrorValidacion = "La matrícula solo puede contener letras, números o guiones."
-                return
-            }
-        }
-
-        // Validar Carrera y Semestre/Grupo según configuración administrativa
-        if (configRegistro.requerirCarreraGrupo && !esAlumnoEgresado) {
-            if (carreraNombre.isBlank() || grupoLimpio.isBlank()) {
-                mensajeErrorValidacion = "Selecciona tu Programa Educativo (Carrera) y tu Grado/Grupo."
-                return
-            }
-        }
-
-        // Validaciones adicionales para Alumno Egresado
+        // Validaciones específicas para Alumno Egresado (sin pedir matrícula, licenciatura ni grupo)
         val correoSecLimpio = regCorreoSecundario.trim().lowercase()
         val tel1Limpio = regTelefonoPrincipal.trim().replace(Regex("[\\s\\-()]"), "")
         val tel2Limpio = regTelefonoSecundario.trim().replace(Regex("[\\s\\-()]"), "")
@@ -487,13 +503,23 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             emailSecundario = correoSecLimpio.takeIf { esAlumnoEgresado && it.isNotBlank() },
             telefonoPrincipal = tel1Limpio.takeIf { esAlumnoEgresado && it.isNotBlank() },
             telefonoSecundario = tel2Limpio.takeIf { esAlumnoEgresado && it.isNotBlank() },
-            matricula = matriculaLimpia.takeIf { it.isNotBlank() },
-            carrera = carreraNombre.takeIf { it.isNotBlank() },
-            semestreGrupo = grupoLimpio.takeIf { it.isNotBlank() },
-            idFacultad = carreraSeleccionada?.facultadId ?: "ETDA"
+            matricula = if (esAlumnoEgresado) null else matriculaLimpia.takeIf { it.isNotBlank() },
+            carrera = if (esAlumnoEgresado) null else carreraNombre.takeIf { it.isNotBlank() },
+            semestreGrupo = if (esAlumnoEgresado) null else grupoLimpio.takeIf { it.isNotBlank() },
+            idFacultad = if (esAlumnoEgresado) null else (carreraSeleccionada?.facultadId ?: "ETDA")
         )
         viewModel.ejecutarRegistro(req)
     }
+
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = BrightBlue,
+        unfocusedBorderColor = Color(0xFFCBD5E1),
+        focusedLabelColor = NavyBlue,
+        unfocusedLabelColor = Color(0xFF64748B),
+        focusedContainerColor = Color(0xFFF8FAFC),
+        unfocusedContainerColor = Color(0xFFF8FAFC),
+        cursorColor = VibrantOrange
+    )
 
     Column(
         modifier = Modifier
@@ -501,100 +527,198 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             .background(LightBackground)
             .verticalScroll(scrollState)
     ) {
+        // Hero Institucional con acabado refinado
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp)
+                .height(296.dp)
                 .background(
                     brush = Brush.verticalGradient(listOf(NavyBlue, Color(0xFF183672), BrightBlue)),
-                    shape = RoundedCornerShape(bottomStart = 40.dp, bottomEnd = 40.dp)
+                    shape = RoundedCornerShape(bottomStart = 42.dp, bottomEnd = 42.dp)
                 )
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 24.dp)
-                    .padding(top = 40.dp, bottom = 48.dp),
+                    .padding(top = 42.dp, bottom = 50.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Surface(shape = CircleShape, color = VibrantOrange, shadowElevation = 8.dp, modifier = Modifier.size(60.dp)) {
-                    Icon(Icons.Default.AccountBalance, contentDescription = "Logo UNACH", tint = Color.White, modifier = Modifier.padding(14.dp).fillMaxSize())
+                Surface(
+                    shape = CircleShape,
+                    color = VibrantOrange,
+                    shadowElevation = 10.dp,
+                    border = BorderStroke(2.dp, Color.White.copy(alpha = 0.25f)),
+                    modifier = Modifier.size(64.dp)
+                ) {
+                    Icon(
+                        Icons.Default.AccountBalance,
+                        contentDescription = "Logo UNACH",
+                        tint = Color.White,
+                        modifier = Modifier.padding(15.dp).fillMaxSize()
+                    )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                Surface(color = Color.White.copy(alpha = 0.14f), shape = RoundedCornerShape(50), border = BorderStroke(1.dp, BrightBlue.copy(alpha = 0.6f))) {
-                    Text("ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp))
+                Surface(
+                    color = Color.White.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
+                ) {
+                    Text(
+                        text = "ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.7.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
+                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Campus Connect UNACH", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    text = "Campus Connect UNACH",
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.5).sp
+                )
+                Text(
+                    text = "“Por la conciencia de la necesidad de servir”",
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 22.dp)
-                .offset(y = (-42).dp),
-            shape = RoundedCornerShape(24.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+                .padding(horizontal = 20.dp)
+                .offset(y = (-44).dp),
+            shape = RoundedCornerShape(28.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, NavyBlue.copy(alpha = 0.06f))
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Surface(shape = RoundedCornerShape(14.dp), color = LightBackground, modifier = Modifier.fillMaxWidth()) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Selector de pestañas Iniciar Sesión / Crear Cuenta con transiciones suaves
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = LightBackground,
+                    border = BorderStroke(1.dp, NavyBlue.copy(alpha = 0.06f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val bgTabLogin by animateColorAsState(
+                            targetValue = if (!modoRegistro) NavyBlue else Color.Transparent,
+                            animationSpec = tween(220),
+                            label = "bgTabLogin"
+                        )
+                        val bgTabReg by animateColorAsState(
+                            targetValue = if (modoRegistro) NavyBlue else Color.Transparent,
+                            animationSpec = tween(220),
+                            label = "bgTabReg"
+                        )
+
                         Surface(
-                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
-                                modoRegistro = false
-                                mensajeErrorValidacion = null
-                            },
-                            color = if (!modoRegistro) NavyBlue else Color.Transparent
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    modoRegistro = false
+                                    mensajeErrorValidacion = null
+                                },
+                            color = bgTabLogin,
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Iniciar Sesión", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (!modoRegistro) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                            Text(
+                                text = "Iniciar Sesión",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (!modoRegistro) Color.White else NavyBlue.copy(alpha = 0.75f),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 11.dp)
+                            )
                         }
                         Surface(
-                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
-                                modoRegistro = true
-                                mensajeErrorValidacion = null
-                            },
-                            color = if (modoRegistro) NavyBlue else Color.Transparent
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    modoRegistro = true
+                                    mensajeErrorValidacion = null
+                                },
+                            color = bgTabReg,
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Crear Cuenta", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (modoRegistro) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                            Text(
+                                text = "Crear Cuenta",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (modoRegistro) Color.White else NavyBlue.copy(alpha = 0.75f),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 11.dp)
+                            )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-                AnimatedVisibility(visible = !mensajeErrorValidacion.isNullOrBlank()) {
+                AnimatedVisibility(
+                    visible = !mensajeErrorValidacion.isNullOrBlank(),
+                    enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+                    exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+                ) {
                     Surface(
                         color = Color(0xFFFEF2F2),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.dp, Color(0xFFFECACA)),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                Icons.Default.ErrorOutline,
+                                contentDescription = null,
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = mensajeErrorValidacion.orEmpty(),
                                 color = Color(0xFFB91C1C),
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 16.sp
                             )
                         }
                     }
                 }
 
                 if (!modoRegistro) {
-                    Text("Bienvenido a Campus Connect", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = NavyBlue)
+                    Text(
+                        text = "Bienvenido a Campus Connect",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = NavyBlue,
+                        letterSpacing = (-0.3).sp
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Ingresa con tu cuenta universitaria o huella dactilar", color = Color.Gray, fontSize = 12.sp)
+                    Text(
+                        text = "Ingresa con tu cuenta universitaria o huella dactilar",
+                        color = Color(0xFF64748B),
+                        fontSize = 12.sp
+                    )
 
                     if (biometriaDisponible) {
                         val correoGuardado = TokenManager.obtenerEmail(context)
@@ -602,10 +726,11 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
                                 .clickable { iniciarConHuellaDactilar() },
                             shape = RoundedCornerShape(16.dp),
                             color = BrightBlue.copy(alpha = 0.08f),
-                            border = BorderStroke(1.5.dp, BrightBlue)
+                            border = BorderStroke(1.5.dp, BrightBlue.copy(alpha = 0.6f))
                         ) {
                             Row(
                                 modifier = Modifier
@@ -642,10 +767,11 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "Autorrellenar datos de\n${if (correoGuardado.isNotEmpty()) correoGuardado else "tu cuenta"}",
-                                            fontSize = 12.sp,
-                                            color = NavyBlue.copy(alpha = 0.7f),
-                                            lineHeight = 16.sp
+                                            text = "Acceso rápido para ${if (correoGuardado.isNotEmpty()) correoGuardado else "tu cuenta"}",
+                                            fontSize = 11.sp,
+                                            color = NavyBlue.copy(alpha = 0.72f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -654,7 +780,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                     imageVector = Icons.Default.ChevronRight,
                                     contentDescription = null,
                                     tint = BrightBlue,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -671,19 +797,13 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isLoading,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = BrightBlue,
-                            unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = NavyBlue,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                        colors = textFieldColors
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it; mensajeErrorValidacion = null },
-                        label = { Text("Contraseña", fontWeight = FontWeight.Bold) },
+                        label = { Text("Contraseña") },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Lock,
@@ -704,13 +824,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = BrightBlue,
-                            unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = NavyBlue,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        ),
+                        colors = textFieldColors,
                         enabled = !isLoading
                     )
                     Spacer(modifier = Modifier.height(22.dp))
@@ -727,46 +841,121 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                             viewModel.ejecutarLogin(correoLimpio, passLimpia)
                         },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(15.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
                         enabled = !isLoading
                     ) {
-                        if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp) else Text("INGRESAR", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        if (isLoading) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                        } else {
+                            Text("INGRESAR", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = 0.5.sp)
+                        }
                     }
                 } else {
                     Text(
-                        text = if (esAlumnoEgresado) "Registro Egresado" else "Registro Estudiante",
-                        fontSize = 20.sp,
+                        text = if (esAlumnoEgresado) "Registro de Alumno Egresado" else "Registro de Estudiante Activo",
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = NavyBlue
+                        color = NavyBlue,
+                        letterSpacing = (-0.3).sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (esAlumnoEgresado)
+                            "Registra tus datos de contacto como egresado UNACH"
+                        else
+                            "Completa tu expediente académico para participar en eventos",
+                        color = Color(0xFF64748B),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Mostrar selector Activo / Egresado solo si el Administrador lo habilitó en Catálogos
+                    // Selector Activo / Egresado
                     if (configRegistro.permitirRegistroEgresados) {
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = LightBackground,
+                            border = BorderStroke(1.dp, NavyBlue.copy(alpha = 0.06f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val bgActivo by animateColorAsState(
+                                    targetValue = if (!esAlumnoEgresado) BrightBlue else Color.Transparent,
+                                    animationSpec = tween(200),
+                                    label = "bgActivo"
+                                )
+                                val bgEgresado by animateColorAsState(
+                                    targetValue = if (esAlumnoEgresado) BrightBlue else Color.Transparent,
+                                    animationSpec = tween(200),
+                                    label = "bgEgresado"
+                                )
+
                                 Surface(
-                                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
-                                        esAlumnoEgresado = false
-                                        mensajeErrorValidacion = null
-                                    },
-                                    color = if (!esAlumnoEgresado) BrightBlue else Color.Transparent
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            esAlumnoEgresado = false
+                                            mensajeErrorValidacion = null
+                                        },
+                                    color = bgActivo,
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Text("Activo", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (!esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                                    Row(
+                                        modifier = Modifier.padding(vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.School,
+                                            contentDescription = null,
+                                            tint = if (!esAlumnoEgresado) Color.White else NavyBlue.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Estudiante Activo",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (!esAlumnoEgresado) Color.White else NavyBlue
+                                        )
+                                    }
                                 }
                                 Surface(
-                                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
-                                        esAlumnoEgresado = true
-                                        mensajeErrorValidacion = null
-                                    },
-                                    color = if (esAlumnoEgresado) BrightBlue else Color.Transparent
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            esAlumnoEgresado = true
+                                            mensajeErrorValidacion = null
+                                        },
+                                    color = bgEgresado,
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Text("Egresado", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (esAlumnoEgresado) Color.White else NavyBlue, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp))
+                                    Row(
+                                        modifier = Modifier.padding(vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.WorkspacePremium,
+                                            contentDescription = null,
+                                            tint = if (esAlumnoEgresado) Color.White else NavyBlue.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Egresado",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (esAlumnoEgresado) Color.White else NavyBlue
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -782,11 +971,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isLoading,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                        colors = textFieldColors
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -801,7 +986,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         label = {
                             Text(
                                 when {
-                                    esAlumnoEgresado -> "Correo principal"
+                                    esAlumnoEgresado -> "Correo electrónico principal"
                                     !dominiosHint.isNullOrBlank() -> "Correo institucional ($dominiosHint)"
                                     else -> "Correo institucional"
                                 }
@@ -813,195 +998,226 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isLoading,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                        colors = textFieldColors
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // 1. CAMPO DE MATRÍCULA CONFIGURADO DESDE ADMINISTRACIÓN
-                    val maxLenMat = configRegistro.longitudMaxMatricula.coerceIn(4, 30)
-                    val minLenMat = configRegistro.longitudMinMatricula.coerceIn(1, maxLenMat)
-                    OutlinedTextField(
-                        value = regMatricula,
-                        onValueChange = { nuevo ->
-                            val filtrado = if (configRegistro.soloDigitosMatricula) {
-                                nuevo.filter { it.isDigit() }
-                            } else {
-                                nuevo.filter { it.isLetterOrDigit() || it == '-' }
-                            }
-                            if (filtrado.length <= maxLenMat) {
-                                regMatricula = filtrado
-                                mensajeErrorValidacion = null
-                            }
-                        },
-                        label = {
-                            Text(
-                                if (configRegistro.requerirMatricula && !esAlumnoEgresado)
-                                    "Matrícula ($minLenMat-$maxLenMat caracteres)"
-                                else
-                                    "Matrícula (Opcional)"
-                            )
-                        },
-                        placeholder = { Text("Ej. 100016853") },
-                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, tint = BrightBlue) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = if (configRegistro.soloDigitosMatricula) KeyboardType.Number else KeyboardType.Ascii
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // 2. MENÚ DESPLEGABLE DE PROGRAMA EDUCATIVO (CARRERA)
-                    ExposedDropdownMenuBox(
-                        expanded = menuCarreraExpandido,
-                        onExpandedChange = { if (!isLoading) menuCarreraExpandido = !menuCarreraExpandido },
-                        modifier = Modifier.fillMaxWidth()
+                    // =========================================================================
+                    // CAMPOS EXCLUSIVOS PARA ESTUDIANTE ACTIVO (SE OCULTAN EN ALUMNO EGRESADO)
+                    // Matrícula, Licenciatura (Carrera) y Grado/Grupo NO se piden a egresados
+                    // =========================================================================
+                    AnimatedVisibility(
+                        visible = !esAlumnoEgresado,
+                        enter = expandVertically(animationSpec = tween(250)) + fadeIn(animationSpec = tween(220)),
+                        exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(180))
                     ) {
-                        OutlinedTextField(
-                            value = carreraSeleccionada?.nombre ?: "Selecciona tu carrera",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Programa Educativo (Carrera)") },
-                            leadingIcon = { Icon(Icons.Default.School, contentDescription = null, tint = VibrantOrange) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuCarreraExpandido) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
-                            enabled = !isLoading,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
-                                focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent
-                            )
-                        )
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                        ExposedDropdownMenu(
-                            expanded = menuCarreraExpandido,
-                            onDismissRequest = { menuCarreraExpandido = false },
-                            modifier = Modifier.background(Color.White)
-                        ) {
-                            listaCarrerasCatalogo.forEach { opcionCarrera ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(
-                                                text = opcionCarrera.nombre,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp,
-                                                color = NavyBlue,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (!opcionCarrera.facultadId.isNullOrBlank()) {
-                                                Text(
-                                                    text = obtenerNombreFacultad(opcionCarrera.facultadId),
-                                                    fontSize = 11.sp,
-                                                    color = Color.Gray,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
+                            // 1. Matrícula
+                            val maxLenMat = configRegistro.longitudMaxMatricula.coerceIn(4, 30)
+                            val minLenMat = configRegistro.longitudMinMatricula.coerceIn(1, maxLenMat)
+                            OutlinedTextField(
+                                value = regMatricula,
+                                onValueChange = { nuevo ->
+                                    val filtrado = if (configRegistro.soloDigitosMatricula) {
+                                        nuevo.filter { it.isDigit() }
+                                    } else {
+                                        nuevo.filter { it.isLetterOrDigit() || it == '-' }
+                                    }
+                                    if (filtrado.length <= maxLenMat) {
+                                        regMatricula = filtrado
+                                        mensajeErrorValidacion = null
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        if (configRegistro.requerirMatricula)
+                                            "Matrícula ($minLenMat-$maxLenMat caracteres)"
+                                        else
+                                            "Matrícula (Opcional)"
+                                    )
+                                },
+                                placeholder = { Text("Ej. 100016853") },
+                                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, tint = BrightBlue) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = if (configRegistro.soloDigitosMatricula) KeyboardType.Number else KeyboardType.Ascii
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isLoading,
+                                colors = textFieldColors
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 2. Programa Educativo (Carrera / Licenciatura)
+                            ExposedDropdownMenuBox(
+                                expanded = menuCarreraExpandido,
+                                onExpandedChange = { if (!isLoading) menuCarreraExpandido = !menuCarreraExpandido },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                OutlinedTextField(
+                                    value = carreraSeleccionada?.nombre ?: "Selecciona tu carrera",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Programa Educativo (Carrera)") },
+                                    leadingIcon = { Icon(Icons.Default.School, contentDescription = null, tint = VibrantOrange) },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuCarreraExpandido) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    enabled = !isLoading,
+                                    colors = textFieldColors
+                                )
+
+                                ExposedDropdownMenu(
+                                    expanded = menuCarreraExpandido,
+                                    onDismissRequest = { menuCarreraExpandido = false },
+                                    modifier = Modifier.background(Color.White)
+                                ) {
+                                    listaCarrerasCatalogo.forEach { opcionCarrera ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(
+                                                        text = opcionCarrera.nombre,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = NavyBlue,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    if (!opcionCarrera.facultadId.isNullOrBlank()) {
+                                                        Text(
+                                                            text = obtenerNombreFacultad(opcionCarrera.facultadId),
+                                                            fontSize = 11.sp,
+                                                            color = Color.Gray,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            onClick = {
+                                                carreraSeleccionada = opcionCarrera
+                                                val gruposDeEstaCarrera = opcionCarrera.grupos.orEmpty()
+                                                grupoSeleccionado = gruposDeEstaCarrera.firstOrNull() ?: ""
+                                                menuCarreraExpandido = false
+                                                mensajeErrorValidacion = null
                                             }
-                                        }
-                                    },
-                                    onClick = {
-                                        carreraSeleccionada = opcionCarrera
-                                        val gruposDeEstaCarrera = opcionCarrera.grupos.orEmpty()
-                                        grupoSeleccionado = gruposDeEstaCarrera.firstOrNull() ?: ""
-                                        menuCarreraExpandido = false
-                                        mensajeErrorValidacion = null
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // 3. MENÚ DESPLEGABLE DE GRADO Y GRUPO (SEGÚN LA CARRERA ELEGIDA)
-                    val gruposDisponiblesCarrera = carreraSeleccionada?.grupos.orEmpty()
-                    ExposedDropdownMenuBox(
-                        expanded = menuGrupoExpandido,
-                        onExpandedChange = {
-                            if (!isLoading && gruposDisponiblesCarrera.isNotEmpty()) {
-                                menuGrupoExpandido = !menuGrupoExpandido
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        OutlinedTextField(
-                            value = if (grupoSeleccionado.isNotBlank()) formatearEtiquetaGrupo(grupoSeleccionado) else "Selecciona tu grado y grupo",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Grado y Grupo (Semestre y Grupo)") },
-                            leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, tint = BrightBlue) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuGrupoExpandido) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
-                            enabled = !isLoading,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
-                                focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent
-                            )
-                        )
-
-                        ExposedDropdownMenu(
-                            expanded = menuGrupoExpandido,
-                            onDismissRequest = { menuGrupoExpandido = false },
-                            modifier = Modifier.background(Color.White)
-                        ) {
-                            gruposDisponiblesCarrera.forEach { codigoGrupo ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "${formatearEtiquetaGrupo(codigoGrupo)} ($codigoGrupo)",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = NavyBlue
                                         )
-                                    },
-                                    onClick = {
-                                        grupoSeleccionado = codigoGrupo
-                                        menuGrupoExpandido = false
-                                        mensajeErrorValidacion = null
                                     }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 3. Grado y Grupo (Semestre y Grupo)
+                            val gruposDisponiblesCarrera = carreraSeleccionada?.grupos.orEmpty()
+                            ExposedDropdownMenuBox(
+                                expanded = menuGrupoExpandido,
+                                onExpandedChange = {
+                                    if (!isLoading && gruposDisponiblesCarrera.isNotEmpty()) {
+                                        menuGrupoExpandido = !menuGrupoExpandido
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                OutlinedTextField(
+                                    value = if (grupoSeleccionado.isNotBlank()) formatearEtiquetaGrupo(grupoSeleccionado) else "Selecciona tu grado y grupo",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Grado y Grupo (Semestre y Grupo)") },
+                                    leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, tint = BrightBlue) },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuGrupoExpandido) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    enabled = !isLoading,
+                                    colors = textFieldColors
                                 )
+
+                                ExposedDropdownMenu(
+                                    expanded = menuGrupoExpandido,
+                                    onDismissRequest = { menuGrupoExpandido = false },
+                                    modifier = Modifier.background(Color.White)
+                                ) {
+                                    gruposDisponiblesCarrera.forEach { codigoGrupo ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = "${formatearEtiquetaGrupo(codigoGrupo)} ($codigoGrupo)",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = NavyBlue
+                                                )
+                                            },
+                                            onClick = {
+                                                grupoSeleccionado = codigoGrupo
+                                                menuGrupoExpandido = false
+                                                mensajeErrorValidacion = null
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
 
-                    AnimatedVisibility(visible = esAlumnoEgresado) {
-                        Column {
+                    // =========================================================================
+                    // CAMPOS EXCLUSIVOS PARA ALUMNO EGRESADO (2 CORREOS Y 2 TELÉFONOS)
+                    // =========================================================================
+                    AnimatedVisibility(
+                        visible = esAlumnoEgresado,
+                        enter = expandVertically(animationSpec = tween(250)) + fadeIn(animationSpec = tween(220)),
+                        exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(180))
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Surface(
+                                color = BrightBlue.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, BrightBlue.copy(alpha = 0.25f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VerifiedUser,
+                                        contentDescription = null,
+                                        tint = BrightBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Como egresado solo necesitas registrar un correo alternativo y dos números de contacto.",
+                                        fontSize = 11.sp,
+                                        color = NavyBlue,
+                                        fontWeight = FontWeight.Medium,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = regCorreoSecundario,
                                 onValueChange = { regCorreoSecundario = it; mensajeErrorValidacion = null },
                                 label = { Text("Correo alternativo (distinto al principal)") },
-                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = BrightBlue) },
+                                leadingIcon = { Icon(Icons.Default.AlternateEmail, contentDescription = null, tint = BrightBlue) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !isLoading,
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                                colors = textFieldColors
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
@@ -1020,7 +1236,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !isLoading,
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                                colors = textFieldColors
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
@@ -1033,13 +1249,13 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                     }
                                 },
                                 label = { Text("Teléfono secundario (10 dígitos)") },
-                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = BrightBlue) },
+                                leadingIcon = { Icon(Icons.Default.PhoneCallback, contentDescription = null, tint = BrightBlue) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !isLoading,
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray, focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                                colors = textFieldColors
                             )
                         }
                     }
@@ -1064,11 +1280,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isLoading,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = BrightBlue, unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = NavyBlue, focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                        colors = textFieldColors
                     )
 
                     Spacer(modifier = Modifier.height(22.dp))
@@ -1076,14 +1288,15 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     Button(
                         onClick = { validarYEnviarRegistro() },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(15.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
                         enabled = !isLoading
                     ) {
                         if (isLoading) {
                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
                         } else {
-                            Text("REGISTRARME", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("REGISTRARME", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = 0.5.sp)
                         }
                     }
                 }
@@ -1096,6 +1309,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             text = "UNACH • ETDA",
             color = NavyBlue.copy(alpha = 0.55f),
             fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
@@ -1106,7 +1320,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         if (showOtpDialog) {
             AlertDialog(
                 onDismissRequest = {},
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(26.dp),
                 containerColor = Color.White,
                 title = {
                     Column(
@@ -1116,16 +1330,16 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         Surface(
                             shape = CircleShape,
                             color = BrightBlue.copy(alpha = 0.12f),
-                            modifier = Modifier.size(52.dp)
+                            modifier = Modifier.size(54.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Lock,
+                                imageVector = Icons.Default.Shield,
                                 contentDescription = null,
                                 tint = BrightBlue,
-                                modifier = Modifier.padding(12.dp)
+                                modifier = Modifier.padding(13.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
                             text = "Verificación en 2 pasos",
                             fontWeight = FontWeight.ExtraBold,
@@ -1142,10 +1356,11 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     ) {
                         Text(
                             text = "Ingresa el código de 6 dígitos enviado a tu correo institucional para verificar tu identidad e iniciar sesión.",
-                            color = Color.Gray,
+                            color = Color(0xFF64748B),
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(bottom = 20.dp)
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(bottom = 18.dp)
                         )
                         OutlinedTextField(
                             value = otpCode,
@@ -1154,13 +1369,13 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                     otpCode = it
                                 }
                             },
-                            placeholder = { Text("Código de 6 dígitos", color = Color.Gray) },
+                            placeholder = { Text("000000", color = Color.LightGray) },
                             singleLine = true,
                             shape = RoundedCornerShape(14.dp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             textStyle = TextStyle(
                                 fontSize = 28.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = NavyBlue,
                                 textAlign = TextAlign.Center,
                                 letterSpacing = 8.sp
@@ -1215,8 +1430,18 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         if (mostrarModalOfrecerHuella) {
             AlertDialog(
                 onDismissRequest = { mostrarModalOfrecerHuella = false; onNavigateToAlumno() },
-                title = { Text("¿Activar Huella?") },
-                text = { Text("¿Quieres usar tu huella dactilar para iniciar sesión más rápido la próxima vez?") },
+                shape = RoundedCornerShape(24.dp),
+                containerColor = Color.White,
+                title = {
+                    Text("¿Activar Huella Dactilar?", fontWeight = FontWeight.ExtraBold, color = NavyBlue)
+                },
+                text = {
+                    Text(
+                        "¿Quieres vincular tu huella dactilar para iniciar sesión más rápido la próxima vez?",
+                        color = Color(0xFF475569),
+                        fontSize = 13.sp
+                    )
+                },
                 confirmButton = {
                     Button(
                         onClick = {
@@ -1225,11 +1450,14 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                             mostrarModalOfrecerHuella = false
                             onNavigateToAlumno()
                         },
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = VibrantOrange)
-                    ) { Text("Sí, activar", color = Color.White) }
+                    ) { Text("Sí, activar", color = Color.White, fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { mostrarModalOfrecerHuella = false; onNavigateToAlumno() }) { Text("Ahora no") }
+                    TextButton(onClick = { mostrarModalOfrecerHuella = false; onNavigateToAlumno() }) {
+                        Text("Ahora no", color = Color.Gray, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             )
         }

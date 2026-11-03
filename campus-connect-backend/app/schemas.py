@@ -64,13 +64,15 @@ class ArchivoOut(BaseModel):
 
 
 class EventoOut(EventoBase):
-    """Lo que el servidor devuelve al cliente."""
+    """Lo que el servidor devuelve al cliente (sincronizado con Evento.kt y Panel Web)."""
 
     id: uuid.UUID
     organizador_email: Optional[str] = Field(default="admin@unach.mx", alias="organizador")
     finalizado: bool = False
     archivos: List[ArchivoOut] = []
-    total_registrados: Optional[int] = Field(default=None, alias="totalRegistrados")
-    total_asistieron: Optional[int] = Field(default=None, alias="totalAsistieron")
+    total_registrados: int = Field(default=0, alias="totalRegistrados", serialization_alias="totalRegistrados")
+    total_asistieron: int = Field(default=0, alias="totalAsistieron", serialization_alias="totalAsistieron")
+    capacidad_total: int = Field(default=100, alias="capacidadTotal", serialization_alias="capacidadTotal")
+    asientos_ocupados: int = Field(default=0, alias="asientosOcupados", serialization_alias="asientosOcupados")
 
     model_config = ConfigDict(populate_by_name=True, from_attributes=True)

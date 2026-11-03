@@ -9,9 +9,6 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
-import com.example.campusconnect.MyFirebaseMessagingService
-import com.google.firebase.messaging.FirebaseMessaging
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -47,10 +44,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.example.campusconnect.MyFirebaseMessagingService
 import com.example.campusconnect.model.ArchivoEvento
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -67,7 +67,7 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
-// Paleta Oficial ETDA - UNACH
+// Paleta Oficial ETDA - UNACH Intacta
 private val EtdaNavy = Color(0xFF122652)
 private val EtdaBlue = Color(0xFF0093FF)
 private val EtdaOrange = Color(0xFFF57C00)
@@ -172,8 +172,8 @@ private fun extraerFechaVisual(fechaHora: String?): Triple<String, String, Strin
     }
 }
 
-private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscritos: List<String>) {
-    val estaInscrito = (ev.inscrito == true) || inscritos.contains(ev.id) || inscritos.contains(ev.titulo)
+private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscritosIds: Set<String>) {
+    val estaInscrito = (ev.inscrito == true) || inscritosIds.contains(ev.id)
     if (!estaInscrito) return
 
     val ahora = Instant.now()
@@ -182,7 +182,6 @@ private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscri
         ?: return
 
     val segundosRestantes = Duration.between(ahora, finInstant).seconds
-    // Si quedan entre 1 segundo y 30 minutos (1800 segundos) para finalizar el evento
     if (segundosRestantes in 1..1800) {
         val prefs = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
         val firmaFin = ev.fechaFin ?: ev.fechaHora
@@ -231,32 +230,32 @@ fun EventosScreen(
 ) {
     val context = LocalContext.current
 
-    // ESTADO PARA CONTROLAR LA CÁMARA
     var mostrarEscaner by remember { mutableStateOf(false) }
-
     var searchQuery by remember { mutableStateOf("") }
     var filtroSeleccionado by remember { mutableStateOf("Todos") }
-    var eventoSeleccionado by remember { mutableStateOf<Evento?>(null) }
+    var eventoSeleccionadoId by remember { mutableStateOf<String?>(null) }
     var calendarioExpandido by remember { mutableStateOf(true) }
-
     var tabVistaEventos by remember { mutableIntStateOf(0) }
+
     val prefsNotif = remember { context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE) }
-    val eventosInscritos = remember {
-        val guardados = prefsNotif.getStringSet("eventos_inscritos_set", emptySet()) ?: emptySet()
-        mutableStateListOf<String>().apply { addAll(guardados) }
+    val prefsLocalPiloto = remember { context.getSharedPreferences("EventosPiloto", Context.MODE_PRIVATE) }
+
+    // Almacenamos ÚNICAMENTE los IDs de eventos vigentes en los que el alumno está inscrito
+    var eventosInscritosIds by remember {
+        val guardados = prefsNotif.getStringSet("eventos_inscritos_ids_v2", emptySet()) ?: emptySet()
+        mutableStateOf(guardados)
     }
-    // Memoria de eventos activos vistos en la sesión para detectar en qué momento exacto finalizan
+
+    // Memoria de eventos activos vistos en la sesión para detectar cuándo finalizan
     val cacheEventosVistos = remember { mutableStateMapOf<String, Evento>() }
 
-<<<<<<< HEAD
-    fun guardarInscritosEnPrefs() {
-        prefsNotif.edit().putStringSet("eventos_inscritos_set", eventosInscritos.toSet()).apply()
-=======
-    val prefsLocal = context.getSharedPreferences("EventosPiloto", Context.MODE_PRIVATE)
-
-    var eventosInscritos by remember {
-        mutableStateOf(prefsLocal.getStringSet("inscritos", emptySet()) ?: emptySet())
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
+    fun persistirInscritosActivos(nuevosIds: Set<String>) {
+        eventosInscritosIds = nuevosIds
+        prefsNotif.edit()
+            .putStringSet("eventos_inscritos_ids_v2", nuevosIds)
+            .remove("eventos_inscritos_set") // Purgar clave legada que duplicaba IDs + títulos
+            .apply()
+        prefsLocalPiloto.edit().remove("inscritos").apply()
     }
 
     val notifPermLauncher = rememberLauncherForActivityResult(
@@ -282,36 +281,27 @@ fun EventosScreen(
         } catch (_: Exception) {}
     }
 
-    // Lista sincronizada en tiempo real con el servidor FastAPI (GET /eventos/feed)
     var eventosServidor by remember { mutableStateOf<List<Evento>>(emptyList()) }
     var yaSincronizoConServidor by remember { mutableStateOf(false) }
     var sincronizandoServidor by remember { mutableStateOf(false) }
     var errorServidor by remember { mutableStateOf<String?>(null) }
     var pulsoReloj by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    fun evaluarNotificacionesDeEventos(remotos: List<Evento>) {
+    fun evaluarNotificacionesYSincronizarInscritos(remotos: List<Evento>) {
         val ahora = Instant.now()
-
-        // 1. Sincronizar estado de inscripción que viene desde PostgreSQL (ev.inscrito == true)
-        var cambioInscritos = false
-        for (ev in remotos) {
-            if (ev.inscrito == true) {
-                if (!eventosInscritos.contains(ev.titulo)) {
-                    eventosInscritos.add(ev.titulo)
-                    cambioInscritos = true
-                }
-                if (!eventosInscritos.contains(ev.id)) {
-                    eventosInscritos.add(ev.id)
-                    cambioInscritos = true
-                }
-            }
-        }
-        if (cambioInscritos) {
-            guardarInscritosEnPrefs()
-        }
-
         val vigentes = remotos.filter { it.estaVigenteEnTiempoReal() }
         val idsVigentesActuales = vigentes.map { it.id }.toSet()
+
+        // 1. Sincronizar inscripciones reales de eventos vigentes y PURGAR inmediatamente cualquier evento finalizado
+        val nuevosInscritosVigentes = mutableSetOf<String>()
+        for (ev in vigentes) {
+            if (ev.inscrito == true || eventosInscritosIds.contains(ev.id)) {
+                nuevosInscritosVigentes.add(ev.id)
+            }
+        }
+        if (nuevosInscritosVigentes != eventosInscritosIds) {
+            persistirInscritosActivos(nuevosInscritosVigentes)
+        }
 
         // 2. Revisar si algún evento que estaba activo en cacheEventosVistos acaba de finalizar
         for ((idPrevio, evPrevio) in cacheEventosVistos.entries.toList()) {
@@ -329,10 +319,12 @@ fun EventosScreen(
                     firmaFin = evPrevio.fechaFin ?: evPrevio.fechaHora
                 )
                 cacheEventosVistos.remove(idPrevio)
+                if (eventosInscritosIds.contains(idPrevio)) {
+                    persistirInscritosActivos(eventosInscritosIds - idPrevio)
+                }
             }
         }
 
-        // Registrar los vigentes actuales en cacheEventosVistos
         for (ev in vigentes) {
             cacheEventosVistos[ev.id] = ev
         }
@@ -356,7 +348,7 @@ fun EventosScreen(
                     }
                 }
                 iniciales.add(ev.id)
-                verificarYDispararAviso30MinFin(context, ev, eventosInscritos)
+                verificarYDispararAviso30MinFin(context, ev, nuevosInscritosVigentes)
             }
             prefsNotif.edit().putStringSet("ids_eventos_conocidos", iniciales).apply()
             return
@@ -379,9 +371,7 @@ fun EventosScreen(
                 )
             }
             nuevosConocidos.add(ev.id)
-
-            // 3. Verificar si faltan 30 minutos o menos para finalizar (para inscritos)
-            verificarYDispararAviso30MinFin(context, ev, eventosInscritos)
+            verificarYDispararAviso30MinFin(context, ev, nuevosInscritosVigentes)
         }
         prefsNotif.edit().putStringSet("ids_eventos_conocidos", nuevosConocidos).apply()
     }
@@ -393,13 +383,13 @@ fun EventosScreen(
                 val remotos = withContext(Dispatchers.IO) {
                     RetrofitClient.obtenerApi(context).obtenerEventos()
                 }
-                evaluarNotificacionesDeEventos(remotos)
+                evaluarNotificacionesYSincronizarInscritos(remotos)
                 eventosServidor = remotos
                 yaSincronizoConServidor = true
                 errorServidor = null
                 if (mostrarMensaje) {
                     val vigentesCount = remotos.count { it.estaVigenteEnTiempoReal() }
-                    snackbarHostState.showSnackbar("Cartelera actualizada ($vigentesCount eventos)")
+                    snackbarHostState.showSnackbar("Cartelera actualizada ($vigentesCount eventos activos)")
                 }
             } catch (e: Exception) {
                 errorServidor = e.localizedMessage
@@ -419,7 +409,7 @@ fun EventosScreen(
                 val remotos = withContext(Dispatchers.IO) {
                     RetrofitClient.obtenerApi(context).obtenerEventos()
                 }
-                evaluarNotificacionesDeEventos(remotos)
+                evaluarNotificacionesYSincronizarInscritos(remotos)
                 eventosServidor = remotos
                 yaSincronizoConServidor = true
                 errorServidor = null
@@ -430,29 +420,38 @@ fun EventosScreen(
         }
     }
 
-    // Mostrar los eventos vigentes en tiempo real
+    // Lista de eventos vigentes en tiempo real
     val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor, pulsoReloj) {
         val base = if (yaSincronizoConServidor) eventosServidor else eventos
         base.filter { it.estaVigenteEnTiempoReal() }
     }
 
-    // ✅ NUEVO BLOQUE: Limpieza automática de eventos finalizados en el SharedPreferences
+    // Limpieza inmediata de eventosInscritosIds cada vez que cambia listaEventosActiva (ej. al vencer la hora de fin)
     LaunchedEffect(listaEventosActiva, yaSincronizoConServidor) {
-        if (yaSincronizoConServidor) {
-            val titulosActivos = listaEventosActiva.map { it.titulo }.toSet()
-            val inscritosValidos = eventosInscritos.filter { titulosActivos.contains(it) }.toSet()
-
-            if (inscritosValidos.size != eventosInscritos.size) {
-                eventosInscritos = inscritosValidos
-                prefsLocal.edit().putStringSet("inscritos", inscritosValidos).apply()
+        if (yaSincronizoConServidor || listaEventosActiva.isNotEmpty()) {
+            val idsActivos = listaEventosActiva.map { it.id }.toSet()
+            val depurados = eventosInscritosIds.intersect(idsActivos)
+            if (depurados.size != eventosInscritosIds.size) {
+                persistirInscritosActivos(depurados)
             }
+            // Si el modal abierto corresponde a un evento que acaba de finalizar, cerrarlo
+            if (eventoSeleccionadoId != null && eventoSeleccionadoId !in idsActivos) {
+                eventoSeleccionadoId = null
+            }
+        }
+    }
+
+    // Contador exacto de eventos vigentes en los que el alumno está inscrito (0 si ya terminaron)
+    val totalInscritosVigentes = remember(listaEventosActiva, eventosInscritosIds) {
+        listaEventosActiva.count { ev ->
+            ev.inscrito == true || eventosInscritosIds.contains(ev.id)
         }
     }
 
     var mesActual by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
     var fechaSeleccionada by remember { mutableStateOf(obtenerCalendarioLocalMx()) }
 
-    val eventosFiltrados = remember(listaEventosActiva, searchQuery, filtroSeleccionado, tabVistaEventos, eventosInscritos.size) {
+    val eventosFiltrados = remember(listaEventosActiva, searchQuery, filtroSeleccionado, tabVistaEventos, eventosInscritosIds) {
         listaEventosActiva.filter { ev ->
             val catInfo = detectarCategoriaEvento(ev)
             val coincideBusqueda = searchQuery.isBlank() ||
@@ -460,20 +459,12 @@ fun EventosScreen(
                     ev.lugar.contains(searchQuery, ignoreCase = true) ||
                     ev.descripcion.contains(searchQuery, ignoreCase = true) ||
                     (ev.categoria ?: "").contains(searchQuery, ignoreCase = true)
-<<<<<<< HEAD
 
             val coincideCategoria = filtroSeleccionado == "Todos" ||
                     catInfo.nombre.equals(filtroSeleccionado, ignoreCase = true)
 
-            val coincideTab = if (tabVistaEventos == 1) {
-                (ev.inscrito == true) || eventosInscritos.contains(ev.id) || eventosInscritos.contains(ev.titulo)
-            } else {
-                true
-            }
-=======
-            val coincideCategoria = filtroSeleccionado == "Todos" || catInfo.nombre.equals(filtroSeleccionado, ignoreCase = true)
-            val coincideTab = if (tabVistaEventos == 1) eventosInscritos.contains(ev.titulo) else true
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
+            val estaInscritoEnEsteEvento = (ev.inscrito == true) || eventosInscritosIds.contains(ev.id)
+            val coincideTab = if (tabVistaEventos == 1) estaInscritoEnEsteEvento else true
 
             coincideBusqueda && coincideCategoria && coincideTab
         }
@@ -512,7 +503,10 @@ fun EventosScreen(
         dias
     }
 
-    // RUTEO: MUESTRA EL ESCÁNER O LA LISTA DE EVENTOS
+    val eventoSeleccionadoActual = remember(eventoSeleccionadoId, listaEventosActiva) {
+        eventoSeleccionadoId?.let { idSel -> listaEventosActiva.find { it.id == idSel } }
+    }
+
     if (mostrarEscaner) {
         EscanerQrScreen(onVolver = { mostrarEscaner = false })
     } else {
@@ -530,9 +524,9 @@ fun EventosScreen(
                             brush = Brush.verticalGradient(
                                 colors = listOf(EtdaNavy, Color(0xFF1A3673))
                             ),
-                            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
+                            shape = RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp)
                         )
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .padding(horizontal = 20.dp, vertical = 18.dp)
                 ) {
                     Column {
                         Row(
@@ -559,12 +553,13 @@ fun EventosScreen(
                                 Text(
                                     text = "Cartelera de Eventos",
                                     color = Color.White,
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontSize = 23.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.4).sp
                                 )
                                 Text(
                                     text = "Participa, consulta materiales y suma asistencias",
-                                    color = Color.White.copy(alpha = 0.8f),
+                                    color = Color.White.copy(alpha = 0.82f),
                                     fontSize = 12.sp
                                 )
                             }
@@ -638,7 +633,7 @@ fun EventosScreen(
                         text = "Categorías de participación",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = EtdaNavy.copy(alpha = 0.7f),
+                        color = EtdaNavy.copy(alpha = 0.72f),
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                     )
 
@@ -651,16 +646,16 @@ fun EventosScreen(
                             val seleccionado = filtroSeleccionado == cat.nombre
                             val bgColor by animateColorAsState(
                                 targetValue = if (seleccionado) EtdaOrange else Color.White,
-                                animationSpec = tween(250),
+                                animationSpec = tween(220),
                                 label = "chipBg"
                             )
                             val contentColor by animateColorAsState(
                                 targetValue = if (seleccionado) Color.White else EtdaNavy,
-                                animationSpec = tween(250),
+                                animationSpec = tween(220),
                                 label = "chipContent"
                             )
                             val chipScale by animateFloatAsState(
-                                targetValue = if (seleccionado) 1.05f else 1f,
+                                targetValue = if (seleccionado) 1.04f else 1f,
                                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                                 label = "chipScale"
                             )
@@ -668,6 +663,7 @@ fun EventosScreen(
                             Surface(
                                 modifier = Modifier
                                     .scale(chipScale)
+                                    .clip(RoundedCornerShape(50))
                                     .clickable { filtroSeleccionado = cat.nombre },
                                 shape = RoundedCornerShape(50),
                                 color = bgColor,
@@ -689,7 +685,7 @@ fun EventosScreen(
                                         text = cat.nombre,
                                         color = contentColor,
                                         fontSize = 13.sp,
-                                        fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Medium
+                                        fontWeight = if (seleccionado) FontWeight.ExtraBold else FontWeight.Medium
                                     )
                                 }
                             }
@@ -705,7 +701,8 @@ fun EventosScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                    border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.06f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -717,9 +714,9 @@ fun EventosScreen(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = RoundedCornerShape(11.dp),
                                     color = EtdaBlue.copy(alpha = 0.12f),
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(38.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.CalendarMonth,
@@ -732,7 +729,7 @@ fun EventosScreen(
                                 Column {
                                     Text(
                                         text = "Agenda Académica",
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = FontWeight.ExtraBold,
                                         fontSize = 15.sp,
                                         color = EtdaNavy
                                     )
@@ -759,8 +756,8 @@ fun EventosScreen(
 
                         AnimatedVisibility(
                             visible = calendarioExpandido,
-                            enter = expandVertically() + fadeIn(),
-                            exit = shrinkVertically() + fadeOut()
+                            enter = expandVertically(animationSpec = tween(240)) + fadeIn(animationSpec = tween(220)),
+                            exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(180))
                         ) {
                             Column {
                                 HorizontalDivider(
@@ -816,7 +813,7 @@ fun EventosScreen(
                             val tab0Activa = tabVistaEventos == 0
                             val bgTab0 by animateColorAsState(
                                 targetValue = if (tab0Activa) EtdaNavy else Color.Transparent,
-                                animationSpec = tween(250),
+                                animationSpec = tween(220),
                                 label = "bgTab0"
                             )
                             Surface(
@@ -851,7 +848,7 @@ fun EventosScreen(
                             val tab1Activa = tabVistaEventos == 1
                             val bgTab1 by animateColorAsState(
                                 targetValue = if (tab1Activa) EtdaNavy else Color.Transparent,
-                                animationSpec = tween(250),
+                                animationSpec = tween(220),
                                 label = "bgTab1"
                             )
                             Surface(
@@ -886,7 +883,7 @@ fun EventosScreen(
                                         color = if (tab1Activa) EtdaOrange else EtdaOrange.copy(alpha = 0.15f)
                                     ) {
                                         Text(
-                                            text = "${eventosInscritos.size}",
+                                            text = "$totalInscritosVigentes",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.ExtraBold,
                                             color = if (tab1Activa) Color.White else EtdaOrange,
@@ -909,7 +906,7 @@ fun EventosScreen(
                     ) {
                         Text(
                             text = when {
-                                tabVistaEventos == 1 -> "Eventos en los que participas"
+                                tabVistaEventos == 1 -> "Eventos activos en los que participas"
                                 filtroSeleccionado == "Todos" -> "Cartelera general disponible"
                                 else -> "Categoría: $filtroSeleccionado"
                             },
@@ -934,7 +931,7 @@ fun EventosScreen(
             }
 
             when {
-                cargando -> item {
+                cargando && !yaSincronizoConServidor -> item {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -944,7 +941,7 @@ fun EventosScreen(
                         CircularProgressIndicator(color = EtdaOrange, strokeWidth = 3.dp)
                     }
                 }
-                error != null -> item {
+                error != null && !yaSincronizoConServidor -> item {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -967,9 +964,10 @@ fun EventosScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp, vertical = 12.dp),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(22.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.White),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.06f))
                     ) {
                         Column(
                             modifier = Modifier
@@ -992,7 +990,7 @@ fun EventosScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = if (tabVistaEventos == 1)
-                                    "Aún no te has inscrito a ningún evento"
+                                    "No tienes eventos inscritos activos"
                                 else
                                     "No se encontraron eventos en esta categoría",
                                 color = EtdaNavy,
@@ -1003,7 +1001,7 @@ fun EventosScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = if (tabVistaEventos == 1)
-                                    "Explora la pestaña 'Próximos Eventos', inscríbete y aquí aparecerá tu agenda personal."
+                                    "Explora la pestaña 'Próximos Eventos', inscríbete y aquí aparecerá tu agenda personal mientras el evento esté vigente."
                                 else
                                     "Prueba cambiando el filtro de categoría o buscando otro término.",
                                 color = Color.Gray,
@@ -1029,28 +1027,28 @@ fun EventosScreen(
                 }
                 else -> itemsIndexed(
                     items = eventosFiltrados,
-                    key = { index, ev -> "${ev.titulo}_$index" }
+                    key = { _, ev -> ev.id }
                 ) { index, evento ->
-                    val yaInscrito = (evento.inscrito == true) || eventosInscritos.contains(evento.id) || eventosInscritos.contains(evento.titulo)
+                    val yaInscrito = (evento.inscrito == true) || eventosInscritosIds.contains(evento.id)
                     TarjetaEventoAnimada(
                         evento = evento,
                         index = index,
                         estaInscrito = yaInscrito,
-                        onClick = { eventoSeleccionado = evento }
+                        onClick = { eventoSeleccionadoId = evento.id }
                     )
                 }
             }
         }
 
-        eventoSeleccionado?.let { evento ->
-            val yaInscrito = (evento.inscrito == true) || eventosInscritos.contains(evento.id) || eventosInscritos.contains(evento.titulo)
+        eventoSeleccionadoActual?.let { evento ->
+            val yaInscrito = (evento.inscrito == true) || eventosInscritosIds.contains(evento.id)
             DetalleEventoSheet(
                 evento = evento,
                 estaInscrito = yaInscrito,
-                onDismiss = { eventoSeleccionado = null },
+                onDismiss = { eventoSeleccionadoId = null },
                 onAbrirEscaner = {
-                    eventoSeleccionado = null // Cerramos el detalle
-                    mostrarEscaner = true     // Abrimos la cámara
+                    eventoSeleccionadoId = null
+                    mostrarEscaner = true
                 },
                 onToggleInscripcion = { inscribir ->
                     val cat = detectarCategoriaEvento(evento)
@@ -1061,64 +1059,59 @@ fun EventosScreen(
                                     RetrofitClient.obtenerApi(context).registrarAsistenciaEvento(evento.id)
                                 }
                                 if (resp.isSuccessful || resp.code() == 409) {
-<<<<<<< HEAD
-                                    if (!eventosInscritos.contains(evento.titulo)) {
-                                        eventosInscritos.add(evento.titulo)
+                                    val actualizados = eventosInscritosIds + evento.id
+                                    persistirInscritosActivos(actualizados)
+
+                                    // Actualizar inmediatamente el contador de asientos ocupados en memoria y sincronizar con el backend
+                                    eventosServidor = eventosServidor.map { item ->
+                                        if (item.id == evento.id) {
+                                            val ocupadosNuevos = if (item.inscrito == true) item.lugaresOcupados else (item.lugaresOcupados + 1)
+                                            item.copy(
+                                                inscrito = true,
+                                                asientosOcupados = ocupadosNuevos
+                                            )
+                                        } else item
                                     }
-                                    if (!eventosInscritos.contains(evento.id)) {
-                                        eventosInscritos.add(evento.id)
-                                    }
-                                    guardarInscritosEnPrefs()
-                                    verificarYDispararAviso30MinFin(context, evento, eventosInscritos)
+
+                                    verificarYDispararAviso30MinFin(context, evento, actualizados)
+                                    recargarEventosDesdeServidor(mostrarMensaje = false)
                                     snackbarHostState.showSnackbar(
-                                        "¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
+                                        "¡Lugar reservado en: ${evento.titulo}! (+1 asistencia en ${cat.nombre})"
                                     )
-=======
-                                    val nuevosInscritos = eventosInscritos.toMutableSet().apply { add(evento.titulo) }
-                                    eventosInscritos = nuevosInscritos
-                                    prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-                                    snackbarHostState.showSnackbar("¡Te has registrado exitosamente a: ${evento.titulo}! (+1 asistencia en ${cat.nombre})")
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
                                 } else {
                                     snackbarHostState.showSnackbar(
-                                        "No fue posible registrar tu inscripción en el servidor (${resp.code()})"
+                                        "No fue posible registrar tu inscripción (${resp.code()} · verifica cupo disponible)"
                                     )
                                 }
                             } catch (e: Exception) {
-<<<<<<< HEAD
-                                if (!eventosInscritos.contains(evento.titulo)) {
-                                    eventosInscritos.add(evento.titulo)
-                                }
-                                snackbarHostState.showSnackbar(
-                                    "Inscrito localmente a: ${evento.titulo}"
-                                )
+                                snackbarHostState.showSnackbar("Error de conexión al inscribirte al evento")
                             }
                         } else {
                             try {
-                                withContext(Dispatchers.IO) {
+                                val resp = withContext(Dispatchers.IO) {
                                     RetrofitClient.obtenerApi(context).cancelarAsistenciaEvento(evento.id)
                                 }
+                                if (resp.isSuccessful) {
+                                    val actualizados = eventosInscritosIds - evento.id
+                                    persistirInscritosActivos(actualizados)
+
+                                    eventosServidor = eventosServidor.map { item ->
+                                        if (item.id == evento.id) {
+                                            item.copy(
+                                                inscrito = false,
+                                                asientosOcupados = (item.lugaresOcupados - 1).coerceAtLeast(0)
+                                            )
+                                        } else item
+                                    }
+
+                                    recargarEventosDesdeServidor(mostrarMensaje = false)
+                                    snackbarHostState.showSnackbar(
+                                        "Inscripción cancelada y asiento liberado en: ${evento.titulo}"
+                                    )
+                                }
                             } catch (_: Exception) {
+                                snackbarHostState.showSnackbar("No se pudo cancelar la inscripción en este momento")
                             }
-                            eventosInscritos.remove(evento.titulo)
-                            eventosInscritos.remove(evento.id)
-                            guardarInscritosEnPrefs()
-                            snackbarHostState.showSnackbar(
-                                "Inscripción cancelada para: ${evento.titulo}"
-                            )
-=======
-                                val nuevosInscritos = eventosInscritos.toMutableSet().apply { add(evento.titulo) }
-                                eventosInscritos = nuevosInscritos
-                                prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-                                snackbarHostState.showSnackbar("Inscrito localmente a: ${evento.titulo}")
-                            }
-                        } else {
-                            try { withContext(Dispatchers.IO) { RetrofitClient.obtenerApi(context).cancelarAsistenciaEvento(evento.id) } } catch (_: Exception) {}
-                            val nuevosInscritos = eventosInscritos.toMutableSet().apply { remove(evento.titulo) }
-                            eventosInscritos = nuevosInscritos
-                            prefsLocal.edit().putStringSet("inscritos", nuevosInscritos).apply()
-                            snackbarHostState.showSnackbar("Inscripción cancelada para: ${evento.titulo}")
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
                         }
                     }
                 }
@@ -1290,12 +1283,12 @@ private fun TarjetaEventoAnimada(
 
     val alphaAnim by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 400, delayMillis = (index * 60).coerceAtMost(300)),
+        animationSpec = tween(durationMillis = 320, delayMillis = (index * 50).coerceAtMost(250)),
         label = "alphaCard"
     )
     val slideAnim by animateFloatAsState(
-        targetValue = if (visible) 0f else 40f,
-        animationSpec = tween(durationMillis = 400, delayMillis = (index * 60).coerceAtMost(300)),
+        targetValue = if (visible) 0f else 28f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "slideCard"
     )
 
@@ -1308,12 +1301,15 @@ private fun TarjetaEventoAnimada(
     val catInfo = detectarCategoriaEvento(evento)
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
 
+    val disponibles = evento.lugaresDisponibles
+    val capacidad = evento.cupoMaximo
+    val agotado = evento.cupoAgotado
+
     Card(
         shape = RoundedCornerShape(22.dp),
-<<<<<<< HEAD
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = if (estaInscrito) Color(0xFFF8FAFC) else Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        border = if (estaInscrito) BorderStroke(1.5.dp, EtdaSuccess.copy(alpha = 0.5f)) else null,
+        border = if (estaInscrito) BorderStroke(1.5.dp, EtdaSuccess.copy(alpha = 0.6f)) else BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.06f)),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 7.dp)
@@ -1321,13 +1317,8 @@ private fun TarjetaEventoAnimada(
                 alpha = alphaAnim
                 translationY = slideAnim
             }
+            .clip(RoundedCornerShape(22.dp))
             .clickable { onClick() }
-=======
-        colors = CardDefaults.cardColors(containerColor = if (estaInscrito) Color(0xFFF8FAFC) else Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        border = if (estaInscrito) BorderStroke(1.5.dp, EtdaSuccess.copy(alpha = 0.6f)) else null,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp).graphicsLayer { alpha = alphaAnim; translationY = slideAnim }.clickable { onClick() }
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
     ) {
         Row(
             modifier = Modifier
@@ -1459,7 +1450,7 @@ private fun TarjetaEventoAnimada(
                     Text(
                         text = evento.lugar,
                         fontSize = 12.sp,
-                        color = Color.Gray,
+                        color = Color(0xFF64748B),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1472,18 +1463,29 @@ private fun TarjetaEventoAnimada(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Surface(
-                            color = EtdaBg,
+                            color = if (agotado) Color(0xFFFEF2F2) else EtdaBg,
                             shape = RoundedCornerShape(6.dp)
                         ) {
-                            Text(
-                                text = "Presencial",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = EtdaNavy,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.EventSeat,
+                                    contentDescription = null,
+                                    tint = if (agotado) Color(0xFFDC2626) else EtdaBlue,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = if (agotado) "Agotado (0/$capacidad)" else "$disponibles/$capacidad libres",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (agotado) Color(0xFFDC2626) else EtdaNavy
+                                )
+                            }
                         }
 
                         if (evento.materiales.isNotEmpty()) {
@@ -1589,28 +1591,42 @@ private fun DetalleEventoSheet(
     evento: Evento,
     estaInscrito: Boolean,
     onDismiss: () -> Unit,
-    onAbrirEscaner: () -> Unit, // NUEVO PARÁMETRO
+    onAbrirEscaner: () -> Unit,
     onToggleInscripcion: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var isInscrito by remember(estaInscrito) { mutableStateOf(estaInscrito) }
+    var isInscrito by remember(evento.id, estaInscrito) { mutableStateOf(estaInscrito) }
     val catInfo = detectarCategoriaEvento(evento)
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
-<<<<<<< HEAD
-=======
 
-    val capacidad = evento.capacidadTotal ?: 100
-    val ocupados = evento.asientosOcupados ?: 0
-    val disponibles = (capacidad - ocupados).coerceAtLeast(0)
-    val progresoReal = if (capacidad > 0) ocupados.toFloat() / capacidad.toFloat() else 0f
+    // Cálculo en tiempo real de los asientos ocupados y disponibles
+    val capacidad = evento.cupoMaximo
+    val ocupadosBase = evento.lugaresOcupados
+    val deltaLocal = when {
+        isInscrito && !estaInscrito -> 1
+        !isInscrito && estaInscrito -> -1
+        else -> 0
+    }
+    val ocupadosActuales = (ocupadosBase + deltaLocal).coerceIn(0, capacidad)
+    val disponibles = (capacidad - ocupadosActuales).coerceAtLeast(0)
+    val progresoObjetivo = (ocupadosActuales.toFloat() / capacidad.toFloat()).coerceIn(0f, 1f)
     val estaLleno = disponibles == 0
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
 
-    val progresoCupo by animateFloatAsState(
-        targetValue = if (isInscrito) 0.85f else 0.80f,
-        animationSpec = tween(600),
-        label = "progresoCupo"
+    val progresoAnimado by animateFloatAsState(
+        targetValue = progresoObjetivo,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        label = "progresoCupoReal"
+    )
+
+    val colorBarraCupo by animateColorAsState(
+        targetValue = when {
+            estaLleno -> Color(0xFFDC2626)
+            progresoObjetivo >= 0.85f -> EtdaOrange
+            else -> EtdaBlue
+        },
+        animationSpec = tween(250),
+        label = "colorBarraCupo"
     )
 
     ModalBottomSheet(
@@ -1712,7 +1728,6 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // TARJETAS DE UBICACIÓN CON LÓGICA HÍBRIDA
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1723,11 +1738,9 @@ private fun DetalleEventoSheet(
                         .clip(RoundedCornerShape(14.dp))
                         .clickable {
                             if (!evento.urlMaps.isNullOrBlank()) {
-                                // Si Yasir guardó el link exacto, lo abre directo
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(evento.urlMaps))
                                 context.startActivity(intent)
                             } else {
-                                // Si no hay link, busca por texto con el prefijo
                                 val query = Uri.encode("UNACH ETDA-CI ${evento.lugar}")
                                 val uri = Uri.parse("geo:0,0?q=$query")
                                 val intent = Intent(Intent.ACTION_VIEW, uri).apply {
@@ -1807,51 +1820,60 @@ private fun DetalleEventoSheet(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-<<<<<<< HEAD
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // Barra de Ocupación Dinámica Sincronizada con el Backend
+            Surface(
+                color = EtdaBg,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.06f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Ocupación del evento", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy)
-                Text(
-                    text = if (isInscrito) "86 lugares disponibles" else "87 lugares disponibles",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = EtdaBlue,
-=======
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Ocupación del evento", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy)
-                Text(
-                    text = if (estaLleno) "Cupo lleno" else "$disponibles lugares disponibles",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (estaLleno) Color.Red else EtdaBlue,
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
-                    maxLines = 1,
-                    softWrap = false
-                )
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.EventSeat,
+                                contentDescription = null,
+                                tint = EtdaOrange,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Ocupación del recinto",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = EtdaNavy
+                            )
+                        }
+                        Text(
+                            text = if (estaLleno)
+                                "Cupo lleno ($ocupadosActuales/$capacidad)"
+                            else
+                                "$disponibles disponibles ($ocupadosActuales/$capacidad)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = colorBarraCupo,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { progresoAnimado },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = colorBarraCupo,
+                        trackColor = Color(0xFFE2E8F0)
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-<<<<<<< HEAD
-                progress = { progresoCupo },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = EtdaBlue,
-                trackColor = Color(0xFFE2E8F0)
-            )
 
-=======
-                progress = { progresoReal },
-                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                color = if (estaLleno) Color.Red else EtdaBlue,
-                trackColor = Color(0xFFE2E8F0)
-            )
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
             Spacer(modifier = Modifier.height(18.dp))
 
             AnimatedContent(
@@ -1859,7 +1881,6 @@ private fun DetalleEventoSheet(
                 label = "estadoInscripcion"
             ) { inscrito ->
                 if (inscrito) {
-                    // NUEVA TARJETA CON EL BOTÓN DEL ESCÁNER QR
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)),
                         border = BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.4f)),
@@ -1967,7 +1988,6 @@ private fun DetalleEventoSheet(
             ArchivosDelEvento(evento.materiales)
 
             Spacer(modifier = Modifier.height(24.dp))
-<<<<<<< HEAD
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1994,17 +2014,19 @@ private fun DetalleEventoSheet(
 
                 Button(
                     onClick = {
-                        if (!isInscrito) {
+                        if (!isInscrito && !estaLleno) {
                             isInscrito = true
                             onToggleInscripcion(true)
                         }
                     },
+                    enabled = !estaLleno || isInscrito,
                     modifier = Modifier
                         .weight(1.3f)
                         .height(48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isInscrito) EtdaSuccess else EtdaOrange
+                        containerColor = if (isInscrito) EtdaSuccess else EtdaOrange,
+                        disabledContainerColor = Color.Gray.copy(alpha = 0.45f)
                     ),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp)
@@ -2016,32 +2038,11 @@ private fun DetalleEventoSheet(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isInscrito) "Inscrito" else "Inscribirme",
-=======
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.5.dp, EtdaNavy), colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaNavy), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Al calendario", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false) }
-
-                Button(
-                    onClick = { if (!isInscrito && !estaLleno) { isInscrito = true; onToggleInscripcion(true) } },
-                    enabled = !estaLleno || isInscrito,
-                    modifier = Modifier.weight(1.3f).height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isInscrito) EtdaSuccess else EtdaOrange,
-                        disabledContainerColor = Color.Gray.copy(alpha = 0.5f)
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp)
-                ) {
-                    Icon(if (isInscrito) Icons.Default.DoneAll else Icons.Default.HowToReg, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
                         text = when {
                             isInscrito -> "Inscrito"
-                            estaLleno -> "AGOTADO"
+                            estaLleno -> "CUPO AGOTADO"
                             else -> "Inscribirme"
                         },
->>>>>>> 541fcdde2272e5650bb4d097e583ddb4bbb11540
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 13.sp,
                         maxLines = 1,

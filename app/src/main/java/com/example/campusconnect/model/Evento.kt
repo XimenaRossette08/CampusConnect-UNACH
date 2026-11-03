@@ -33,12 +33,18 @@ data class Evento(
     @SerializedName(value = "urlMaps", alternate = ["url_maps"]) val urlMaps: String? = null,
     val archivos: List<ArchivoEvento>? = null,
 
-    // ✅ VARIABLES AGREGADAS PARA LA BARRA DINÁMICA DE CUPOS
+    // Variables sincronizadas con el backend para la barra dinámica de asientos en tiempo real
     @SerializedName(value = "capacidadTotal", alternate = ["capacidad_total"]) val capacidadTotal: Int? = null,
-    @SerializedName(value = "asientosOcupados", alternate = ["asientos_ocupados"]) val asientosOcupados: Int? = null
+    @SerializedName(value = "asientosOcupados", alternate = ["asientos_ocupados", "totalRegistrados", "total_registrados"]) val asientosOcupados: Int? = null
 ) {
     /** Archivos que deben ver los alumnos (las evidencias son solo para el panel de administración). */
     val materiales: List<ArchivoEvento> get() = archivos.orEmpty().filter { it.tipo == "material" }
+
+    val cupoMaximo: Int get() = (capacidadTotal ?: 100).coerceAtLeast(1)
+    val lugaresOcupados: Int get() = (asientosOcupados ?: 0).coerceAtLeast(0)
+    val lugaresDisponibles: Int get() = (cupoMaximo - lugaresOcupados).coerceAtLeast(0)
+    val porcentajeOcupacion: Float get() = (lugaresOcupados.toFloat() / cupoMaximo.toFloat()).coerceIn(0f, 1f)
+    val cupoAgotado: Boolean get() = lugaresDisponibles == 0
 
     fun estaVigenteEnTiempoReal(): Boolean {
         if (finalizado == true) return false

@@ -44,7 +44,7 @@ async function procesarLogin(e) {
     try {
         const res = await fetch(`${API_BASE_URL}/auth/login`, {
             method: "POST",
-            credentials: "include", // Recibe la Cookie HttpOnly si el 2FA sigue vigente
+            credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email, password })
         });
@@ -75,7 +75,7 @@ async function validarCodigo2FA() {
     try {
         const res = await fetch(`${API_BASE_URL}/auth/verificar-2fa`, {
             method: "POST",
-            credentials: "include", // Recibe y almacena las Cookies HttpOnly 'access_token' y 'refresh_token'
+            credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email: userState.temp2FAEmail, codigo })
         });
@@ -92,8 +92,6 @@ async function validarCodigo2FA() {
 }
 
 function establecerSesionAutenticada(email, data) {
-    // Exigencia 2 del PDF: PROHIBIDO guardar access_token o refresh_token en localStorage.
-    // Solo se mantienen en memoria RAM de la pestaña actual y en la Cookie HttpOnly del navegador.
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
 
@@ -104,7 +102,6 @@ function establecerSesionAutenticada(email, data) {
     userState.simulandoPermisos = null;
 
     if (Array.isArray(data.permisos) && data.permisos.length > 0) {
-        // Traducir claves de backend (ej. eventos:escribir) o conservar permisos granulares del usuario
         const mapaLocal = obtenerMapaPermisosLocal();
         const guardados = email ? mapaLocal[`email:${email.toLowerCase().trim()}`] : null;
         userState.permisos = Array.isArray(guardados) ? guardados : traducirPermisosBackendAPanel(data.permisos, userState.role);
@@ -152,16 +149,57 @@ function cerrarModal2FA() {
 
 async function procesarRegistro(e) {
     e.preventDefault();
-    const nombre = document.getElementById("reg-nombre").value.trim();
-    const email = document.getElementById("reg-email").value.trim();
-    const password = document.getElementById("reg-password").value.trim();
+    ocultarAlertaAuth();
+
+    const nombre = (document.getElementById("reg-nombre")?.value || "").trim();
+    const email = (document.getElementById("reg-email")?.value || "").trim().toLowerCase();
+    const password = (document.getElementById("reg-password")?.value || "").trim();
+    const esEgresado = document.getElementById("reg-es-egresado")?.value === "egresado";
+
+    const payload = {
+        nombre,
+        email,
+        password,
+        es_egresado: esEgresado
+    };
+
+    if (esEgresado) {
+        const emailSec = (document.getElementById("reg-email-secundario")?.value || "").trim().toLowerCase();
+        const tel1 = (document.getElementById("reg-telefono-principal")?.value || "").replace(/\D/g, "");
+        const tel2 = (document.getElementById("reg-telefono-secundario")?.value || "").replace(/\D/g, "");
+
+        if (!emailSec || emailSec === email) {
+            mostrarAlertaAuth("Ingresa un correo alternativo válido y distinto al principal.", true);
+            return;
+        }
+        if (tel1.length !== 10 || tel2.length !== 10 || tel1 === tel2) {
+            mostrarAlertaAuth("Ingresa dos números telefónicos válidos de 10 dígitos y distintos entre sí.", true);
+            return;
+        }
+        payload.email_secundario = emailSec;
+        payload.telefono_principal = tel1;
+        payload.telefono_secundario = tel2;
+        payload.matricula = null;
+        payload.carrera = null;
+        payload.semestre_grupo = null;
+    } else {
+        const matricula = (document.getElementById("reg-matricula")?.value || "").trim().toUpperCase();
+        const carrera = (document.getElementById("reg-carrera")?.value || "").trim();
+        const semestreGrupo = (document.getElementById("reg-semestre-grupo")?.value || "").trim().toUpperCase();
+        const idFacultad = (document.getElementById("reg-id-facultad")?.value || "ETDA").trim().toUpperCase();
+
+        payload.matricula = matricula || null;
+        payload.carrera = carrera || null;
+        payload.semestre_grupo = semestreGrupo || null;
+        payload.id_facultad = idFacultad || "ETDA";
+    }
 
     try {
         const res = await fetch(`${API_BASE_URL}/auth/registro`, {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ nombre, email, password })
+            body: JSON.stringify(payload)
         });
 
         const data = await res.json();
@@ -229,7 +267,6 @@ async function procesarCambioPassword(e) {
 }
 
 async function cerrarSesion() {
-    // Solicitar al backend borrar las Cookies HttpOnly
     try {
         await fetch(`${API_BASE_URL}/auth/logout`, {
             method: "POST",

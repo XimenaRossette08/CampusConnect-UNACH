@@ -36,7 +36,7 @@
     </div>
 
     <!-- BARRA DE NAVEGACIÓN INSTITUCIONAL SUPERIOR -->
-    <nav id="navbar" class="bg-[#122652] text-white shadow-lg border-b-2 border-[#F57C00] hidden">
+    <nav id="navbar" class="sticky top-0 z-30 bg-[#122652]/95 backdrop-blur-md text-white shadow-lg border-b-2 border-[#F57C00] hidden">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
                 <!-- Identidad sincronizada con TopAppBar de MainNavigationScreen.kt -->
@@ -187,6 +187,10 @@
 
                     <!-- Campos adicionales cuando se registra un Alumno Egresado -->
                     <div id="reg-campos-egresado" class="hidden space-y-3 pt-2 border-t border-slate-200">
+                        <div class="p-2.5 rounded-xl bg-sky-50/80 border border-sky-200/80 flex items-center gap-2 text-[11px] font-semibold text-[#122652]">
+                            <i class="fa-solid fa-user-graduate text-[#0093FF]"></i>
+                            <span>Registro de Egresado: no requiere matrícula, licenciatura ni grupo.</span>
+                        </div>
                         <div>
                             <label class="block text-xs font-bold text-[#122652] uppercase mb-1">Correo Alternativo (Secundario)</label>
                             <input type="email" id="reg-email-secundario" placeholder="correo.personal@ejemplo.com"
@@ -243,7 +247,7 @@
     <div id="view-dashboard" class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 hidden">
 
         <!-- BARRA DE PESTAÑAS DEL PANEL (CONTROLADA POR PERMISOS GRANULARES) -->
-        <div class="bg-white p-2 rounded-2xl shadow-sm border border-slate-200/80 mb-6 flex items-center justify-between gap-2 overflow-x-auto">
+        <div class="bg-white/95 backdrop-blur-md p-2 rounded-2xl shadow-sm border border-slate-200/80 mb-6 flex items-center justify-between gap-2 overflow-x-auto" role="tablist" aria-label="Secciones del Panel">
             <div class="flex items-center gap-1.5">
                 <button onclick="cambiarPestaña('eventos')" id="tab-btn-eventos" class="nav-tab-btn active">
                     <i class="fa-solid fa-calendar-days"></i>
@@ -1636,8 +1640,8 @@
     <script src="js/utils.js"></script>
     <script src="js/permissions.js"></script>
     <script src="js/auth.js"></script>
-    <script src="js/catalogos.js?v=20261101"></script>
-    <script src="js/eventos.js?v=20261101"></script>
+    <script src="js/catalogos.js?v=20261102"></script>
+    <script src="js/eventos.js?v=20261102"></script>
     <script src="js/pasados.js"></script>
     <script src="js/social.js"></script>
     <script src="js/estadisticas.js"></script>

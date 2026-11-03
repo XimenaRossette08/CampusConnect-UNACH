@@ -3,8 +3,14 @@ package com.example.campusconnect.ui
 import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,7 +42,7 @@ import com.example.campusconnect.formatearEtiquetaGrupo
 import com.example.campusconnect.network.RetrofitClient
 import kotlinx.coroutines.launch
 
-// Paleta Oficial ETDA - UNACH
+// Paleta Oficial ETDA - UNACH Intacta
 private val EtdaNavy = Color(0xFF122652)
 private val EtdaBlue = Color(0xFF0093FF)
 private val EtdaOrange = Color(0xFFF57C00)
@@ -101,11 +107,11 @@ private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
     val prefs = context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE)
 
     val nombreGuardado = prefs.getString("nombre_$correoReal", null)?.takeIf { it.isNotBlank() }
+    val esEgresadoGuardado = prefs.getBoolean("egresado_$correoReal", false)
     val matriculaGuardada = prefs.getString("matricula_$correoReal", null)?.takeIf { it.isNotBlank() }
     val carreraGuardada = prefs.getString("carrera_$correoReal", null)?.takeIf { it.isNotBlank() }
     val grupoGuardado = prefs.getString("grupo_$correoReal", null)?.takeIf { it.isNotBlank() }
     val escuelaUsuario = prefs.getString("escuela_$correoReal", null)?.takeIf { it.isNotBlank() }
-    val esEgresadoGuardado = prefs.getBoolean("egresado_$correoReal", false)
     val correoSecGuardado = prefs.getString("email_sec_$correoReal", null).orEmpty()
     val tel1Guardado = prefs.getString("tel1_$correoReal", null).orEmpty()
     val tel2Guardado = prefs.getString("tel2_$correoReal", null).orEmpty()
@@ -121,12 +127,16 @@ private fun obtenerDatosSesionAlumno(context: Context): DatosAcademicosAlumno {
 
     val nombreFinal = nombreGuardado ?: derivarNombreDesdeCorreo(correoReal)
     val inicialesFinal = calcularInicialesNombre(nombreFinal)
-    val matriculaFinal = matriculaGuardada ?: "Sin registrar"
-    val carreraFinal = carreraGuardada ?: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software"
-    val semestreGrupoFinal = if (!grupoGuardado.isNullOrBlank()) {
+
+    // Si es egresado no se asignan matrícula, licenciatura ni grupo
+    val matriculaFinal = if (esEgresadoGuardado) "" else (matriculaGuardada ?: "Sin registrar")
+    val carreraFinal = if (esEgresadoGuardado) "" else (carreraGuardada ?: "Lic. en Ingeniería en Desarrollo y Tecnologías de Software")
+    val semestreGrupoFinal = if (esEgresadoGuardado) {
+        ""
+    } else if (!grupoGuardado.isNullOrBlank()) {
         formatearEtiquetaGrupo(grupoGuardado)
     } else {
-        if (esEgresadoGuardado) "Generación Egresada" else "Sin asignar"
+        "Sin asignar"
     }
 
     return DatosAcademicosAlumno(
@@ -172,11 +182,21 @@ fun PerfilScreen(puntos: Int) {
 
         try {
             val exp = api.obtenerExpedienteAlumno()
+            val esEgresadoRemoto = exp.esEgresado == true
             val editor = prefs.edit()
             if (!exp.nombre.isNullOrBlank()) editor.putString("nombre_$correoReal", exp.nombre)
-            if (!exp.matricula.isNullOrBlank()) editor.putString("matricula_$correoReal", exp.matricula)
-            if (!exp.carrera.isNullOrBlank()) editor.putString("carrera_$correoReal", exp.carrera)
-            if (!exp.semestreGrupo.isNullOrBlank()) editor.putString("grupo_$correoReal", exp.semestreGrupo)
+            editor.putBoolean("egresado_$correoReal", esEgresadoRemoto)
+
+            if (esEgresadoRemoto) {
+                editor.remove("matricula_$correoReal")
+                editor.remove("carrera_$correoReal")
+                editor.remove("grupo_$correoReal")
+            } else {
+                if (!exp.matricula.isNullOrBlank()) editor.putString("matricula_$correoReal", exp.matricula)
+                if (!exp.carrera.isNullOrBlank()) editor.putString("carrera_$correoReal", exp.carrera)
+                if (!exp.semestreGrupo.isNullOrBlank()) editor.putString("grupo_$correoReal", exp.semestreGrupo)
+            }
+
             if (!exp.idFacultad.isNullOrBlank()) editor.putString("facultad_$correoReal", exp.idFacultad)
             if (!exp.escuela.isNullOrBlank()) {
                 editor.putString("inst_escuela", exp.escuela)
@@ -184,7 +204,6 @@ fun PerfilScreen(puntos: Int) {
             }
             if (!exp.modalidadSede.isNullOrBlank()) editor.putString("inst_modalidad", exp.modalidadSede)
             if (!exp.cicloEscolar.isNullOrBlank()) editor.putString("inst_ciclo", exp.cicloEscolar)
-            editor.putBoolean("egresado_$correoReal", exp.esEgresado == true)
             if (!exp.emailSecundario.isNullOrBlank()) editor.putString("email_sec_$correoReal", exp.emailSecundario)
             if (!exp.telefonoPrincipal.isNullOrBlank()) editor.putString("tel1_$correoReal", exp.telefonoPrincipal)
             if (!exp.telefonoSecundario.isNullOrBlank()) editor.putString("tel2_$correoReal", exp.telefonoSecundario)
@@ -193,7 +212,7 @@ fun PerfilScreen(puntos: Int) {
 
             val actualizado = obtenerDatosSesionAlumno(context)
             datosAlumno = actualizado.copy(
-                rol = formatearRolAlumno(exp.rol ?: TokenManager.obtenerRol(context), exp.esEgresado == true)
+                rol = formatearRolAlumno(exp.rol ?: TokenManager.obtenerRol(context), esEgresadoRemoto)
             )
         } catch (_: Exception) {
             try {
@@ -245,48 +264,98 @@ fun PerfilScreen(puntos: Int) {
                 .fillMaxWidth()
                 .background(
                     brush = Brush.verticalGradient(listOf(EtdaNavy, Color(0xFF193773), EtdaBlue)),
-                    shape = RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp)
+                    shape = RoundedCornerShape(bottomStart = 38.dp, bottomEnd = 38.dp)
                 )
                 .padding(top = 24.dp, bottom = 52.dp, start = 20.dp, end = 20.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Surface(color = Color.White.copy(alpha = 0.14f), shape = RoundedCornerShape(50), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))) {
-                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = Color.White.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(Icons.Default.Verified, contentDescription = null, tint = EtdaOrange, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("CREDENCIAL DIGITAL • ETDA UNACH", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp, maxLines = 1, softWrap = false)
+                        Text(
+                            text = if (datosAlumno.esEgresado) "CREDENCIAL DE EGRESADO • ETDA UNACH" else "CREDENCIAL DIGITAL • ETDA UNACH",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.8.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
                 Box(contentAlignment = Alignment.BottomEnd) {
-                    Surface(modifier = Modifier.size(94.dp), shape = CircleShape, color = EtdaNavy, border = BorderStroke(3.dp, EtdaOrange), shadowElevation = 8.dp) {
+                    Surface(
+                        modifier = Modifier.size(96.dp),
+                        shape = CircleShape,
+                        color = EtdaNavy,
+                        border = BorderStroke(3.dp, EtdaOrange),
+                        shadowElevation = 10.dp
+                    ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(datosAlumno.iniciales, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
 
-                    Surface(shape = CircleShape, color = EtdaSuccess, border = BorderStroke(2.dp, Color.White), modifier = Modifier.size(26.dp)) {
+                    Surface(
+                        shape = CircleShape,
+                        color = EtdaSuccess,
+                        border = BorderStroke(2.dp, Color.White),
+                        modifier = Modifier.size(26.dp)
+                    ) {
                         Icon(Icons.Default.Check, contentDescription = "Activo", tint = Color.White, modifier = Modifier.padding(4.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(datosAlumno.nombreCompleto, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text = datosAlumno.nombreCompleto,
+                    color = Color.White,
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = (-0.3).sp
+                )
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                     Icon(Icons.Default.Email, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(datosAlumno.correo, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = datosAlumno.correo,
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Surface(color = EtdaOrange, shape = RoundedCornerShape(50)) {
-                        Text(datosAlumno.rol.uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    Surface(color = EtdaOrange, shape = RoundedCornerShape(50), shadowElevation = 4.dp) {
+                        Text(
+                            text = datosAlumno.rol.uppercase(),
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
                     }
                     Surface(
                         color = if (datosAlumno.tiene2faActivo) EtdaSuccess.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.15f),
@@ -312,24 +381,36 @@ fun PerfilScreen(puntos: Int) {
 
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).offset(y = (-28).dp),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.06f))
         ) {
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { IndicadorRapidoPerfil("$totalEventosAsistidos", "Asistencias", Icons.Default.EventAvailable, EtdaBlue) }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    IndicadorRapidoPerfil("$totalEventosAsistidos", "Asistencias", Icons.Default.EventAvailable, EtdaBlue)
+                }
                 VerticalDivider(modifier = Modifier.height(36.dp), color = Color(0xFFE2E8F0))
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { IndicadorRapidoPerfil("$insigniasDesbloqueadas", "Insignias", Icons.Default.WorkspacePremium, EtdaOrange) }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    IndicadorRapidoPerfil("$insigniasDesbloqueadas", "Insignias", Icons.Default.WorkspacePremium, EtdaOrange)
+                }
                 VerticalDivider(modifier = Modifier.height(36.dp), color = Color(0xFFE2E8F0))
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { IndicadorRapidoPerfil("$puntos pts", "Rewards", Icons.Default.Stars, EtdaNavy) }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    IndicadorRapidoPerfil("$puntos pts", "Rewards", Icons.Default.Stars, EtdaNavy)
+                }
             }
         }
 
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).offset(y = (-12).dp),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+            border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.06f))
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Row(
@@ -337,12 +418,30 @@ fun PerfilScreen(puntos: Int) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = EtdaNavy.copy(alpha = 0.08f), modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Default.AccountBalance, contentDescription = null, tint = EtdaNavy, modifier = Modifier.padding(8.dp))
+                    Surface(shape = RoundedCornerShape(12.dp), color = EtdaNavy.copy(alpha = 0.08f), modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            imageVector = if (datosAlumno.esEgresado) Icons.Default.WorkspacePremium else Icons.Default.AccountBalance,
+                            contentDescription = null,
+                            tint = EtdaNavy,
+                            modifier = Modifier.padding(9.dp)
+                        )
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Expediente Académico", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Sincronizado con Administración UNACH", fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            text = if (datosAlumno.esEgresado) "Ficha de Egresado UNACH" else "Expediente Académico",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            color = EtdaNavy,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Sincronizado con Administración UNACH",
+                            fontSize = 11.sp,
+                            color = Color(0xFF64748B),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     IconButton(
                         onClick = { coroutineScope.launch { sincronizarExpedienteDesdeServidor() } },
@@ -356,49 +455,85 @@ fun PerfilScreen(puntos: Int) {
                             modifier = Modifier.size(18.dp)
                         )
                     }
-                    Surface(onClick = { mostrarQrDialog = true }, color = EtdaOrange.copy(alpha = 0.14f), shape = RoundedCornerShape(12.dp)) {
-                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Surface(
+                        onClick = { mostrarQrDialog = true },
+                        color = EtdaOrange.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
                             Icon(Icons.Default.QrCode2, contentDescription = "Mi QR", tint = EtdaOrange, modifier = Modifier.size(17.dp))
                             Text("Mi QR", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = EtdaOrange, maxLines = 1, softWrap = false)
                         }
                     }
                 }
 
-                AnimatedVisibility(visible = mostrarCredencialExpandida) {
+                AnimatedVisibility(
+                    visible = mostrarCredencialExpandida,
+                    enter = expandVertically(animationSpec = tween(240)) + fadeIn(animationSpec = tween(220)),
+                    exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(180))
+                ) {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         HorizontalDivider(color = Color(0xFFEEF2F6))
                         Spacer(modifier = Modifier.height(14.dp))
-                        // Estático (configurado desde Administración)
-                        ItemDatoAcademico(Icons.Default.Domain, "Escuela / Facultad", datosAlumno.escuela, EtdaBlue)
-                        Spacer(modifier = Modifier.height(14.dp))
-                        // Elegido por el alumno al registrarse
-                        ItemDatoAcademico(Icons.Default.Computer, "Programa Educativo (Carrera)", datosAlumno.carrera, EtdaOrange)
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Badge, "Matrícula", datosAlumno.matricula, EtdaNavy) }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(modifier = Modifier.weight(1f)) { ItemDatoAcademico(Icons.Default.Groups, "Semestre y Grupo", datosAlumno.semestreGrupo, EtdaBlue) }
-                        }
 
-                        if (datosAlumno.esEgresado && (datosAlumno.correoSecundario.isNotBlank() || datosAlumno.telefonoPrincipal.isNotBlank())) {
+                        // Escuela / Facultad (Estático)
+                        ItemDatoAcademico(Icons.Default.Domain, "Escuela / Facultad", datosAlumno.escuela, EtdaBlue)
+
+                        if (datosAlumno.esEgresado) {
+                            // Para egresados NO se muestra Licenciatura (Carrera), Matrícula ni Semestre/Grupo
                             Spacer(modifier = Modifier.height(14.dp))
+                            ItemDatoAcademico(
+                                icono = Icons.Default.WorkspacePremium,
+                                titulo = "Condición Académica",
+                                valor = "Comunidad de Egresados UNACH",
+                                colorIcono = EtdaOrange
+                            )
+
                             if (datosAlumno.correoSecundario.isNotBlank()) {
-                                ItemDatoAcademico(Icons.Default.AlternateEmail, "Correo Alternativo (Egresado)", datosAlumno.correoSecundario, EtdaBlue)
                                 Spacer(modifier = Modifier.height(14.dp))
+                                ItemDatoAcademico(
+                                    icono = Icons.Default.AlternateEmail,
+                                    titulo = "Correo Alternativo de Contacto",
+                                    valor = datosAlumno.correoSecundario,
+                                    colorIcono = EtdaBlue
+                                )
                             }
-                            if (datosAlumno.telefonoPrincipal.isNotBlank()) {
+
+                            if (datosAlumno.telefonoPrincipal.isNotBlank() || datosAlumno.telefonoSecundario.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(14.dp))
                                 val tels = listOf(datosAlumno.telefonoPrincipal, datosAlumno.telefonoSecundario)
                                     .filter { it.isNotBlank() }
                                     .joinToString(" • ")
-                                ItemDatoAcademico(Icons.Default.Phone, "Teléfonos de Contacto", tels, EtdaNavy)
+                                ItemDatoAcademico(
+                                    icono = Icons.Default.Phone,
+                                    titulo = "Teléfonos de Contacto",
+                                    valor = tels,
+                                    colorIcono = EtdaNavy
+                                )
+                            }
+                        } else {
+                            // Datos exclusivos de Estudiante Activo
+                            Spacer(modifier = Modifier.height(14.dp))
+                            ItemDatoAcademico(Icons.Default.Computer, "Programa Educativo (Carrera)", datosAlumno.carrera, EtdaOrange)
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    ItemDatoAcademico(Icons.Default.Badge, "Matrícula", datosAlumno.matricula, EtdaNavy)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Box(modifier = Modifier.weight(1f)) {
+                                    ItemDatoAcademico(Icons.Default.Groups, "Semestre y Grupo", datosAlumno.semestreGrupo, EtdaBlue)
+                                }
                             }
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
-                        // Estático (configurado desde Administración)
                         ItemDatoAcademico(Icons.Default.LocationOn, "Modalidad y Sede", datosAlumno.modalidad, EtdaSuccess)
                         Spacer(modifier = Modifier.height(14.dp))
-                        // Estático (configurado desde Administración)
                         ItemDatoAcademico(Icons.Default.DateRange, "Ciclo Escolar Vigente", datosAlumno.cicloEscolar, EtdaOrange)
                     }
                 }
@@ -409,21 +544,47 @@ fun PerfilScreen(puntos: Int) {
 
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+            border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.06f))
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = EtdaOrange.copy(alpha = 0.12f), modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Default.Insights, contentDescription = null, tint = EtdaOrange, modifier = Modifier.padding(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = EtdaOrange.copy(alpha = 0.12f), modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Insights, contentDescription = null, tint = EtdaOrange, modifier = Modifier.padding(9.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Asistencias por Categoría", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = EtdaNavy, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Tu progreso para desbloquear recompensas", fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            text = "Asistencias por Categoría",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            color = EtdaNavy,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Tu progreso para desbloquear recompensas",
+                            fontSize = 11.sp,
+                            color = Color(0xFF64748B),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     Surface(color = EtdaBlue.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
-                        Text("Nivel Oro", color = EtdaBlue, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                        Text(
+                            text = "Nivel Oro",
+                            color = EtdaBlue,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
                     }
                 }
 
@@ -431,9 +592,17 @@ fun PerfilScreen(puntos: Int) {
 
                 categoriasAsistencia.forEach { itemCat ->
                     val porcentaje = (itemCat.asistencias.toFloat() / itemCat.meta.toFloat()).coerceIn(0f, 1f)
-                    val animProgreso by animateFloatAsState(targetValue = porcentaje, animationSpec = tween(700), label = "barraCat")
+                    val animProgreso by animateFloatAsState(
+                        targetValue = porcentaje,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+                        label = "barraCat"
+                    )
                     Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Icon(itemCat.icono, contentDescription = null, tint = itemCat.color, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -442,7 +611,12 @@ fun PerfilScreen(puntos: Int) {
                             Text("${itemCat.asistencias} / ${itemCat.meta} eventos", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = itemCat.color, maxLines = 1, softWrap = false)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
-                        LinearProgressIndicator(progress = { animProgreso }, modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)), color = itemCat.color, trackColor = Color(0xFFE2E8F0))
+                        LinearProgressIndicator(
+                            progress = { animProgreso },
+                            modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
+                            color = itemCat.color,
+                            trackColor = Color(0xFFE2E8F0)
+                        )
                     }
                 }
             }
@@ -476,31 +650,62 @@ fun PerfilScreen(puntos: Int) {
 
     if (mostrarQrDialog) {
         AlertDialog(
-            onDismissRequest = { mostrarQrDialog = false }, shape = RoundedCornerShape(24.dp), containerColor = Color.White,
+            onDismissRequest = { mostrarQrDialog = false },
+            shape = RoundedCornerShape(26.dp),
+            containerColor = Color.White,
             title = {
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Surface(color = EtdaNavy, shape = RoundedCornerShape(50)) {
-                        Text("PASE DE ASISTENCIA ETDA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                        Text(
+                            text = "PASE DE ASISTENCIA ETDA",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(datosAlumno.nombreCompleto, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = EtdaNavy, textAlign = TextAlign.Center)
-                    Text("Matrícula: ${datosAlumno.matricula}", fontSize = 12.sp, color = EtdaOrange, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (datosAlumno.esEgresado) "Comunidad de Egresados UNACH" else "Matrícula: ${datosAlumno.matricula}",
+                        fontSize = 12.sp,
+                        color = EtdaOrange,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             text = {
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Surface(shape = RoundedCornerShape(20.dp), color = EtdaBg, border = BorderStroke(2.dp, EtdaBlue.copy(alpha = 0.3f)), modifier = Modifier.size(190.dp)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.QrCode2, contentDescription = "Código QR Estudiante", tint = EtdaNavy, modifier = Modifier.size(150.dp)) }
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = EtdaBg,
+                        border = BorderStroke(2.dp, EtdaBlue.copy(alpha = 0.3f)),
+                        modifier = Modifier.size(190.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.QrCode2, contentDescription = "Código QR Universitario", tint = EtdaNavy, modifier = Modifier.size(150.dp))
+                        }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(datosAlumno.correo, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = EtdaNavy, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Muestra este código al organizador del evento para validar tu asistencia y sumar puntos.", fontSize = 12.sp, color = Color.Gray, textAlign = TextAlign.Center, lineHeight = 16.sp)
+                    Text(
+                        text = "Muestra este código al organizador del evento para validar tu asistencia y sumar puntos.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF64748B),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 16.sp
+                    )
                 }
             },
             confirmButton = {
-                Button(onClick = { mostrarQrDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Text("Entendido", fontWeight = FontWeight.Bold, color = Color.White)
+                Button(
+                    onClick = { mostrarQrDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().height(46.dp)
+                ) {
+                    Text("Entendido", fontWeight = FontWeight.ExtraBold, color = Color.White)
                 }
             }
         )
@@ -510,20 +715,24 @@ fun PerfilScreen(puntos: Int) {
 @Composable
 private fun IndicadorRapidoPerfil(valor: String, etiqueta: String, icono: ImageVector, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(shape = CircleShape, color = color.copy(alpha = 0.12f), modifier = Modifier.size(34.dp)) { Icon(icono, contentDescription = null, tint = color, modifier = Modifier.padding(7.dp)) }
+        Surface(shape = CircleShape, color = color.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
+            Icon(icono, contentDescription = null, tint = color, modifier = Modifier.padding(8.dp))
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Text(valor, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = EtdaNavy, maxLines = 1, softWrap = false)
-        Text(etiqueta, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+        Text(etiqueta, fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
     }
 }
 
 @Composable
 private fun ItemDatoAcademico(icono: ImageVector, titulo: String, valor: String, colorIcono: Color) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Surface(shape = RoundedCornerShape(10.dp), color = colorIcono.copy(alpha = 0.12f), modifier = Modifier.size(34.dp)) { Icon(icono, contentDescription = null, tint = colorIcono, modifier = Modifier.padding(7.dp)) }
+        Surface(shape = RoundedCornerShape(11.dp), color = colorIcono.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
+            Icon(icono, contentDescription = null, tint = colorIcono, modifier = Modifier.padding(8.dp))
+        }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(titulo, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(titulo, fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(2.dp))
             Text(valor, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EtdaNavy, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }

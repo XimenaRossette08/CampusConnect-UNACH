@@ -1,5 +1,5 @@
 // ============================================================================
-// MÓDULO DE CARTELERA DE EVENTOS, FILTROS ETDA Y LISTA DE ASISTENCIA
+// MÓDULO DE CARTELERA DE EVENTOS, FILTROS ETDA, CUPO EN VIVO Y LISTA DE ASISTENCIA
 // ============================================================================
 
 let eventosCache = {};
@@ -33,7 +33,6 @@ function _obtenerHorarioIndividualEvento(ev) {
     if (!ev || !ev.id) return { disponibleDesde: null, fechaFin: null };
     const mapa = _leerMapaHorariosPorEvento();
     const local = mapa[String(ev.id)] || {};
-    // Prioridad: valor de la BD para este evento.id -> respaldo local para este evento.id -> null
     const disp = (ev.disponibleDesde !== undefined && ev.disponibleDesde !== null)
         ? ev.disponibleDesde
         : ((ev.disponible_desde !== undefined && ev.disponible_desde !== null) ? ev.disponible_desde : (local.disponibleDesde || null));
@@ -98,6 +97,15 @@ function _eventoExpiradoAhoraWeb(ev) {
     return false;
 }
 
+function _calcularEstadoAsientosEvento(ev) {
+    const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
+    const capacidad = Number(ev.capacidadTotal ?? ev.capacidad_total ?? infoAud?.asientos ?? 100) || 100;
+    const ocupados = Math.max(0, Number(ev.asientosOcupados ?? ev.asientos_ocupados ?? ev.totalRegistrados ?? ev.total_registrados ?? 0) || 0);
+    const disponibles = Math.max(0, capacidad - ocupados);
+    const porcentaje = capacidad > 0 ? Math.min(100, Math.round((ocupados / capacidad) * 100)) : 0;
+    const agotado = disponibles <= 0;
+    return { capacidad, ocupados, disponibles, porcentaje, agotado };
+}
 
 function inicializarFiltrosCategorias() {
     const contenedor = document.getElementById("contenedor-chips-categorias");
@@ -200,7 +208,6 @@ function renderizarTarjetasEventos() {
         return;
     }
 
-    // Permisos individuales para cada botón de acción
     const pCompartir = tienePermiso("redes.compartir");
     const pEditar = tienePermiso("eventos.publicar");
     const pEliminar = tienePermiso("eventos.eliminar");
@@ -210,16 +217,18 @@ function renderizarTarjetasEventos() {
         const f = extraerFechaVisualWeb(ev.fechaHora);
         const catInfo = detectarCategoriaEventoWeb(ev);
         const materiales = (ev.archivos || []).filter(a => a.tipo === "material");
-        const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
+        const cupo = _calcularEstadoAsientosEvento(ev);
+        const estaInscrito = Boolean(ev.inscrito);
+        const colorBarra = cupo.agotado ? "#DC2626" : (cupo.porcentaje >= 85 ? "#F57C00" : "#0093FF");
 
         return `
-            <article class="etda-card overflow-hidden flex flex-col justify-between">
+            <article class="etda-card overflow-hidden flex flex-col justify-between ${estaInscrito ? 'ring-2 ring-[#10B981]/50' : ''}">
                 <div>
                     <!-- Flyer o cabecera con insignia de fecha estilo EventosScreen.kt -->
                     <div class="relative">
                         ${ev.imagenUrl ? `
                             <div class="w-full h-44 overflow-hidden bg-slate-100 border-b border-slate-100">
-                                <img src="${esc(ev.imagenUrl)}" alt="${esc(ev.titulo)}" class="w-full h-full object-cover">
+                                <img src="${esc(ev.imagenUrl)}" alt="${esc(ev.titulo)}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105">
                             </div>` : `
                             <div class="w-full h-32 bg-etda-gradient flex items-center justify-center text-white/30">
                                 <i class="fa-solid ${esc(catInfo.icono)} text-4xl"></i>
@@ -236,15 +245,15 @@ function renderizarTarjetasEventos() {
                         ${(pCompartir || pEditar || pEliminar) ? `
                             <div class="absolute top-3 right-3 flex items-center gap-1.5 bg-white/95 backdrop-blur-sm p-1 rounded-xl shadow border border-slate-200">
                                 ${pCompartir ? `
-                                    <button onclick="abrirSocial('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#F57C00] hover:bg-amber-50 transition" title="Compartir en Redes Sociales">
+                                    <button onclick="abrirSocial('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#F57C00] hover:bg-amber-50 transition" title="Compartir en Redes Sociales" aria-label="Compartir en Redes Sociales">
                                         <i class="fa-solid fa-share-nodes text-xs"></i>
                                     </button>` : ''}
                                 ${pEditar ? `
-                                    <button onclick="abrirModalEvento('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#122652] hover:bg-slate-100 transition" title="Editar Evento">
+                                    <button onclick="abrirModalEvento('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#122652] hover:bg-slate-100 transition" title="Editar Evento" aria-label="Editar Evento">
                                         <i class="fa-solid fa-pen-to-square text-xs"></i>
                                     </button>` : ''}
                                 ${pEliminar ? `
-                                    <button onclick="eliminarEvento('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 transition" title="Eliminar Evento">
+                                    <button onclick="eliminarEvento('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 transition" title="Eliminar Evento" aria-label="Eliminar Evento">
                                         <i class="fa-solid fa-trash-can text-xs"></i>
                                     </button>` : ''}
                             </div>` : ''}
@@ -268,6 +277,22 @@ function renderizarTarjetasEventos() {
                         <h3 class="text-base font-extrabold text-[#122652] leading-snug">${esc(ev.titulo)}</h3>
                         <p class="text-xs text-[#5B6670] mt-2 line-clamp-3 leading-relaxed">${esc(ev.descripcion)}</p>
 
+                        <!-- Barra de Ocupación de Asientos en Tiempo Real -->
+                        <div class="mt-4 pt-3 border-t border-slate-100">
+                            <div class="flex items-center justify-between text-[11px] mb-1.5">
+                                <span class="font-bold text-[#122652] flex items-center gap-1.5">
+                                    <i class="fa-solid fa-chair text-[#F57C00]"></i>
+                                    <span>Ocupación del recinto</span>
+                                </span>
+                                <span class="font-extrabold ${cupo.agotado ? 'text-red-600' : 'text-[#0093FF]'}">
+                                    ${cupo.agotado ? `Cupo lleno (${cupo.ocupados}/${cupo.capacidad})` : `${cupo.disponibles} disponibles (${cupo.ocupados}/${cupo.capacidad})`}
+                                </span>
+                            </div>
+                            <div class="etda-seat-track" role="progressbar" aria-valuenow="${cupo.ocupados}" aria-valuemin="0" aria-valuemax="${cupo.capacidad}">
+                                <div class="etda-seat-fill" style="width: ${cupo.porcentaje}%; background-color: ${colorBarra};"></div>
+                            </div>
+                        </div>
+
                         ${materiales.length ? `
                             <div class="mt-3 pt-2.5 border-t border-slate-100 flex items-center gap-2 text-[11px] text-[#0093FF] font-semibold">
                                 <i class="fa-solid fa-paperclip"></i>
@@ -279,14 +304,23 @@ function renderizarTarjetasEventos() {
                 <div class="px-5 py-3.5 bg-[#F4F7FB] border-t border-slate-200/80 space-y-3">
                     <div class="flex justify-between items-center text-xs text-[#5B6670] font-medium">
                         <span class="truncate"><i class="fa-regular fa-clock text-[#0093FF] mr-1"></i> ${esc(f.completo)}</span>
-                        <span class="truncate ml-2"><i class="fa-solid fa-location-dot text-[#F57C00] mr-1"></i> ${esc(ev.lugar || 'Campus I')}${infoAud ? ` <b class="text-[#122652]">(${infoAud.asientos} asientos)</b>` : ""}</span>
+                        <span class="truncate ml-2"><i class="fa-solid fa-location-dot text-[#F57C00] mr-1"></i> ${esc(ev.lugar || 'Campus I')}</span>
                     </div>
 
                     <div class="flex gap-2">
-                        <button onclick="registrarAsistenciaEvento('${esc(ev.id)}')"
-                            class="flex-1 bg-[#F57C00] hover:bg-amber-600 text-white text-xs font-bold py-2 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-user-check"></i> Inscribirme
-                        </button>
+                        ${estaInscrito ? `
+                            <button onclick="cancelarInscripcionEventoWeb('${esc(ev.id)}')"
+                                class="flex-1 bg-[#10B981] hover:bg-emerald-600 text-white text-xs font-extrabold py-2 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5"
+                                title="Haz clic si deseas cancelar tu lugar">
+                                <i class="fa-solid fa-circle-check"></i> Inscrito (Cancelar)
+                            </button>
+                        ` : `
+                            <button onclick="registrarAsistenciaEvento('${esc(ev.id)}')"
+                                ${cupo.agotado ? "disabled" : ""}
+                                class="flex-1 ${cupo.agotado ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-[#F57C00] hover:bg-amber-600 text-white shadow-sm'} text-xs font-bold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid ${cupo.agotado ? 'fa-ban' : 'fa-user-check'}"></i> ${cupo.agotado ? "Cupo Agotado" : "Inscribirme"}
+                            </button>
+                        `}
                         ${pCompartir ? `
                             <button onclick="abrirSocial('${esc(ev.id)}')"
                                 class="bg-white hover:bg-amber-50 text-[#122652] border border-slate-300 text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5" title="Difundir en redes">
@@ -514,11 +548,52 @@ async function eliminarEvento(id) {
     }
 }
 
-// ---------- Registro y Lista de Asistencia ----------
+// ---------- Registro y Cancelación con Actualización Instantánea de Asientos ----------
 async function registrarAsistenciaEvento(eventoId) {
     try {
-        await api(`/eventos/${eventoId}/registro`, { method: "POST" });
+        const res = await api(`/eventos/${eventoId}/registro`, { method: "POST" });
+        const ev = eventosCache[eventoId];
+        if (ev) {
+            ev.inscrito = true;
+            if (res && typeof res.asientosOcupados === "number") {
+                ev.asientosOcupados = res.asientosOcupados;
+                ev.totalRegistrados = res.asientosOcupados;
+            } else {
+                const actual = Number(ev.asientosOcupados ?? ev.totalRegistrados ?? 0) || 0;
+                ev.asientosOcupados = actual + 1;
+                ev.totalRegistrados = actual + 1;
+            }
+            if (res && typeof res.capacidadTotal === "number") {
+                ev.capacidadTotal = res.capacidadTotal;
+            }
+            renderizarTarjetasEventos();
+        }
         toast("¡Te has inscrito correctamente al evento!", "exito");
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function cancelarInscripcionEventoWeb(eventoId) {
+    try {
+        const res = await api(`/eventos/${eventoId}/registro`, { method: "DELETE" });
+        const ev = eventosCache[eventoId];
+        if (ev) {
+            ev.inscrito = false;
+            if (res && typeof res.asientosOcupados === "number") {
+                ev.asientosOcupados = res.asientosOcupados;
+                ev.totalRegistrados = res.asientosOcupados;
+            } else {
+                const actual = Number(ev.asientosOcupados ?? ev.totalRegistrados ?? 1) || 1;
+                ev.asientosOcupados = Math.max(0, actual - 1);
+                ev.totalRegistrados = Math.max(0, actual - 1);
+            }
+            if (res && typeof res.capacidadTotal === "number") {
+                ev.capacidadTotal = res.capacidadTotal;
+            }
+            renderizarTarjetasEventos();
+        }
+        toast("Inscripción cancelada y asiento liberado.", "info");
     } catch (err) {
         toast(err.message, "error");
     }
@@ -646,7 +721,6 @@ async function descargarPDFDe(eventoId) {
             color: #1E293B;
             background: #FFFFFF;
         }
-        /* Estructura de tabla repetible para que el Membretado ETDA y el Pie de Página salgan fijos en cada hoja */
         table.page-frame {
             width: 100%;
             border-collapse: collapse;
@@ -765,7 +839,6 @@ async function descargarPDFDe(eventoId) {
             font-weight: 700;
             color: #243763;
         }
-        /* Pie de página fijo en la parte inferior idéntico al Formato ETDA */
         .etda-footer-fixed {
             position: fixed;
             bottom: 0;

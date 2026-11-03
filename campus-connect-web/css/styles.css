@@ -1,6 +1,7 @@
 /* ==========================================================================
    CAMPUS CONNECT UNACH - PANEL ADMINISTRATIVO INSTITUCIONAL (ETDA)
-   Paleta Oficial sincronizada con la App Móvil (Kotlin / Jetpack Compose)
+   Paleta Oficial Intacta sincronizada con la App Móvil (Kotlin / Compose)
+   UI/UX mejorado con principios de Apple Design, Emil Design Eng & Animate
    ========================================================================== */
 
 :root {
@@ -19,33 +20,62 @@
     --etda-text-main: #122652;
     --etda-text-sec: #5B6670;
     --etda-border: #E2E8F0;
+
+    /* Curvas físicas rápidas (<300ms) */
+    --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
 * {
     box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 body {
     background-color: var(--etda-bg);
+    background-image:
+        radial-gradient(at 0% 0%, rgba(0, 147, 255, 0.05) 0px, transparent 45%),
+        radial-gradient(at 100% 0%, rgba(245, 124, 0, 0.04) 0px, transparent 40%);
     color: var(--etda-text-main);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     margin: 0;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    letter-spacing: -0.011em;
+}
+
+h1, h2, h3, h4 {
+    letter-spacing: -0.024em;
+}
+
+/* Accesibilidad de teclado impecable (WCAG 2.1 AA) */
+:focus-visible {
+    outline: 2px solid var(--etda-blue);
+    outline-offset: 2px;
 }
 
 /* Gradientes Institucionales UNACH - ETDA */
 .bg-etda-gradient {
-    background: linear-gradient(135deg, var(--etda-navy-dark) 0%, var(--etda-navy) 55%, var(--etda-navy-mid) 100%);
+    background:
+        radial-gradient(circle at 85% 15%, rgba(0, 147, 255, 0.22) 0%, transparent 45%),
+        radial-gradient(circle at 15% 85%, rgba(245, 124, 0, 0.14) 0%, transparent 40%),
+        linear-gradient(135deg, var(--etda-navy-dark) 0%, var(--etda-navy) 55%, var(--etda-navy-mid) 100%);
 }
 
 .bg-etda-banner {
-    background: linear-gradient(180deg, var(--etda-navy) 0%, var(--etda-navy-mid) 100%);
+    background:
+        radial-gradient(circle at 92% 18%, rgba(0, 147, 255, 0.24) 0%, transparent 48%),
+        linear-gradient(135deg, var(--etda-navy) 0%, var(--etda-navy-mid) 100%);
+    position: relative;
+    overflow: hidden;
 }
 
 .bg-etda-date-badge {
-    background: linear-gradient(180deg, var(--etda-navy) 0%, var(--etda-blue) 100%);
+    background: linear-gradient(180deg, rgba(18, 38, 82, 0.96) 0%, rgba(0, 147, 255, 0.94) 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .border-etda-gold {
@@ -58,40 +88,48 @@ body {
     align-items: center;
     gap: 0.4rem;
     background-color: rgba(245, 124, 0, 0.2);
-    border: 1px solid var(--etda-orange);
+    border: 1px solid rgba(245, 124, 0, 0.85);
     color: var(--etda-orange-light);
     font-size: 0.68rem;
     font-weight: 800;
     letter-spacing: 0.06em;
-    padding: 0.2rem 0.75rem;
+    padding: 0.24rem 0.8rem;
     border-radius: 9999px;
     text-transform: uppercase;
+    backdrop-filter: blur(6px);
 }
 
-/* Navegación de pestañas estilo institucional + móvil */
+/* Navegación de pestañas estilo Apple / Emil Design */
 .nav-tab-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.65rem 1.15rem;
-    font-size: 0.84rem;
+    padding: 0.62rem 1.15rem;
+    font-size: 0.83rem;
     font-weight: 700;
     color: var(--etda-text-sec);
-    border-radius: 0.75rem;
-    transition: all 0.2s ease;
+    border-radius: 0.85rem;
+    transition: transform 180ms var(--ease-spring), background-color 180ms var(--ease-out-quart), color 180ms ease, box-shadow 180ms ease;
     border: 1px solid transparent;
     white-space: nowrap;
 }
 
 .nav-tab-btn:hover {
     color: var(--etda-navy);
-    background-color: rgba(18, 38, 82, 0.05);
+    background-color: rgba(18, 38, 82, 0.055);
+}
+
+.nav-tab-btn:active {
+    transform: scale(0.97);
 }
 
 .nav-tab-btn.active {
     background-color: var(--etda-navy);
     color: #FFFFFF;
-    box-shadow: 0 4px 12px rgba(18, 38, 82, 0.18);
+    box-shadow:
+        0 6px 16px -4px rgba(18, 38, 82, 0.28),
+        0 2px 4px -1px rgba(18, 38, 82, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .nav-tab-btn.active i {
@@ -103,25 +141,31 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    padding: 0.45rem 0.95rem;
+    padding: 0.48rem 1rem;
     border-radius: 9999px;
     font-size: 0.78rem;
     font-weight: 600;
     background-color: #FFFFFF;
     color: var(--etda-navy);
-    border: 1px solid rgba(0, 147, 255, 0.25);
+    border: 1px solid rgba(0, 147, 255, 0.24);
     cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 1px 2px rgba(18, 38, 82, 0.05);
+    transition: transform 200ms var(--ease-spring), background-color 180ms ease, border-color 180ms ease, box-shadow 200ms ease;
+    box-shadow: 0 1px 3px rgba(18, 38, 82, 0.05);
 }
 
 .cat-filter-chip i {
     color: var(--etda-blue);
+    transition: transform 200ms var(--ease-spring), color 180ms ease;
 }
 
 .cat-filter-chip:hover {
     border-color: var(--etda-blue);
-    transform: translateY(-1px);
+    transform: translateY(-1.5px);
+    box-shadow: 0 4px 12px rgba(0, 147, 255, 0.12);
+}
+
+.cat-filter-chip:active {
+    transform: scale(0.96);
 }
 
 .cat-filter-chip.active {
@@ -129,24 +173,63 @@ body {
     color: #FFFFFF;
     border-color: var(--etda-orange);
     font-weight: 700;
-    box-shadow: 0 4px 10px rgba(245, 124, 0, 0.28);
+    box-shadow:
+        0 6px 14px -2px rgba(245, 124, 0, 0.34),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .cat-filter-chip.active i {
     color: #FFFFFF;
+    transform: scale(1.08);
 }
 
-/* Tarjetas Institucionales */
+/* Tarjetas Institucionales con elevación multicapa y micro-interacción */
 .etda-card {
     background: #FFFFFF;
-    border-radius: 1.15rem;
+    border-radius: 1.25rem;
     border: 1px solid rgba(18, 38, 82, 0.08);
-    box-shadow: 0 2px 8px rgba(18, 38, 82, 0.05);
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    box-shadow:
+        0 1px 2px rgba(18, 38, 82, 0.03),
+        0 4px 12px -2px rgba(18, 38, 82, 0.05);
+    transition: transform 240ms var(--ease-spring), box-shadow 240ms var(--ease-out-quart), border-color 200ms ease;
 }
 
 .etda-card:hover {
-    box-shadow: 0 8px 20px rgba(18, 38, 82, 0.09);
+    transform: translateY(-2px);
+    border-color: rgba(0, 147, 255, 0.22);
+    box-shadow:
+        0 12px 28px -6px rgba(18, 38, 82, 0.10),
+        0 4px 10px -2px rgba(18, 38, 82, 0.05);
+}
+
+/* Barra dinámica de asientos (Cupo en vivo) */
+.etda-seat-track {
+    width: 100%;
+    height: 0.48rem;
+    background-color: #E2E8F0;
+    border-radius: 9999px;
+    overflow: hidden;
+    position: relative;
+}
+
+.etda-seat-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 280ms var(--ease-spring), background-color 220ms ease;
+}
+
+/* Botones con respuesta física sutil */
+button:not(:disabled) {
+    transition: transform 160ms var(--ease-spring), background-color 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+button:not(:disabled):active {
+    transform: scale(0.98);
+}
+
+/* Inputs y selectores con transiciones limpias */
+input, select, textarea {
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
 }
 
 /* Switch de Permisos Granulares */
@@ -155,33 +238,35 @@ body {
     align-items: flex-start;
     justify-content: space-between;
     gap: 0.85rem;
-    padding: 0.85rem 1rem;
-    border-radius: 0.85rem;
+    padding: 0.9rem 1.05rem;
+    border-radius: 0.95rem;
     border: 1px solid var(--etda-border);
     background-color: #FFFFFF;
     cursor: pointer;
-    transition: all 0.18s ease;
+    transition: transform 180ms var(--ease-spring), border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
 }
 
 .perm-card-label:hover {
     border-color: var(--etda-blue);
     background-color: #F8FAFC;
+    transform: translateY(-1px);
 }
 
 .perm-card-label.checked {
     border-color: var(--etda-navy);
-    background-color: rgba(18, 38, 82, 0.03);
+    background-color: rgba(18, 38, 82, 0.035);
+    box-shadow: 0 2px 8px rgba(18, 38, 82, 0.05);
 }
 
 .perm-toggle-input {
     appearance: none;
-    width: 2.5rem;
-    height: 1.4rem;
+    width: 2.55rem;
+    height: 1.45rem;
     background-color: #CBD5E1;
     border-radius: 9999px;
     position: relative;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    transition: background-color 200ms var(--ease-out-quart);
     flex-shrink: 0;
     margin-top: 0.15rem;
 }
@@ -191,12 +276,12 @@ body {
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 1.15rem;
-    height: 1.15rem;
+    width: 1.2rem;
+    height: 1.2rem;
     background-color: #FFFFFF;
     border-radius: 50%;
-    transition: transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 220ms var(--ease-spring);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
 }
 
 .perm-toggle-input:checked {
@@ -205,6 +290,16 @@ body {
 
 .perm-toggle-input:checked::after {
     transform: translateX(1.1rem);
+}
+
+/* Respeto a usuarios con reducción de movimiento (Accesibilidad) */
+@media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 /* Scrollbar limpia */

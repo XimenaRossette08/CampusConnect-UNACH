@@ -2,7 +2,9 @@ package com.example.campusconnect.ui
 
 import android.content.Intent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -30,7 +32,7 @@ import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
 import retrofit2.HttpException
 
-// Paleta Oficial ETDA - UNACH (pública para todas las pantallas)
+// Paleta Oficial ETDA - UNACH Intacta (pública para todas las pantallas)
 object ColorUnach {
     val AzulProfundo = Color(0xFF122652) // NavyBlue Oficial
     val AzulMedio = Color(0xFF0093FF)    // BrightBlue Oficial
@@ -45,12 +47,11 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
     val context = LocalContext.current
     var pestañaSeleccionada by remember { mutableIntStateOf(0) }
 
-    // ✅ CORREGIDO: Inicializado en 0 para la prueba piloto
     var puntosUsuario by remember { mutableIntStateOf(0) }
 
     val puntosAnimados by animateIntAsState(
         targetValue = puntosUsuario,
-        animationSpec = tween(500),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "puntosTopBar"
     )
 
@@ -123,11 +124,13 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                             Surface(
                                 shape = CircleShape,
                                 color = ColorUnach.Dorado,
-                                modifier = Modifier.size(34.dp)
+                                shadowElevation = 4.dp,
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.AccountBalance,
-                                    contentDescription = null,
+                                    contentDescription = "Institución UNACH",
                                     tint = Color.White,
                                     modifier = Modifier.padding(7.dp)
                                 )
@@ -139,13 +142,14 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 17.sp,
                                     color = Color.White,
+                                    letterSpacing = (-0.3).sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = subtituloBarra,
                                     fontSize = 11.sp,
-                                    color = Color.White.copy(alpha = 0.78f),
+                                    color = Color.White.copy(alpha = 0.80f),
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -158,11 +162,11 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                             onClick = { pestañaSeleccionada = 1 },
                             shape = RoundedCornerShape(50),
                             color = Color.White.copy(alpha = 0.14f),
-                            border = BorderStroke(1.dp, ColorUnach.Dorado.copy(alpha = 0.8f)),
+                            border = BorderStroke(1.dp, ColorUnach.Dorado.copy(alpha = 0.85f)),
                             modifier = Modifier.padding(end = 12.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -193,12 +197,12 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                 NavigationBar(
                     containerColor = Color.White,
                     tonalElevation = 8.dp,
-                    modifier = Modifier.shadow(12.dp)
+                    modifier = Modifier.shadow(16.dp)
                 ) {
                     NavigationBarItem(
                         selected = pestañaSeleccionada == 0,
                         onClick = { pestañaSeleccionada = 0 },
-                        icon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
+                        icon = { Icon(Icons.Filled.CalendarMonth, contentDescription = "Cartelera de Eventos") },
                         label = {
                             Text(
                                 "Eventos",
@@ -212,7 +216,7 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                     NavigationBarItem(
                         selected = pestañaSeleccionada == 1,
                         onClick = { pestañaSeleccionada = 1 },
-                        icon = { Icon(Icons.Filled.WorkspacePremium, contentDescription = null) },
+                        icon = { Icon(Icons.Filled.WorkspacePremium, contentDescription = "Insignias y Rewards") },
                         label = {
                             Text(
                                 "Insignias",
@@ -226,7 +230,7 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                     NavigationBarItem(
                         selected = pestañaSeleccionada == 2,
                         onClick = { pestañaSeleccionada = 2 },
-                        icon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                        icon = { Icon(Icons.Filled.Person, contentDescription = "Mi Perfil") },
                         label = {
                             Text(
                                 "Perfil",
@@ -241,7 +245,11 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
             }
         ) { paddingValues ->
             Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                Crossfade(targetState = pestañaSeleccionada, label = "cambioPestaña") { pestaña ->
+                Crossfade(
+                    targetState = pestañaSeleccionada,
+                    animationSpec = tween(220),
+                    label = "cambioPestaña"
+                ) { pestaña ->
                     when (pestaña) {
                         0 -> EventosScreen(
                             cargando = cargandoEventos,

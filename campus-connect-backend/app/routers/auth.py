@@ -380,7 +380,8 @@ def registrar_usuario(request: Request, datos: RegistroUsuarioInput, db: Session
     tel_1 = None
     tel_2 = None
 
-    # Validaciones específicas cuando se registra un Alumno Egresado
+    # Validaciones específicas cuando se registra un Alumno Egresado:
+    # A los egresados NO se les pide matrícula, licenciatura (carrera) ni semestre/grupo.
     if datos.es_egresado:
         if not datos.email_secundario:
             raise HTTPException(
@@ -418,95 +419,98 @@ def registrar_usuario(request: Request, datos: RegistroUsuarioInput, db: Session
                 detail="Los dos números telefónicos del alumno egresado deben ser diferentes",
             )
 
-    # Validación de Matrícula según configuración administrativa
-    matricula_limpia = (datos.matricula or "").strip().upper() or None
-    if cfg.get("requerirMatricula", True) and not datos.es_egresado and not matricula_limpia:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La matrícula estudiantil es obligatoria para crear una cuenta",
-        )
+        matricula_limpia = None
+        carrera_limpia = None
+        grupo_limpio = None
+        facultad_limpia = (datos.id_facultad or catalogo.get("facultadActiva") or "ETDA").strip().upper() or "ETDA"
+    else:
+        # Validaciones exclusivas para Estudiantes Activos (Matrícula, Licenciatura/Carrera y Grupo)
+        matricula_limpia = (datos.matricula or "").strip().upper() or None
+        if cfg.get("requerirMatricula", True) and not matricula_limpia:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La matrícula estudiantil es obligatoria para crear una cuenta",
+            )
 
-    if matricula_limpia:
-        min_mat = int(cfg.get("longitudMinMatricula", 6))
-        max_mat = int(cfg.get("longitudMaxMatricula", 15))
-        if len(matricula_limpia) < min_mat or len(matricula_limpia) > max_mat:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"La matrícula debe tener entre {min_mat} y {max_mat} caracteres",
-            )
-        if cfg.get("soloDigitosMatricula", False) and not matricula_limpia.isdigit():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La matrícula únicamente debe contener dígitos numéricos",
-            )
-        if not REGEX_MATRICULA_ALFANUMERICA.match(matricula_limpia):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La matrícula solo puede contener letras, números o guiones",
-            )
-        # Verificar unicidad de matrícula si otro usuario ya la registró
-        try:
-            mat_existente = db.execute(
-                text("SELECT id FROM usuarios WHERE UPPER(matricula) = :mat LIMIT 1"),
-                {"mat": matricula_limpia},
-            ).fetchone()
-            if mat_existente:
+        if matricula_limpia:
+            min_mat = int(cfg.get("longitudMinMatricula", 6))
+            max_mat = int(cfg.get("longitudMaxMatricula", 15))
+            if len(matricula_limpia) < min_mat or len(matricula_limpia) > max_mat:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="La matrícula ingresada ya se encuentra registrada en otra cuenta",
+                    detail=f"La matrícula debe tener entre {min_mat} y {max_mat} caracteres",
                 )
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+            if cfg.get("soloDigitosMatricula", False) and not matricula_limpia.isdigit():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La matrícula únicamente debe contener dígitos numéricos",
+                )
+            if not REGEX_MATRICULA_ALFANUMERICA.match(matricula_limpia):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La matrícula solo puede contener letras, números o guiones",
+                )
+            try:
+                mat_existente = db.execute(
+                    text("SELECT id FROM usuarios WHERE UPPER(matricula) = :mat LIMIT 1"),
+                    {"mat": matricula_limpia},
+                ).fetchone()
+                if mat_existente:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="La matrícula ingresada ya se encuentra registrada en otra cuenta",
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                pass
 
-    # Validación de Carrera, Facultad y Semestre/Grupo contra el catálogo administrativo
-    carrera_limpia = (datos.carrera or "").strip() or None
-    grupo_limpio = (datos.semestre_grupo or "").strip().upper() or None
-    facultad_limpia = (datos.id_facultad or catalogo.get("facultadActiva") or "ETDA").strip().upper() or "ETDA"
+        carrera_limpia = (datos.carrera or "").strip() or None
+        grupo_limpio = (datos.semestre_grupo or "").strip().upper() or None
+        facultad_limpia = (datos.id_facultad or catalogo.get("facultadActiva") or "ETDA").strip().upper() or "ETDA"
 
-    if cfg.get("requerirCarreraGrupo", True) and not datos.es_egresado:
-        if not carrera_limpia:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Debes seleccionar un Programa Educativo (Carrera) válido",
-            )
-        if not grupo_limpio:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Debes seleccionar tu Grado y Grupo académico",
-            )
+        if cfg.get("requerirCarreraGrupo", True):
+            if not carrera_limpia:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Debes seleccionar un Programa Educativo (Carrera) válido",
+                )
+            if not grupo_limpio:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Debes seleccionar tu Grado y Grupo académico",
+                )
 
-    carreras_catalogo: List[Dict[str, Any]] = catalogo.get("carreras") or []
-    if carrera_limpia and cfg.get("validarContraCatalogo", True) and carreras_catalogo:
-        carrera_encontrada = next(
-            (
-                c
-                for c in carreras_catalogo
-                if str(c.get("nombre", "")).strip().lower() == carrera_limpia.lower()
-                or str(c.get("id", "")).strip().lower() == carrera_limpia.lower()
-            ),
-            None,
-        )
-        if not carrera_encontrada:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La carrera seleccionada no pertenece al catálogo institucional vigente",
+        carreras_catalogo: List[Dict[str, Any]] = catalogo.get("carreras") or []
+        if carrera_limpia and cfg.get("validarContraCatalogo", True) and carreras_catalogo:
+            carrera_encontrada = next(
+                (
+                    c
+                    for c in carreras_catalogo
+                    if str(c.get("nombre", "")).strip().lower() == carrera_limpia.lower()
+                    or str(c.get("id", "")).strip().lower() == carrera_limpia.lower()
+                ),
+                None,
             )
-        carrera_limpia = str(carrera_encontrada.get("nombre")).strip()
-        if carrera_encontrada.get("facultadId"):
-            facultad_limpia = str(carrera_encontrada["facultadId"]).strip().upper()
+            if not carrera_encontrada:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La carrera seleccionada no pertenece al catálogo institucional vigente",
+                )
+            carrera_limpia = str(carrera_encontrada.get("nombre")).strip()
+            if carrera_encontrada.get("facultadId"):
+                facultad_limpia = str(carrera_encontrada["facultadId"]).strip().upper()
 
-        grupos_carrera = [
-            str(g).strip().upper()
-            for g in (carrera_encontrada.get("grupos") or catalogo.get("grupos") or [])
-            if str(g).strip()
-        ]
-        if grupo_limpio and grupos_carrera and grupo_limpio not in grupos_carrera:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"El grupo '{grupo_limpio}' no está habilitado para la carrera '{carrera_limpia}'",
-            )
+            grupos_carrera = [
+                str(g).strip().upper()
+                for g in (carrera_encontrada.get("grupos") or catalogo.get("grupos") or [])
+                if str(g).strip()
+            ]
+            if grupo_limpio and grupos_carrera and grupo_limpio not in grupos_carrera:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"El grupo '{grupo_limpio}' no está habilitado para la carrera '{carrera_limpia}'",
+                )
 
     rol_por_defecto = db.query(Rol).filter(Rol.nombre == "Usuario Regular").first()
     if rol_por_defecto is None:
@@ -527,13 +531,13 @@ def registrar_usuario(request: Request, datos: RegistroUsuarioInput, db: Session
     )
 
     if hasattr(nuevo_usuario, "id_facultad"):
-        nuevo_usuario.id_facultad = facultad_limpia
-    if hasattr(nuevo_usuario, "id_carrera") and carrera_limpia:
-        nuevo_usuario.id_carrera = carrera_limpia
-    if hasattr(nuevo_usuario, "grupos") and grupo_limpio:
-        nuevo_usuario.grupos = [grupo_limpio]
-    if hasattr(nuevo_usuario, "matricula") and matricula_limpia:
-        setattr(nuevo_usuario, "matricula", matricula_limpia)
+        nuevo_usuario.id_facultad = None if datos.es_egresado else facultad_limpia
+    if hasattr(nuevo_usuario, "id_carrera"):
+        nuevo_usuario.id_carrera = None if datos.es_egresado else carrera_limpia
+    if hasattr(nuevo_usuario, "grupos"):
+        nuevo_usuario.grupos = None if datos.es_egresado else ([grupo_limpio] if grupo_limpio else None)
+    if hasattr(nuevo_usuario, "matricula"):
+        setattr(nuevo_usuario, "matricula", None if datos.es_egresado else matricula_limpia)
 
     try:
         db.add(nuevo_usuario)
@@ -542,15 +546,15 @@ def registrar_usuario(request: Request, datos: RegistroUsuarioInput, db: Session
         db.execute(
             text("""
                 UPDATE usuarios
-                SET matricula = COALESCE(:mat, matricula),
-                    id_carrera = COALESCE(:car, id_carrera),
-                    id_facultad = COALESCE(:fac, id_facultad)
+                SET matricula = :mat,
+                    id_carrera = :car,
+                    id_facultad = :fac
                 WHERE id = :uid
             """),
             {
-                "mat": matricula_limpia,
-                "car": carrera_limpia,
-                "fac": facultad_limpia,
+                "mat": None if datos.es_egresado else matricula_limpia,
+                "car": None if datos.es_egresado else carrera_limpia,
+                "fac": None if datos.es_egresado else facultad_limpia,
                 "uid": nuevo_usuario.id,
             },
         )
@@ -582,9 +586,11 @@ def obtener_expediente_alumno(
     Devuelve los datos académicos del alumno (elegidos al crear su cuenta) junto con
     los datos institucionales estáticos (Escuela, Modalidad/Sede y Ciclo Escolar)
     configurados por el Administrador en el Panel Web.
+    Si el usuario es egresado, no devuelve matrícula, carrera ni semestre/grupo.
     """
     catalogo = _obtener_catalogo_institucional_completo(db)
     estaticos = catalogo["datosInstitucionales"]
+    es_egresado = bool(getattr(usuario, "es_egresado", False))
 
     matricula_db = getattr(usuario, "matricula", None)
     carrera_db = getattr(usuario, "id_carrera", None)
@@ -615,13 +621,13 @@ def obtener_expediente_alumno(
         "nombre": usuario.nombre,
         "email": usuario.email,
         "rol": rol_nombre,
-        "es_egresado": bool(getattr(usuario, "es_egresado", False)),
+        "es_egresado": es_egresado,
         "email_secundario": getattr(usuario, "email_secundario", None) or "",
         "telefono_principal": getattr(usuario, "telefono_principal", None) or "",
         "telefono_secundario": getattr(usuario, "telefono_secundario", None) or "",
-        "matricula": matricula_db or "",
-        "carrera": carrera_db or "",
-        "semestre_grupo": semestre_grupo or "",
+        "matricula": "" if es_egresado else (matricula_db or ""),
+        "carrera": "" if es_egresado else (carrera_db or ""),
+        "semestre_grupo": "" if es_egresado else (semestre_grupo or ""),
         "id_facultad": facultad_db,
         "escuela": escuela_resuelta or estaticos["escuela"],
         "modalidad_sede": estaticos["modalidad_sede"],
@@ -680,8 +686,6 @@ def iniciar_sesion(
         if (ahora - ultima_2fa) <= DURACION_VIGENCIA_2FA:
             vigencia_2fa_activa = True
 
-    # Solo se permite omitir 2FA si la verificación de 30 días en servidor sigue vigente
-    # (se eliminó el bypass inseguro por cabecera User-Agent Postman o flag cliente no verificado)
     es_produccion = os.getenv("ENVIRONMENT", "development").lower() == "production"
     permitir_bypass_dev = (
         not es_produccion
@@ -849,7 +853,6 @@ def solicitar_recuperacion(request: Request, datos: SolicitarRecuperacionRequest
         return respuesta_estandar
 
     token_recuperacion = crear_token_recuperacion(usuario.email)
-    # Mitigación OWASP Broken Authentication: Nunca exponer el token de recuperación en producción
     es_produccion = os.getenv("ENVIRONMENT", "development").lower() == "production"
     exponer_para_tests = not es_produccion and os.getenv("EXPOSE_RESET_TOKEN_FOR_TESTS", "false").lower() == "true"
     if exponer_para_tests:

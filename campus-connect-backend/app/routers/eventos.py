@@ -1,3 +1,4 @@
+import json
 import re
 import unicodedata
 import uuid
@@ -6,6 +7,7 @@ from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
 from ..auditoria import registrar_auditoria
@@ -34,6 +36,48 @@ from ..segmentacion import evento_visible_para
 from ..storage import ArchivoInvalido, borrar_archivo, guardar_archivo, limpiar_nombre_original
 
 router = APIRouter(prefix="/eventos", tags=["eventos"])
+
+AUDITORIOS_CAPACIDAD_POR_DEFECTO: Dict[str, int] = {
+    "auditorio principal etda": 180,
+    "sala audiovisual 1": 60,
+    "sala audiovisual 2": 50,
+    "laboratorio de cómputo a": 35,
+    "laboratorio de computo a": 35,
+    "auditorio los constituyentes": 350,
+    "explanada central etda": 250,
+}
+
+
+def _obtener_mapa_capacidades_auditorios(db: Session) -> Dict[str, int]:
+    """Obtiene el diccionario {nombre_auditorio_lower: asientos} desde catalogos_institucionales."""
+    mapa = dict(AUDITORIOS_CAPACIDAD_POR_DEFECTO)
+    try:
+        row = db.execute(text("SELECT payload_json FROM catalogos_institucionales WHERE id = 1")).fetchone()
+        if row and row[0]:
+            payload = json.loads(row[0])
+            if isinstance(payload, dict) and isinstance(payload.get("auditorios"), list):
+                for aud in payload["auditorios"]:
+                    if isinstance(aud, dict) and aud.get("nombre"):
+                        nombre_key = str(aud["nombre"]).strip().lower()
+                        asientos_val = int(aud.get("asientos") or 100)
+                        if nombre_key and asientos_val > 0:
+                            mapa[nombre_key] = asientos_val
+    except Exception:
+        pass
+    return mapa
+
+
+def _resolver_capacidad_lugar(lugar: Optional[str], mapa_auditorios: Dict[str, int]) -> int:
+    """Cruza el nombre del lugar del evento con el catálogo de auditorios configurado."""
+    if not lugar:
+        return 100
+    limpio = lugar.strip().lower()
+    if limpio in mapa_auditorios:
+        return mapa_auditorios[limpio]
+    for nombre_aud, cap in mapa_auditorios.items():
+        if limpio.startswith(nombre_aud) or nombre_aud in limpio:
+            return cap
+    return 100
 
 
 class EventoCreateConVigencia(EventoCreate):
@@ -87,16 +131,27 @@ def _archivo_out(a: EventoArchivo, base: str) -> ArchivoOut:
 def _serializar(
     evento: Evento,
     base: str,
-    conteos: Optional[Dict] = None,
+    conteos: Optional[Dict[uuid.UUID, tuple]] = None,
     eventos_inscritos_usuario: Optional[Set[uuid.UUID]] = None,
+    mapa_auditorios: Optional[Dict[str, int]] = None,
 ) -> EventoOutConVigencia:
     archivos = [_archivo_out(a, base) for a in evento.archivos]
     flyer = next((a.url for a in archivos if a.tipo == "material" and a.es_imagen), None)
-    registrados, asistieron = conteos.get(evento.id, (0, 0)) if conteos is not None else (None, None)
-    esta_inscrito = bool(eventos_inscritos_usuario and evento.id in eventos_inscritos_usuario)
+    registrados, asistieron = conteos.get(evento.id, (0, 0)) if conteos is not None else (0, 0)
+    ha_finalizado = _evento_ha_finalizado(evento)
 
-    # IMPORTANTE: Pasar disponibleDesde, fechaFin, disponibleAhora e inscrito por su alias camelCase
-    # para que Pydantic nunca los deje en None al serializar.
+    # Si el evento ya finalizó, jamás se marca como inscrito activo para evitar eventos fantasma en "Mis Inscritos"
+    esta_inscrito = bool(
+        not ha_finalizado
+        and eventos_inscritos_usuario
+        and evento.id in eventos_inscritos_usuario
+    )
+
+    capacidad = _resolver_capacidad_lugar(
+        evento.lugar,
+        mapa_auditorios if mapa_auditorios is not None else AUDITORIOS_CAPACIDAD_POR_DEFECTO,
+    )
+
     return EventoOutConVigencia(
         id=evento.id,
         titulo=evento.titulo,
@@ -114,10 +169,12 @@ def _serializar(
         grupos_destino=evento.grupos_destino,
         imagen_url=flyer or evento.imagen_url,
         organizador_email=evento.organizador_email,
-        finalizado=_evento_ha_finalizado(evento),
+        finalizado=ha_finalizado,
         archivos=archivos,
-        total_registrados=registrados,
-        total_asistieron=asistieron,
+        totalRegistrados=registrados,
+        totalAsistieron=asistieron,
+        capacidadTotal=capacidad,
+        asientosOcupados=registrados,
     )
 
 
@@ -183,21 +240,56 @@ def obtener_feed(
     if es_app_android or not (incluir_programados and es_gestor):
         eventos = [e for e in eventos if _evento_esta_disponible_ahora(e)]
 
-    if not es_gestor:
+    # Los egresados ven todos los eventos sin bloqueo por carrera/grupo
+    if not es_gestor and not getattr(usuario, "es_egresado", False):
         tiene_perfil_segmentado = bool(usuario.id_facultad or usuario.id_carrera or usuario.grupos)
         if tiene_perfil_segmentado:
             eventos = [e for e in eventos if evento_visible_para(e, usuario)]
 
-    # Consultar a qué eventos ya está inscrito este usuario en PostgreSQL
-    ids_inscritos: Set[uuid.UUID] = {
-        fila[0]
-        for fila in db.query(EventoAsistencia.evento_id)
-        .filter(EventoAsistencia.usuario_id == usuario.id)
-        .all()
-    }
+    ids_eventos_visibles = [e.id for e in eventos]
+    conteos = _conteos(db, ids_eventos_visibles)
+    mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)
+
+    # Limpieza de inscripciones no confirmadas de eventos que ya finalizaron para este usuario
+    # (se conservan únicamente las asistencias verificadas `asistio == True` para estadísticas e insignias)
+    try:
+        inscripciones_usuario = (
+            db.query(EventoAsistencia, Evento)
+            .join(Evento, Evento.id == EventoAsistencia.evento_id)
+            .filter(EventoAsistencia.usuario_id == usuario.id)
+            .all()
+        )
+        borro_vencidos = False
+        ids_inscritos_vigentes: Set[uuid.UUID] = set()
+        for asis, ev_rel in inscripciones_usuario:
+            if _evento_ha_finalizado(ev_rel):
+                if not asis.asistio:
+                    db.delete(asis)
+                    borro_vencidos = True
+            else:
+                ids_inscritos_vigentes.add(ev_rel.id)
+        if borro_vencidos:
+            db.commit()
+    except Exception:
+        db.rollback()
+        ids_inscritos_vigentes = {
+            fila[0]
+            for fila in db.query(EventoAsistencia.evento_id)
+            .filter(EventoAsistencia.usuario_id == usuario.id)
+            .all()
+        }
 
     base = _base_url(request)
-    return [_serializar(e, base, eventos_inscritos_usuario=ids_inscritos) for e in eventos]
+    return [
+        _serializar(
+            e,
+            base,
+            conteos=conteos,
+            eventos_inscritos_usuario=ids_inscritos_vigentes,
+            mapa_auditorios=mapa_auditorios,
+        )
+        for e in eventos
+    ]
 
 
 @router.get("/pasados", response_model=List[EventoOutConVigencia])
@@ -212,8 +304,9 @@ def eventos_pasados(
     )
     eventos = [e for e in eventos if _evento_ha_finalizado(e)]
     conteos = _conteos(db, [e.id for e in eventos])
+    mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)
     base = _base_url(request)
-    return [_serializar(e, base, conteos) for e in eventos]
+    return [_serializar(e, base, conteos=conteos, mapa_auditorios=mapa_auditorios) for e in eventos]
 
 
 @router.get("/opciones-segmentacion")
@@ -262,7 +355,8 @@ def crear_evento(
         except Exception as exc:
             print(f"[FCM] Error no bloqueante al enviar push de nuevo evento: {exc}")
 
-    return _serializar(nuevo, _base_url(request))
+    mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)
+    return _serializar(nuevo, _base_url(request), conteos={nuevo.id: (0, 0)}, mapa_auditorios=mapa_auditorios)
 
 
 @router.put("/{evento_id}", response_model=EventoOutConVigencia)
@@ -301,7 +395,9 @@ def editar_evento(
 
     registrar_auditoria(db, usuario_email=usuario.email, ip=_ip(request),
                         accion=f"Evento editado: {evento.titulo}")
-    return _serializar(evento, _base_url(request))
+    conteos = _conteos(db, [evento.id])
+    mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)
+    return _serializar(evento, _base_url(request), conteos=conteos, mapa_auditorios=mapa_auditorios)
 
 
 @router.delete("/{evento_id}", status_code=200)
@@ -414,13 +510,31 @@ def registrar_asistencia(
         raise HTTPException(status_code=400, detail="Este evento aún no está abierto para inscripciones.")
     if _evento_ha_finalizado(evento):
         raise HTTPException(status_code=400, detail="Este evento ya finalizó.")
+
     tiene_perfil_segmentado = bool(usuario.id_facultad or usuario.id_carrera or usuario.grupos)
-    if not _puede_gestionar(usuario) and tiene_perfil_segmentado and not evento_visible_para(evento, usuario):
+    if (
+        not _puede_gestionar(usuario)
+        and not getattr(usuario, "es_egresado", False)
+        and tiene_perfil_segmentado
+        and not evento_visible_para(evento, usuario)
+    ):
         raise HTTPException(status_code=403, detail="Este evento no está dirigido a tu carrera o grupo.")
+
+    mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)
+    capacidad_maxima = _resolver_capacidad_lugar(evento.lugar, mapa_auditorios)
+
     ya = db.query(EventoAsistencia).filter_by(evento_id=evento.id, usuario_id=usuario.id).first()
+    ocupados_actuales = db.query(EventoAsistencia).filter_by(evento_id=evento.id).count()
+
     if not ya:
+        if ocupados_actuales >= capacidad_maxima:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El cupo para este evento está agotado ({capacidad_maxima}/{capacidad_maxima} asientos ocupados).",
+            )
         db.add(EventoAsistencia(evento_id=evento.id, usuario_id=usuario.id))
         db.commit()
+        ocupados_actuales += 1
 
     # Si al momento de inscribirse ya quedan 30 minutos o menos para finalizar el evento,
     # disparar de inmediato el push de últimos 30 minutos para este alumno
@@ -434,7 +548,15 @@ def registrar_asistencia(
         except Exception as exc:
             print(f"[FCM] Aviso no bloqueante al enviar push de 30m en inscripción: {exc}")
 
-    return {"mensaje": "Inscripción realizada correctamente."}
+    disponibles = max(0, capacidad_maxima - ocupados_actuales)
+    return {
+        "mensaje": "Inscripción realizada correctamente.",
+        "inscrito": True,
+        "capacidadTotal": capacidad_maxima,
+        "asientosOcupados": ocupados_actuales,
+        "asientosDisponibles": disponibles,
+        "totalRegistrados": ocupados_actuales,
+    }
 
 
 @router.delete("/{evento_id}/registro", status_code=200)
@@ -443,11 +565,25 @@ def cancelar_asistencia(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    evento = _buscar_evento(db, evento_id)
     fila = db.query(EventoAsistencia).filter_by(evento_id=evento_id, usuario_id=usuario.id).first()
     if fila:
         db.delete(fila)
         db.commit()
-    return {"mensaje": "Inscripción cancelada correctamente."}
+
+    mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)
+    capacidad_maxima = _resolver_capacidad_lugar(evento.lugar, mapa_auditorios)
+    ocupados_actuales = db.query(EventoAsistencia).filter_by(evento_id=evento_id).count()
+    disponibles = max(0, capacidad_maxima - ocupados_actuales)
+
+    return {
+        "mensaje": "Inscripción cancelada correctamente.",
+        "inscrito": False,
+        "capacidadTotal": capacidad_maxima,
+        "asientosOcupados": ocupados_actuales,
+        "asientosDisponibles": disponibles,
+        "totalRegistrados": ocupados_actuales,
+    }
 
 
 def _filas_asistencia(db: Session, evento_id: uuid.UUID):
@@ -473,8 +609,8 @@ def obtener_asistentes(
             "nombre": u.nombre,
             "email": u.email,
             "facultad": u.id_facultad,
-            "carrera": u.id_carrera,
-            "grupos": u.grupos or [],
+            "carrera": "Alumno Egresado" if getattr(u, "es_egresado", False) else u.id_carrera,
+            "grupos": [] if getattr(u, "es_egresado", False) else (u.grupos or []),
             "fecha_registro": a.fecha_registro.isoformat() if a.fecha_registro else None,
             "asistio": a.asistio,
         }
@@ -521,8 +657,11 @@ def descargar_asistencia_pdf(
     evento = _buscar_evento(db, evento_id)
     filas = [
         {
-            "nombre": u.nombre, "email": u.email, "carrera": u.id_carrera,
-            "grupos": ", ".join(u.grupos or []), "registro": fecha_corta(a.fecha_registro),
+            "nombre": u.nombre,
+            "email": u.email,
+            "carrera": "Egresado" if getattr(u, "es_egresado", False) else u.id_carrera,
+            "grupos": "—" if getattr(u, "es_egresado", False) else ", ".join(u.grupos or []),
+            "registro": fecha_corta(a.fecha_registro),
             "asistio": a.asistio,
         }
         for a, u in _filas_asistencia(db, evento_id)

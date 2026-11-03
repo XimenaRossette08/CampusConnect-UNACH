@@ -349,6 +349,8 @@ function poblarSelectoresRegistroUsuario() {
         ).join("");
         actualizarGruposRegistroSegunCarrera();
     }
+    const tipoActual = document.getElementById("reg-es-egresado")?.value === "egresado" ? "egresado" : "activo";
+    alternarTipoUsuarioRegistroWeb(tipoActual);
 }
 
 function actualizarGruposRegistroSegunCarrera() {
@@ -378,6 +380,9 @@ function actualizarGruposRegistroSegunCarrera() {
 
 function alternarTipoUsuarioRegistroWeb(tipo) {
     const esEgresado = tipo === "egresado";
+    const cfg = normalizarConfiguracionRegistro(estadoCatalogos.configuracionRegistro);
+    const carreras = estadoCatalogos.carreras || [];
+
     const inpHidden = document.getElementById("reg-es-egresado");
     if (inpHidden) inpHidden.value = esEgresado ? "egresado" : "activo";
 
@@ -392,11 +397,47 @@ function alternarTipoUsuarioRegistroWeb(tipo) {
             : "flex-1 py-2 rounded-xl text-xs font-extrabold text-[#122652] bg-transparent transition";
     }
 
+    // Ocultar Matrícula, Licenciatura (Carrera) y Grado/Grupo cuando es Alumno Egresado
+    const contMatricula = document.getElementById("reg-contenedor-matricula");
+    const inpMatricula = document.getElementById("reg-matricula");
+    if (contMatricula) {
+        contMatricula.classList.toggle("hidden", esEgresado);
+    }
+    if (inpMatricula) {
+        inpMatricula.required = !esEgresado && cfg.requerirMatricula;
+        if (esEgresado) inpMatricula.value = "";
+    }
+
+    const contCarreraGrupo = document.getElementById("reg-contenedor-carrera-grupo");
+    const selCarrera = document.getElementById("reg-carrera");
+    const selGrupo = document.getElementById("reg-semestre-grupo");
+    if (contCarreraGrupo) {
+        contCarreraGrupo.classList.toggle("hidden", esEgresado || (!cfg.requerirCarreraGrupo && carreras.length === 0));
+    }
+    if (selCarrera) {
+        selCarrera.required = !esEgresado && cfg.requerirCarreraGrupo;
+    }
+    if (selGrupo) {
+        selGrupo.required = !esEgresado && cfg.requerirCarreraGrupo;
+    }
+
+    const lblEmail = document.getElementById("reg-label-email");
+    if (lblEmail) {
+        if (esEgresado) {
+            lblEmail.textContent = "Correo Electrónico Principal *";
+        } else if (cfg.restringirDominioCorreo && cfg.dominiosPermitidos.length) {
+            lblEmail.textContent = `Correo Institucional (@${cfg.dominiosPermitidos.join(", @")})`;
+        } else {
+            lblEmail.textContent = "Correo Institucional o Personal";
+        }
+    }
+
     const camposEgresado = document.getElementById("reg-campos-egresado");
     if (camposEgresado) {
         camposEgresado.classList.toggle("hidden", !esEgresado);
         camposEgresado.querySelectorAll("input").forEach(inp => {
             inp.required = esEgresado;
+            if (!esEgresado) inp.value = "";
         });
     }
 }

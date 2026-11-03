@@ -11,9 +11,16 @@ import androidx.annotation.OptIn
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -23,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -40,7 +48,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 
-// Paleta ETDA
+// Paleta Oficial ETDA - UNACH Intacta
 private val EtdaNavy = Color(0xFF122652)
 private val EtdaOrange = Color(0xFFF57C00)
 private val EtdaSuccess = Color(0xFF10B981)
@@ -53,7 +61,14 @@ fun EscanerQrScreen(onVolver: () -> Unit) {
     var tienePermisos by remember { mutableStateOf(false) }
     var qrDetectado by remember { mutableStateOf<String?>(null) }
 
-    // Solicitar permisos de Cámara y GPS al mismo tiempo
+    val pulsoMira = rememberInfiniteTransition(label = "pulsoMira")
+    val escalaMira by pulsoMira.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.03f,
+        animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
+        label = "escalaMira"
+    )
+
     val launcherPermisos = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permisos ->
@@ -111,7 +126,6 @@ fun EscanerQrScreen(onVolver: () -> Unit) {
                                 if (qrDetectado == null) {
                                     qrDetectado = codigo
 
-                                    // 🚀 INICIAR EL SERVICIO GPS AL DETECTAR EL QR
                                     val intentServicio = Intent(context, ServicioUbicacionAsistencia::class.java).apply {
                                         putExtra("EVENTO_ID", codigo)
                                     }
@@ -142,26 +156,44 @@ fun EscanerQrScreen(onVolver: () -> Unit) {
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Diseño de la mira del escáner
+            // Mira animada del escáner con estética limpia
             Box(
                 modifier = Modifier
-                    .size(250.dp)
+                    .size(256.dp)
+                    .scale(escalaMira)
                     .align(Alignment.Center)
-                    .border(3.dp, EtdaOrange, RoundedCornerShape(24.dp))
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.White.copy(alpha = 0.1f))
+                    .border(3.dp, EtdaOrange, RoundedCornerShape(28.dp))
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
             )
 
-            Text(
-                text = "Apunta al código QR del evento",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
+            Surface(
+                color = EtdaNavy.copy(alpha = 0.88f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(1.dp, EtdaOrange.copy(alpha = 0.6f)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp)
-                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+                    .padding(bottom = 110.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        tint = EtdaOrange,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Apunta al código QR oficial del evento",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         } else if (!tienePermisos) {
             Column(
                 modifier = Modifier.align(Alignment.Center),
@@ -169,50 +201,62 @@ fun EscanerQrScreen(onVolver: () -> Unit) {
             ) {
                 CircularProgressIndicator(color = EtdaOrange)
                 Spacer(modifier = Modifier.height(16.dp))
-                Text("Solicitando permisos...", color = Color.White)
+                Text("Solicitando permisos de cámara y ubicación...", color = Color.White, fontSize = 13.sp)
             }
         }
 
-        // Pantalla de éxito tras escanear
         if (qrDetectado != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.8f)),
+                    .background(Color.Black.copy(alpha = 0.82f)),
                 contentAlignment = Alignment.Center
             ) {
                 Card(
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(28.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
                     modifier = Modifier.padding(32.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp),
+                        modifier = Modifier.padding(26.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(50),
+                            shape = CircleShape,
                             color = EtdaSuccess.copy(alpha = 0.15f),
-                            modifier = Modifier.size(64.dp)
+                            modifier = Modifier.size(68.dp)
                         ) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.padding(16.dp))
+                            Icon(
+                                Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                tint = EtdaSuccess,
+                                modifier = Modifier.padding(16.dp)
+                            )
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("¡Código capturado!", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = EtdaNavy)
+                        Text(
+                            "¡Código QR capturado!",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 20.sp,
+                            color = EtdaNavy
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Tu ubicación está siendo verificada en segundo plano para validar tu asistencia. No cierres la aplicación.",
+                            text = "Tu ubicación está siendo verificada en segundo plano para validar tu asistencia. Mantén la aplicación activa durante el evento.",
                             textAlign = TextAlign.Center,
                             fontSize = 13.sp,
-                            color = Color.Gray
+                            lineHeight = 18.sp,
+                            color = Color(0xFF64748B)
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
                             onClick = onVolver,
                             colors = ButtonDefaults.buttonColors(containerColor = EtdaNavy),
-                            modifier = Modifier.fillMaxWidth()
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
                         ) {
-                            Text("Volver al evento", fontWeight = FontWeight.Bold)
+                            Text("Volver al evento", fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }
@@ -223,9 +267,9 @@ fun EscanerQrScreen(onVolver: () -> Unit) {
             onClick = onVolver,
             modifier = Modifier
                 .padding(top = 48.dp, start = 16.dp)
-                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
+                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+            Icon(Icons.Default.Close, contentDescription = "Cerrar escáner", tint = Color.White)
         }
     }
 }

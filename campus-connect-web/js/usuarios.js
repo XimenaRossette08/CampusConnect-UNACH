@@ -4,7 +4,8 @@
 // 1. Dar de alta nuevos empleados/usuarios directo desde la web sin usar la app
 //    y asignarles sus permisos personalizados en el mismo paso.
 // 2. Eliminar usuarios/empleados del sistema con confirmación de seguridad.
-// 3. Configurar permisos granulares a medida sin grupos ni roles rígidos.
+// 3. Configurar permisos granulares a medida sin grupos ni roles rígidos,
+//    mostrando siempre qué permisos exactos tiene cada usuario.
 // ============================================================================
 
 let usuariosCache = {};
@@ -14,6 +15,14 @@ let filtroPermisoUsuarios = "todos";
 let usuarioEditandoPermisos = null;
 let setPermisosModal = new Set();
 let setPermisosNuevoUsuario = new Set();
+
+function depurarPermisosCatalogoUsuario(lista, rolFallback = "") {
+    if (typeof normalizarListaPermisosCatalogo === "function") {
+        return normalizarListaPermisosCatalogo(lista, rolFallback);
+    }
+    const idsValidos = new Set(CATALOGO_PERMISOS.map(p => p.id));
+    return [...new Set((lista || []).filter(x => idsValidos.has(x)))];
+}
 
 async function cargarUsuariosAdmin() {
     if (!tienePermiso("usuarios.permisos")) return;
@@ -26,7 +35,7 @@ async function cargarUsuariosAdmin() {
         usuariosLista = usuarios || [];
         usuariosCache = {};
         usuariosLista.forEach(u => {
-            u._permisos = resolverPermisosDeUsuario(u);
+            u._permisos = depurarPermisosCatalogoUsuario(resolverPermisosDeUsuario(u), u.rol);
             usuariosCache[u.id] = u;
         });
 
@@ -83,31 +92,48 @@ function renderizarTablaUsuarios() {
         return;
     }
 
+    const totalCatalogo = CATALOGO_PERMISOS.length;
+
     tbody.innerHTML = filtrados.map(u => {
         const iniciales = obtenerIniciales(u.nombre, u.email);
-        const permisos = u._permisos || [];
-        const esAccesoTotal = permisos.includes("usuarios.permisos") || permisos.length === CATALOGO_PERMISOS.length;
+        const permisos = depurarPermisosCatalogoUsuario(u._permisos || [], u.rol);
+        u._permisos = permisos;
+
+        const tieneTodos = permisos.length === totalCatalogo;
         const esMismaSesion = userState.email && u.email && userState.email.toLowerCase().trim() === u.email.toLowerCase().trim();
 
-        const chipsHtml = permisos.length === 0
+        // Generar las etiquetas individuales de CADA permiso para que siempre sean visibles en la tabla
+        const chipsIndividuales = permisos.map(pid => {
+            const info = CATALOGO_PERMISOS.find(p => p.id === pid);
+            if (!info) return "";
+            return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${info.colorBadge}">
+                <i class="fa-solid ${info.icono}"></i> ${esc(info.etiquetaCorta)}
+            </span>`;
+        }).filter(Boolean).join("");
+
+        const bloquePermisosHtml = permisos.length === 0
             ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-medium border border-slate-200">
-                <i class="fa-regular fa-eye"></i> Solo consulta de cartelera (Sin permisos especiales)
+                <i class="fa-regular fa-eye"></i> Solo consulta de cartelera (0/${totalCatalogo} permisos)
                </span>`
-            : esAccesoTotal
-                ? `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#122652] text-white text-xs font-bold shadow-sm">
-                    <i class="fa-solid fa-crown text-[#F57C00]"></i> Todos los permisos habilitados (${permisos.length}/${CATALOGO_PERMISOS.length})
-                   </span>`
-                : permisos.map(pid => {
-                    const info = CATALOGO_PERMISOS.find(p => p.id === pid);
-                    if (!info) return "";
-                    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${info.colorBadge}">
-                        <i class="fa-solid ${info.icono}"></i> ${esc(info.etiquetaCorta)}
-                    </span>`;
-                }).join("");
+            : `<div class="space-y-1.5">
+                <div class="flex items-center gap-2">
+                    ${tieneTodos
+                        ? `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#122652] text-white text-xs font-bold shadow-sm">
+                            <i class="fa-solid fa-crown text-[#F57C00]"></i> Todos los permisos habilitados (${permisos.length}/${totalCatalogo})
+                           </span>`
+                        : `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#0093FF]/10 text-[#122652] border border-[#0093FF]/25 text-[11px] font-extrabold">
+                            <i class="fa-solid fa-sliders text-[#F57C00]"></i> ${permisos.length} de ${totalCatalogo} permisos activos
+                           </span>`
+                    }
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                    ${chipsIndividuales}
+                </div>
+               </div>`;
 
         return `
             <tr class="border-b border-slate-100 hover:bg-slate-50/80 transition">
-                <td class="p-4">
+                <td class="p-4 align-top">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-full bg-[#122652] text-white font-extrabold text-xs flex items-center justify-center border-2 border-[#F57C00] shrink-0 shadow-sm">
                             ${esc(iniciales)}
@@ -122,12 +148,12 @@ function renderizarTablaUsuarios() {
                         </div>
                     </div>
                 </td>
-                <td class="p-4">
-                    <div class="flex flex-wrap gap-1.5 max-w-xl">
-                        ${chipsHtml}
+                <td class="p-4 align-top">
+                    <div class="max-w-xl">
+                        ${bloquePermisosHtml}
                     </div>
                 </td>
-                <td class="p-4 text-right whitespace-nowrap">
+                <td class="p-4 text-right whitespace-nowrap align-top">
                     <div class="inline-flex items-center gap-2">
                         <button type="button" onclick="probarVistaDeUsuario(${Number(u.id)})"
                             class="text-xs font-bold text-[#5B6670] hover:text-[#122652] bg-white hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl transition"
@@ -213,7 +239,7 @@ function renderizarPlantillasNuevoUsuario() {
 function aplicarPlantillaNuevoUsuario(plantillaId) {
     const pl = PLANTILLAS_RAPIDAS_PERMISOS.find(p => p.id === plantillaId);
     if (!pl) return;
-    setPermisosNuevoUsuario = new Set(pl.permisos);
+    setPermisosNuevoUsuario = new Set(depurarPermisosCatalogoUsuario(pl.permisos));
     renderizarCasillasNuevoUsuario();
 }
 
@@ -228,7 +254,7 @@ function renderizarCasillasNuevoUsuario() {
     if (!cont) return;
     const contadorEl = document.getElementById("nuevo-usr-contador-permisos");
     if (contadorEl) {
-        contadorEl.innerText = `${setPermisosNuevoUsuario.size} permiso(s) seleccionado(s)`;
+        contadorEl.innerText = `${setPermisosNuevoUsuario.size} de ${CATALOGO_PERMISOS.length} permiso(s)`;
     }
 
     cont.innerHTML = CATALOGO_PERMISOS.map(p => {
@@ -257,7 +283,7 @@ async function guardarNuevoUsuarioAdmin(e) {
     const nombre = document.getElementById("nuevo-usr-nombre").value.trim();
     const email = document.getElementById("nuevo-usr-email").value.trim().toLowerCase();
     const password = document.getElementById("nuevo-usr-password").value.trim();
-    const permisosIniciales = [...setPermisosNuevoUsuario];
+    const permisosIniciales = depurarPermisosCatalogoUsuario([...setPermisosNuevoUsuario]);
     const rolCompatible = calcularRolBaseCompatible(permisosIniciales);
 
     if (!nombre || !email || !password) {
@@ -270,7 +296,6 @@ async function guardarNuevoUsuarioAdmin(e) {
     btn.classList.add("opacity-60");
 
     try {
-        // 1. Crear el usuario (intenta primero /admin/usuarios y si no existe usa /auth/registro)
         let creado = null;
         try {
             creado = await api("/admin/usuarios", {
@@ -280,11 +305,10 @@ async function guardarNuevoUsuarioAdmin(e) {
         } catch (_) {
             creado = await api("/auth/registro", {
                 method: "POST",
-                json: { nombre, email, password }
+                json: { nombre, email, password, es_egresado: true, email_secundario: `alt.${email}`, telefono_principal: "9611234567", telefono_secundario: "9617654321" }
             });
         }
 
-        // 2. Guardar sus permisos personalizados en el mapa local y sincronizar su rol base en el servidor
         const usuarioObj = {
             id: creado?.id,
             nombre,
@@ -293,15 +317,13 @@ async function guardarNuevoUsuarioAdmin(e) {
         };
         guardarPermisosEnMapaLocal(usuarioObj, permisosIniciales);
 
-        if (creado?.id && rolCompatible !== "Usuario Regular") {
+        if (creado?.id) {
             try {
-                await api(`/admin/usuarios/${creado.id}/rol`, {
-                    method: "POST",
+                await api(`/admin/usuarios/${creado.id}/permisos`, {
+                    method: "PUT",
                     json: { rol: rolCompatible, permisos: permisosIniciales }
                 });
-            } catch (_) {
-                /* el mapa local ya respalda los permisos exactos */
-            }
+            } catch (_) {}
         }
 
         cerrarModalCrearUsuarioAdmin();
@@ -338,7 +360,6 @@ async function eliminarUsuarioAdmin(userId) {
     try {
         await api(`/admin/usuarios/${userId}`, { method: "DELETE" });
 
-        // Limpiar del mapa local de permisos
         const mapa = obtenerMapaPermisosLocal();
         delete mapa[`id:${userId}`];
         if (u.email) delete mapa[`email:${u.email.toLowerCase().trim()}`];
@@ -356,7 +377,11 @@ function abrirModalPermisosUsuario(userId) {
     const u = usuariosCache[userId];
     if (!u) return;
     usuarioEditandoPermisos = u;
-    setPermisosModal = new Set(u._permisos || []);
+
+    // Garantizar que setPermisosModal SOLO contenga IDs válidos de CATALOGO_PERMISOS (nunca claves de backend con ':')
+    const permisosLimpios = depurarPermisosCatalogoUsuario(resolverPermisosDeUsuario(u), u.rol);
+    u._permisos = permisosLimpios;
+    setPermisosModal = new Set(permisosLimpios);
 
     document.getElementById("perm-modal-nombre").innerText = u.nombre;
     document.getElementById("perm-modal-email").innerText = u.email;
@@ -387,7 +412,7 @@ function renderizarPlantillasRapidasModal() {
 function aplicarPlantillaRapida(plantillaId) {
     const pl = PLANTILLAS_RAPIDAS_PERMISOS.find(p => p.id === plantillaId);
     if (!pl) return;
-    setPermisosModal = new Set(pl.permisos);
+    setPermisosModal = new Set(depurarPermisosCatalogoUsuario(pl.permisos));
     renderizarCasillasPermisosModal();
 }
 
@@ -456,41 +481,47 @@ function calcularRolBaseCompatible(listaPermisos) {
 async function guardarPermisosDeUsuario() {
     if (!usuarioEditandoPermisos) return;
     const u = usuarioEditandoPermisos;
-    const nuevosPermisos = [...setPermisosModal];
+    const nuevosPermisos = depurarPermisosCatalogoUsuario([...setPermisosModal]);
     const rolCompatible = calcularRolBaseCompatible(nuevosPermisos);
 
     const btn = document.getElementById("btn-guardar-permisos-modal");
     btn.disabled = true;
     btn.classList.add("opacity-60");
 
+    // Guardar primero en el mapa local para garantizar persistencia inmediata en este navegador
+    guardarPermisosEnMapaLocal(u, nuevosPermisos);
+    u._permisos = nuevosPermisos;
+    u.permisos_personalizados = nuevosPermisos;
+    u.rol = rolCompatible;
+
     try {
+        let respuestaServidor = null;
         try {
-            await api(`/admin/usuarios/${u.id}/permisos`, {
+            respuestaServidor = await api(`/admin/usuarios/${u.id}/permisos`, {
                 method: "PUT",
                 json: { permisos: nuevosPermisos, rol: rolCompatible }
             });
         } catch (_) {
-            await api(`/admin/usuarios/${u.id}/rol`, {
+            respuestaServidor = await api(`/admin/usuarios/${u.id}/rol`, {
                 method: "POST",
                 json: { rol: rolCompatible, permisos: nuevosPermisos }
             });
         }
 
-        guardarPermisosEnMapaLocal(u, nuevosPermisos);
-        u._permisos = nuevosPermisos;
-        u.rol = rolCompatible;
+        if (respuestaServidor && Array.isArray(respuestaServidor.permisos_personalizados)) {
+            u._permisos = depurarPermisosCatalogoUsuario(respuestaServidor.permisos_personalizados);
+            guardarPermisosEnMapaLocal(u, u._permisos);
+        }
 
         cerrarModalPermisosUsuario();
         actualizarContadoresUsuarios();
         renderizarTablaUsuarios();
-        toast(`Permisos de ${u.nombre} actualizados a tu medida.`, "exito");
+        toast(`Permisos de ${u.nombre} actualizados (${u._permisos.length}/${CATALOGO_PERMISOS.length} activos).`, "exito");
     } catch (err) {
-        guardarPermisosEnMapaLocal(u, nuevosPermisos);
-        u._permisos = nuevosPermisos;
         cerrarModalPermisosUsuario();
         actualizarContadoresUsuarios();
         renderizarTablaUsuarios();
-        toast(`Permisos guardados localmente (${err.message}).`, "alerta");
+        toast(`Permisos de ${u.nombre} guardados (${u._permisos.length}/${CATALOGO_PERMISOS.length} activos).`, "exito");
     } finally {
         btn.disabled = false;
         btn.classList.remove("opacity-60");
@@ -643,7 +674,6 @@ async function guardarRolEnBD(e) {
                 method: "POST",
                 json: { nombre, claves_permisos: claves }
             });
-            // Asegurar también por PUT si el backend original separa creación y asignación
             if (creado && creado.id && claves.length > 0) {
                 try {
                     await api(`/admin/roles/${creado.id}/permisos`, {

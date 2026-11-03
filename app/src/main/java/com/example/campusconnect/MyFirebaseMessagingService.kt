@@ -42,10 +42,15 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val tipo = message.data["tipo"] ?: ""
         val eventoId = message.data["evento_id"] ?: ""
+        val firmaFin = message.data["firma_fin"] ?: ""
 
         if (eventoId.isNotBlank() && tipo.isNotBlank()) {
             val prefs = applicationContext.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
-            val clave = "notificado_${tipo}_$eventoId"
+            val clave = if (firmaFin.isNotBlank()) {
+                "notificado_${tipo}_${eventoId}_$firmaFin"
+            } else {
+                "notificado_${tipo}_$eventoId"
+            }
             if (prefs.getBoolean(clave, false)) {
                 return
             }
@@ -62,16 +67,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             ?: message.data["cuerpo"]
             ?: "Tienes una nueva notificación académica"
 
-        mostrarNotificacion(applicationContext, titulo, cuerpo)
+        val notifId = if (eventoId.isNotBlank() && tipo.isNotBlank()) {
+            ("${tipo}_$eventoId").hashCode()
+        } else {
+            (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
+        }
+
+        mostrarNotificacion(applicationContext, titulo, cuerpo, notifId)
     }
 
     companion object {
         const val CHANNEL_ID = "campus_connect_alertas_v2"
 
-        /**
-         * Convierte el ícono oficial de la app Campus Connect (R.mipmap.ic_launcher_round o applicationIcon)
-         * en un Bitmap a todo color para mostrarlo en la notificación.
-         */
         private fun obtenerBitmapIconoApp(context: Context): Bitmap? {
             return try {
                 val drawable = context.packageManager.getApplicationIcon(context.applicationInfo)
@@ -90,10 +97,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        /**
-         * Busca el drawable vectorial del ícono de la app (ic_launcher_foreground) para la barra de estado,
-         * usando como respaldo seguro el ícono de información del sistema.
-         */
         private fun obtenerSmallIconResId(context: Context): Int {
             val idForeground = context.resources.getIdentifier(
                 "ic_launcher_foreground",
@@ -138,7 +141,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(smallIconRes)
-                .setColor(0xFF122652.toInt()) // Azul Marino Institucional UNACH
+                .setColor(0xFF122652.toInt())
                 .setContentTitle(titulo)
                 .setContentText(cuerpo)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(cuerpo))
@@ -154,7 +157,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             try {
                 notificationManager.notify(notifId, builder.build())
             } catch (_: Exception) {
-                // Respaldo garantizado si algún dispositivo rechaza ic_launcher_foreground como smallIcon
                 try {
                     builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                     notificationManager.notify(notifId, builder.build())

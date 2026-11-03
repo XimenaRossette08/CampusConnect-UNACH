@@ -47,7 +47,11 @@ class Usuario(Base):
     rol_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
     rol = relationship("Rol", back_populates="usuarios")
 
+    # Permisos granulares personalizados asignados desde el Panel Web (JSON list string)
+    permisos_personalizados = Column(String, nullable=True)
+
     # Segmentación de eventos (Facultad -> Carrera -> Grupo)
+    matricula = Column(String, nullable=True)
     id_facultad = Column(String, nullable=True)
     id_carrera = Column(String, nullable=True)
     grupos = Column(ARRAY(String), nullable=True)

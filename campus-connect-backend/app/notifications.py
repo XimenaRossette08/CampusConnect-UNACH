@@ -60,7 +60,6 @@ def inicializar_firebase() -> bool:
     if raw_json:
         try:
             info_dict = json.loads(raw_json)
-            # Corregir saltos de línea escapados en private_key si Render los escapó
             if "private_key" in info_dict and isinstance(info_dict["private_key"], str):
                 info_dict["private_key"] = info_dict["private_key"].replace("\\n", "\n")
             cred = credentials.Certificate(info_dict)
@@ -103,7 +102,7 @@ def inicializar_firebase() -> bool:
 
 def enviar_push_multicast(tokens: List[str], titulo: str, cuerpo: str, data_extra: Optional[dict] = None) -> dict:
     """
-    Envía una notificación push de Firebase con prioridad alta y canal Android 'campus_connect_channel'.
+    Envía una notificación push de Firebase con prioridad alta y canal Android 'campus_connect_alertas_v2'.
     """
     tokens_limpios = list({t.strip() for t in tokens if t and t.strip()})
     if not tokens_limpios:
@@ -223,6 +222,7 @@ def _enviar_aviso_30m_antes_de_finalizar(db: Session, ev: Evento) -> int:
             "tipo": "aviso_30m_fin",
             "evento_id": str(ev.id),
             "titulo": ev.titulo,
+            "firma_fin": (ev.fecha_fin or ev.fecha_hora).isoformat() if (ev.fecha_fin or ev.fecha_hora) else "",
         },
     )
     ev.notificacion_fin_30m_enviada = True
@@ -230,19 +230,77 @@ def _enviar_aviso_30m_antes_de_finalizar(db: Session, ev: Evento) -> int:
     return res.get("total_tokens", 0)
 
 
+def enviar_notificacion_evento_finalizado(db: Session, ev: Evento) -> dict:
+    """
+    Envía notificación push cuando el evento alcanza su fecha/hora de término (`fecha_fin`).
+    Se envía a los alumnos inscritos y a los usuarios activos con visibilidad del evento,
+    y marca `ev.notificacion_finalizado_enviada = True`.
+    """
+    inscritos = (
+        db.query(Usuario)
+        .join(EventoAsistencia, EventoAsistencia.usuario_id == Usuario.id)
+        .filter(
+            EventoAsistencia.evento_id == ev.id,
+            Usuario.activo == True,  # noqa: E712
+            Usuario.fcm_token.isnot(None),
+        )
+        .all()
+    )
+    tokens_inscritos = [u.fcm_token for u in inscritos if u.fcm_token]
+
+    usuarios_con_token = (
+        db.query(Usuario)
+        .filter(Usuario.activo == True, Usuario.fcm_token.isnot(None))  # noqa: E712
+        .all()
+    )
+    tokens_visibles = [
+        u.fcm_token
+        for u in usuarios_con_token
+        if u.fcm_token and (ev.es_general or evento_visible_para(ev, u))
+    ]
+
+    # Combinar tokens de inscritos + audiencia visible (o todos los activos con token como respaldo)
+    tokens_destino = list({t for t in (tokens_inscritos + tokens_visibles) if t})
+    if not tokens_destino and usuarios_con_token:
+        tokens_destino = [u.fcm_token for u in usuarios_con_token if u.fcm_token]
+
+    titulo_push = f"✅ Evento finalizado: {ev.titulo}"
+    cuerpo_push = f"El evento en {ev.lugar} ha concluido. ¡Gracias por tu participación en Campus Connect UNACH!"
+    firma_fin = (ev.fecha_fin or ev.fecha_hora).isoformat() if (ev.fecha_fin or ev.fecha_hora) else ""
+
+    res = enviar_push_multicast(
+        tokens=tokens_destino,
+        titulo=titulo_push,
+        cuerpo=cuerpo_push,
+        data_extra={
+            "tipo": "evento_finalizado",
+            "evento_id": str(ev.id),
+            "titulo": ev.titulo,
+            "lugar": ev.lugar,
+            "firma_fin": firma_fin,
+        },
+    )
+    ev.notificacion_finalizado_enviada = True
+    db.commit()
+    return res
+
+
 def verificar_y_enviar_recordatorios_24h() -> dict:
     """
-    Trabajador que se ejecuta cada 1 minuto en segundo plano y verifica 3 condiciones:
+    Trabajador que se ejecuta periódicamente en segundo plano y verifica 4 condiciones:
     1. Eventos programados cuya hora de aparición (`disponible_desde`) acaba de cumplirse
        y aún no han enviado su notificación de aparición (`notificacion_aparicion_enviada == False`).
     2. Eventos activos a los que les faltan 30 minutos o menos para alcanzar su hora de término (`fecha_fin`)
        -> envía notificación SOLO a los alumnos inscritos (`notificacion_fin_30m_enviada == False`).
     3. Recordatorio 24h antes de iniciar para los alumnos inscritos (`recordatorio_enviado == False`).
+    4. Eventos que acaban de alcanzar su hora de finalización (`fecha_fin`)
+       -> envía notificación de evento finalizado (`notificacion_finalizado_enviada == False`).
     """
     db = SessionLocal()
     apariciones_enviadas = 0
     cierres_30m_enviados = 0
     recordatorios_24h_enviados = 0
+    finalizados_enviados = 0
 
     try:
         ahora = ahora_utc()
@@ -301,10 +359,21 @@ def verificar_y_enviar_recordatorios_24h() -> dict:
                 db.commit()
                 recordatorios_24h_enviados += 1
 
+            # 4. ¿El evento acaba de finalizar (`ha_finalizado == True`) y aún no se ha enviado la notificación de cierre?
+            if ha_finalizado and not getattr(ev, "notificacion_finalizado_enviada", False):
+                # Enviar push si finalizó dentro de las últimas 12 horas; si es un registro antiguo rezagado, solo marcarlo
+                if fin_real is None or (ahora - fin_real) <= timedelta(hours=12):
+                    enviar_notificacion_evento_finalizado(db, ev)
+                    finalizados_enviados += 1
+                else:
+                    ev.notificacion_finalizado_enviada = True
+                    db.commit()
+
         return {
             "apariciones_notificadas": apariciones_enviadas,
             "avisos_30m_fin_notificados": cierres_30m_enviados,
             "recordatorios_24h_notificados": recordatorios_24h_enviados,
+            "eventos_finalizados_notificados": finalizados_enviados,
         }
     except Exception as exc:
         logger.error(f"[Scheduler FCM] Error al procesar notificaciones programadas: {exc}")
@@ -315,8 +384,8 @@ def verificar_y_enviar_recordatorios_24h() -> dict:
 
 def iniciar_scheduler_recordatorios() -> None:
     """
-    Inicia APScheduler revisando cada 1 MINUTO para que las notificaciones de aparición
-    y de 30 minutos antes de finalizar salgan puntualmente.
+    Inicia APScheduler revisando cada 20 SEGUNDOS para que las notificaciones de aparición,
+    de 30 minutos antes de finalizar y de evento finalizado salgan puntualmente.
     """
     global _scheduler
     if _scheduler is not None:
@@ -330,12 +399,12 @@ def iniciar_scheduler_recordatorios() -> None:
     _scheduler.add_job(
         verificar_y_enviar_recordatorios_24h,
         trigger="interval",
-        minutes=1,
-        id="job_notificaciones_eventos_1min",
+        seconds=20,
+        id="job_notificaciones_eventos_20seg",
         replace_existing=True,
     )
     _scheduler.start()
-    logger.info("[Scheduler FCM] Trabajador APScheduler iniciado (revisión cada 1 minuto).")
+    logger.info("[Scheduler FCM] Trabajador APScheduler iniciado (revisión cada 20 segundos).")
 
 
 def detener_scheduler_recordatorios() -> None:

@@ -246,8 +246,44 @@ fun EventosScreen(
         mutableStateOf(guardados)
     }
 
-    // Memoria de eventos activos vistos en la sesión para detectar cuándo finalizan
-    val cacheEventosVistos = remember { mutableStateMapOf<String, Evento>() }
+    // Memoria persistente de eventos activos vistos para detectar en qué momento exacto finalizan
+    // incluso si el usuario cambia de pestaña o cierra y vuelve a abrir la app
+    val cacheEventosVistos = remember {
+        val mapa = mutableStateMapOf<String, Evento>()
+        val guardados = prefsNotif.getStringSet("eventos_activos_vistos_v2", emptySet()) ?: emptySet()
+        for (linea in guardados) {
+            val partes = linea.split("|||")
+            if (partes.size >= 5) {
+                val idG = partes[0]
+                val titG = partes[1]
+                val lugG = partes[2]
+                val finG = partes[3].ifBlank { null }
+                val iniG = partes[4]
+                if (idG.isNotBlank() && titG.isNotBlank() && iniG.isNotBlank()) {
+                    mapa[idG] = Evento(
+                        id = idG,
+                        titulo = titG,
+                        descripcion = "",
+                        fechaHora = iniG,
+                        fechaFin = finG,
+                        lugar = lugG
+                    )
+                }
+            }
+        }
+        mapa
+    }
+
+    fun persistirCacheEventosVistos() {
+        val serializados = cacheEventosVistos.values.map { ev ->
+            val titLimpio = ev.titulo.replace("|||", " ")
+            val lugLimpio = ev.lugar.replace("|||", " ")
+            val finStr = (ev.fechaFin ?: "").replace("|||", "")
+            val iniStr = ev.fechaHora.replace("|||", "")
+            "${ev.id}|||$titLimpio|||$lugLimpio|||$finStr|||$iniStr"
+        }.toSet()
+        prefsNotif.edit().putStringSet("eventos_activos_vistos_v2", serializados).apply()
+    }
 
     fun persistirInscritosActivos(nuevosIds: Set<String>) {
         eventosInscritosIds = nuevosIds
@@ -304,11 +340,14 @@ fun EventosScreen(
         }
 
         // 2. Revisar si algún evento que estaba activo en cacheEventosVistos acaba de finalizar
+        var cambioCacheVistos = false
         for ((idPrevio, evPrevio) in cacheEventosVistos.entries.toList()) {
             val finInstant = parsearInstanteEventoMx(evPrevio.fechaFin)
                 ?: parsearInstanteEventoMx(evPrevio.fechaHora)?.plus(Duration.ofHours(4))
+            val segundosParaFin = if (finInstant != null) Duration.between(ahora, finInstant).seconds else 0L
             val yaAlcanzoHoraFin = finInstant != null && !ahora.isBefore(finInstant)
-            val salioDelFeedPorFin = !idsVigentesActuales.contains(idPrevio) && yaAlcanzoHoraFin
+            // Si el servidor ya lo retiró del feed activo y su hora de término ya llegó (con margen de 90s por desfase de reloj)
+            val salioDelFeedPorFin = !idsVigentesActuales.contains(idPrevio) && segundosParaFin <= 90L
 
             if (yaAlcanzoHoraFin || salioDelFeedPorFin) {
                 dispararNotificacionEventoFinalizado(
@@ -319,6 +358,7 @@ fun EventosScreen(
                     firmaFin = evPrevio.fechaFin ?: evPrevio.fechaHora
                 )
                 cacheEventosVistos.remove(idPrevio)
+                cambioCacheVistos = true
                 if (eventosInscritosIds.contains(idPrevio)) {
                     persistirInscritosActivos(eventosInscritosIds - idPrevio)
                 }
@@ -327,6 +367,10 @@ fun EventosScreen(
 
         for (ev in vigentes) {
             cacheEventosVistos[ev.id] = ev
+            cambioCacheVistos = true
+        }
+        if (cambioCacheVistos) {
+            persistirCacheEventosVistos()
         }
 
         val idsConocidos = prefsNotif.getStringSet("ids_eventos_conocidos", null)
@@ -399,6 +443,40 @@ fun EventosScreen(
             } finally {
                 sincronizandoServidor = false
             }
+        }
+    }
+
+    // Reloj local de alta precisión (cada 2 segundos) para disparar la notificación de evento finalizado
+    // en el segundo exacto en que se cumple fechaFin sin esperar al siguiente ciclo de red
+    LaunchedEffect(Unit) {
+        while (true) {
+            val ahora = Instant.now()
+            var huboExpiradoLocal = false
+            for ((idPrevio, evPrevio) in cacheEventosVistos.entries.toList()) {
+                val finInstant = parsearInstanteEventoMx(evPrevio.fechaFin)
+                    ?: parsearInstanteEventoMx(evPrevio.fechaHora)?.plus(Duration.ofHours(4))
+                if (finInstant != null && !ahora.isBefore(finInstant)) {
+                    dispararNotificacionEventoFinalizado(
+                        context = context,
+                        eventoId = evPrevio.id,
+                        titulo = evPrevio.titulo,
+                        lugar = evPrevio.lugar,
+                        firmaFin = evPrevio.fechaFin ?: evPrevio.fechaHora
+                    )
+                    cacheEventosVistos.remove(idPrevio)
+                    huboExpiradoLocal = true
+                    if (eventosInscritosIds.contains(idPrevio)) {
+                        persistirInscritosActivos(eventosInscritosIds - idPrevio)
+                    }
+                } else {
+                    verificarYDispararAviso30MinFin(context, evPrevio, eventosInscritosIds)
+                }
+            }
+            if (huboExpiradoLocal) {
+                persistirCacheEventosVistos()
+                pulsoReloj = System.currentTimeMillis()
+            }
+            delay(2_000L)
         }
     }
 

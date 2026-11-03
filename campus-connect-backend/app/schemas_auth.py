@@ -1,4 +1,4 @@
-import re
+import json
 from datetime import datetime
 from typing import List, Optional
 
@@ -13,6 +13,9 @@ class UsuarioCreate(BaseModel):
     email_secundario: Optional[EmailStr] = None
     telefono_principal: Optional[str] = None
     telefono_secundario: Optional[str] = None
+    matricula: Optional[str] = None
+    carrera: Optional[str] = None
+    semestre_grupo: Optional[str] = None
 
     @field_validator("password")
     @classmethod
@@ -29,6 +32,7 @@ class UsuarioOut(BaseModel):
     activo: bool
     rol: str
     permisos: List[str] = []
+    permisos_personalizados: Optional[List[str]] = None
     es_egresado: bool = False
 
     model_config = ConfigDict(from_attributes=True)
@@ -36,6 +40,18 @@ class UsuarioOut(BaseModel):
     @classmethod
     def desde_usuario(cls, usuario) -> "UsuarioOut":
         claves = [p.clave for p in (usuario.rol.permisos if usuario.rol else [])]
+        personalizados: Optional[List[str]] = None
+        raw_pers = getattr(usuario, "permisos_personalizados", None)
+        if isinstance(raw_pers, str) and raw_pers.strip():
+            try:
+                parsed = json.loads(raw_pers)
+                if isinstance(parsed, list):
+                    personalizados = [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                pass
+        elif isinstance(raw_pers, list):
+            personalizados = [str(x).strip() for x in raw_pers if str(x).strip()]
+
         return cls(
             id=usuario.id,
             nombre=usuario.nombre,
@@ -43,6 +59,7 @@ class UsuarioOut(BaseModel):
             activo=usuario.activo,
             rol=usuario.rol.nombre if usuario.rol else "Usuario Regular",
             permisos=claves,
+            permisos_personalizados=personalizados,
             es_egresado=bool(getattr(usuario, "es_egresado", False)),
         )
 
@@ -60,6 +77,7 @@ class TokenPair(BaseModel):
     token_type: str = "bearer"
     role: str
     permisos: List[str] = []
+    permisos_personalizados: Optional[List[str]] = None
 
 
 class RefreshRequest(BaseModel):

@@ -25,6 +25,7 @@ from ..models import Evento, EventoArchivo, EventoAsistencia
 from ..models_auth import Usuario
 from ..notifications import (
     _enviar_aviso_30m_antes_de_finalizar,
+    enviar_notificacion_evento_finalizado,
     enviar_notificacion_nuevo_evento,
     verificar_y_enviar_recordatorios_24h,
 )
@@ -100,6 +101,38 @@ def _evento_ha_finalizado(evento: Evento) -> bool:
 def _evento_esta_disponible_ahora(evento: Evento) -> bool:
     disp = getattr(evento, "disponible_desde", None)
     return evento_disponible(disp, ahora=ahora_utc())
+
+
+def _verificar_notificaciones_pendientes_en_lista(db: Session, lista_eventos: List[Evento]) -> None:
+    """
+    Dispara oportunamente las notificaciones de aparición, 30 min antes del cierre
+    y de evento finalizado cuando se consulta el feed o eventos pasados, sin esperar al siguiente ciclo.
+    """
+    ahora = ahora_utc()
+    for ev in lista_eventos:
+        try:
+            ha_fin = _evento_ha_finalizado(ev)
+            esta_disp = _evento_esta_disponible_ahora(ev)
+            fin_real = asegurar_utc(ev.fecha_fin) if ev.fecha_fin is not None else (
+                asegurar_utc(ev.fecha_hora) + timedelta(hours=DURACION_EVENTO_HORAS)
+            )
+
+            if esta_disp and not ha_fin and not getattr(ev, "notificacion_aparicion_enviada", False):
+                enviar_notificacion_nuevo_evento(db, ev)
+
+            if not ha_fin and fin_real is not None and not getattr(ev, "notificacion_fin_30m_enviada", False):
+                restante = fin_real - ahora
+                if timedelta(seconds=0) < restante <= timedelta(minutes=30):
+                    _enviar_aviso_30m_antes_de_finalizar(db, ev)
+
+            if ha_fin and not getattr(ev, "notificacion_finalizado_enviada", False):
+                if fin_real is None or (ahora - fin_real) <= timedelta(hours=12):
+                    enviar_notificacion_evento_finalizado(db, ev)
+                else:
+                    ev.notificacion_finalizado_enviada = True
+                    db.commit()
+        except Exception as exc:
+            print(f"[FCM] Aviso no bloqueante al verificar notificaciones del evento {ev.id}: {exc}")
 
 
 TIPOS_ARCHIVO = {"material", "evidencia"}
@@ -226,14 +259,19 @@ def obtener_feed(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    eventos = (
+    todos_eventos = (
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.asc()).all()
     )
+
+    # Verificar y enviar de inmediato notificaciones pendientes (incluyendo eventos que acaban de finalizar)
+    _verificar_notificaciones_pendientes_en_lista(db, todos_eventos)
+
     user_agent = (request.headers.get("user-agent") or "").lower()
     es_app_android = "okhttp" in user_agent
     es_gestor = _puede_gestionar(usuario)
 
+    eventos = todos_eventos
     if es_app_android or not (incluir_todos and es_gestor):
         eventos = [e for e in eventos if not _evento_ha_finalizado(e)]
 
@@ -250,34 +288,15 @@ def obtener_feed(
     conteos = _conteos(db, ids_eventos_visibles)
     mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)
 
-    # Limpieza de inscripciones no confirmadas de eventos que ya finalizaron para este usuario
-    # (se conservan únicamente las asistencias verificadas `asistio == True` para estadísticas e insignias)
-    try:
-        inscripciones_usuario = (
-            db.query(EventoAsistencia, Evento)
-            .join(Evento, Evento.id == EventoAsistencia.evento_id)
-            .filter(EventoAsistencia.usuario_id == usuario.id)
-            .all()
-        )
-        borro_vencidos = False
-        ids_inscritos_vigentes: Set[uuid.UUID] = set()
-        for asis, ev_rel in inscripciones_usuario:
-            if _evento_ha_finalizado(ev_rel):
-                if not asis.asistio:
-                    db.delete(asis)
-                    borro_vencidos = True
-            else:
-                ids_inscritos_vigentes.add(ev_rel.id)
-        if borro_vencidos:
-            db.commit()
-    except Exception:
-        db.rollback()
-        ids_inscritos_vigentes = {
-            fila[0]
-            for fila in db.query(EventoAsistencia.evento_id)
-            .filter(EventoAsistencia.usuario_id == usuario.id)
-            .all()
-        }
+    # Obtener únicamente los IDs de eventos vigentes en los que el usuario está inscrito
+    ids_vigentes_set = set(ids_eventos_visibles)
+    ids_inscritos_vigentes: Set[uuid.UUID] = {
+        fila[0]
+        for fila in db.query(EventoAsistencia.evento_id)
+        .filter(EventoAsistencia.usuario_id == usuario.id)
+        .all()
+        if fila[0] in ids_vigentes_set
+    }
 
     base = _base_url(request)
     return [
@@ -302,6 +321,7 @@ def eventos_pasados(
         db.query(Evento).options(selectinload(Evento.archivos))
         .order_by(Evento.fecha_hora.desc()).all()
     )
+    _verificar_notificaciones_pendientes_en_lista(db, eventos)
     eventos = [e for e in eventos if _evento_ha_finalizado(e)]
     conteos = _conteos(db, [e.id for e in eventos])
     mapa_auditorios = _obtener_mapa_capacidades_auditorios(db)

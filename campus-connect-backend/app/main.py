@@ -52,7 +52,7 @@ try:
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 
-# 1b. Asegurar columnas de Alumnos Egresados, Expediente Académico (matricula, carrera, facultad), 2FA y FCM en usuarios
+# 1b. Asegurar columnas de Alumnos Egresados, Expediente Académico, Permisos Personalizados, 2FA y FCM en usuarios
 try:
     with engine.begin() as _conn:
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_egresado BOOLEAN NOT NULL DEFAULT FALSE"))
@@ -64,8 +64,9 @@ try:
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS matricula VARCHAR"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS id_facultad VARCHAR"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS id_carrera VARCHAR"))
+        _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS permisos_personalizados TEXT"))
 except Exception as e:
-    logger.warning(f"No se pudo alterar la tabla usuarios para expediente/egresados/2FA/FCM: {e}")
+    logger.warning(f"No se pudo alterar la tabla usuarios para expediente/egresados/permisos/2FA/FCM: {e}")
 
 # 2. Sembrar únicamente la facultad ETDA
 try:
@@ -476,10 +477,6 @@ async def guardar_catalogos_facultad(
     request: Request,
     usuario_actual: Usuario = Depends(requiere_permiso("eventos:escribir", "usuarios:gestionar")),
 ):
-    """
-    Protegido con requiere_permiso y validado estrictamente con Pydantic ->
-    devuelve 403 Forbidden si un alumno intenta alterar catálogos y 422 si el payload es inválido.
-    """
     datos_validados = payload.model_dump(exclude_none=True)
     datos_normalizados = _normalizar_catalogo_guardado(datos_validados)
     if datos_normalizados["configuracionRegistro"]["longitudMaxMatricula"] < datos_normalizados["configuracionRegistro"]["longitudMinMatricula"]:
@@ -496,7 +493,6 @@ async def guardar_catalogos_facultad(
             {"payload": payload_str},
         )
 
-    # Sincronizar facultades y carreras en sus tablas relacionales para mantener integridad referencial
     try:
         with engine.begin() as conn:
             for fac in datos_normalizados.get("facultades", []):

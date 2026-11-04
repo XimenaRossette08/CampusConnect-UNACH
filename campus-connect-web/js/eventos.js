@@ -28,6 +28,22 @@ function _limpiarDescripcionVisible(desc) {
     return String(desc || "").replace(/\s*<!--CCMETA:[\s\S]*?-->/g, "").trim();
 }
 
+function _obtenerEmailUsuarioWeb() {
+    const em = (typeof userState !== "undefined" && userState?.email)
+        || (typeof usuarioActual !== "undefined" && usuarioActual?.email)
+        || localStorage.getItem("user_email")
+        || "";
+    return String(em).trim().toLowerCase();
+}
+
+function _obtenerNombreUsuarioWeb() {
+    return (typeof userState !== "undefined" && userState?.nombre)
+        || (typeof usuarioActual !== "undefined" && usuarioActual?.nombre)
+        || localStorage.getItem("user_nombre")
+        || _obtenerEmailUsuarioWeb()
+        || "Usuario UNACH";
+}
+
 function _construirDescripcionConMeta(descVisible, metaObj) {
     const base = _limpiarDescripcionVisible(descVisible);
     const limpioMeta = {};
@@ -36,37 +52,80 @@ function _construirDescripcionConMeta(descVisible, metaObj) {
         if (metaObj.fin) limpioMeta.fin = metaObj.fin;
         if (metaObj.cap) limpioMeta.cap = Number(metaObj.cap) || 100;
         if (typeof metaObj.ocup === "number") limpioMeta.ocup = Math.max(0, metaObj.ocup);
-        if (metaObj.res && Object.keys(metaObj.res).length) limpioMeta.res = metaObj.res;
-        if (metaObj.seats && Object.keys(metaObj.seats).length) limpioMeta.seats = metaObj.seats;
+        if (metaObj.res && typeof metaObj.res === "object") limpioMeta.res = metaObj.res;
+        if (metaObj.seats && typeof metaObj.seats === "object") limpioMeta.seats = metaObj.seats;
+        if (metaObj.liberados && typeof metaObj.liberados === "object" && Object.keys(metaObj.liberados).length) {
+            limpioMeta.liberados = metaObj.liberados;
+        }
     }
     if (!Object.keys(limpioMeta).length) return base;
     return `${base}\n<!--CCMETA:${JSON.stringify(limpioMeta)}-->`;
 }
 
 function _leerEstadoAsientosLocal(eventoId) {
-    if (!eventoId) return { res: {}, seats: {} };
+    if (!eventoId) return { res: {}, seats: {}, liberados: {}, inicializado: false };
     try {
         const todo = JSON.parse(localStorage.getItem(STORAGE_MAPA_ASIENTOS_WEB) || "{}") || {};
-        const item = todo[String(eventoId)] || {};
+        const item = todo[String(eventoId)];
+        if (!item) return { res: {}, seats: {}, liberados: {}, inicializado: false };
         return {
             res: item.res && typeof item.res === "object" ? item.res : {},
-            seats: item.seats && typeof item.seats === "object" ? item.seats : {}
+            seats: item.seats && typeof item.seats === "object" ? item.seats : {},
+            liberados: item.liberados && typeof item.liberados === "object" ? item.liberados : {},
+            inicializado: true
         };
     } catch (_) {
-        return { res: {}, seats: {} };
+        return { res: {}, seats: {}, liberados: {}, inicializado: false };
     }
 }
 
-function _guardarEstadoAsientosLocal(eventoId, resMap, seatsMap) {
+function _guardarEstadoAsientosLocal(eventoId, resMap, seatsMap, liberadosMap = null) {
     if (!eventoId) return;
     try {
         const todo = JSON.parse(localStorage.getItem(STORAGE_MAPA_ASIENTOS_WEB) || "{}") || {};
+        const prev = todo[String(eventoId)] || {};
         todo[String(eventoId)] = {
             res: resMap || {},
-            seats: seatsMap || {}
+            seats: seatsMap || {},
+            liberados: liberadosMap || prev.liberados || {},
+            inicializado: true
         };
         localStorage.setItem(STORAGE_MAPA_ASIENTOS_WEB, JSON.stringify(todo));
     } catch (_) {}
+}
+
+function _sincronizarEstadoAsientosConMetaEvento(ev) {
+    if (!ev || !ev.id) return { res: {}, seats: {}, liberados: {} };
+    const meta = _extraerMetaDescripcion(ev);
+    const localState = _leerEstadoAsientosLocal(ev.id);
+    const liberados = { ...(meta.liberados || {}), ...(localState.liberados || {}) };
+
+    // Combinar respetando siempre cualquier asiento o usuario que haya sido liberado
+    const resBase = localState.inicializado ? { ...(meta.res || {}), ...(localState.res || {}) } : { ...(meta.res || {}) };
+    const seatsBase = { ...(localState.seats || {}), ...(meta.seats || {}) };
+
+    // Eliminar de resBase y seatsBase cualquier asiento o correo que tenga marca de liberación vigente
+    Object.keys(resBase).forEach(cod => {
+        const tsLib = Number(liberados[cod] || 0);
+        const tsCreacion = resBase[cod]?.fecha ? new Date(resBase[cod].fecha).getTime() : 0;
+        if (tsLib > 0 && (!tsCreacion || tsLib >= tsCreacion)) {
+            delete resBase[cod];
+        }
+    });
+
+    Object.keys(seatsBase).forEach(em => {
+        const item = seatsBase[em];
+        const cod = typeof item === "string" ? item : item?.asiento;
+        const tsLibEm = Number(liberados[em.toLowerCase()] || 0);
+        const tsLibCod = cod ? Number(liberados[cod] || 0) : 0;
+        const tsLib = Math.max(tsLibEm, tsLibCod);
+        const tsApartado = item?.fechaApartado ? new Date(item.fechaApartado).getTime() : 0;
+        if (tsLib > 0 && (!tsApartado || tsLib >= tsApartado)) {
+            delete seatsBase[em];
+        }
+    });
+
+    return { res: resBase, seats: seatsBase, liberados };
 }
 
 function _leerMapaHorariosPorEvento() {
@@ -176,23 +235,21 @@ function _eventoExpiradoAhoraWeb(ev) {
 function _calcularEstadoAsientosEvento(ev) {
     if (!ev) return { capacidad: 100, ocupados: 0, disponibles: 100, porcentaje: 0, agotado: false };
     const meta = _extraerMetaDescripcion(ev);
-    const localSeatState = _leerEstadoAsientosLocal(ev.id);
+    const syncState = _sincronizarEstadoAsientosConMetaEvento(ev);
     const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
     const capacidad = Number(infoAud?.asientos ?? ev.capacidadTotal ?? ev.capacidad_total ?? meta.cap ?? 100) || 100;
 
     const codigosUnicos = new Set([
-        ...(Array.isArray(ev.asientosTomados) ? ev.asientosTomados : []),
-        ...(Array.isArray(ev.asientosReservadosAdmin) ? ev.asientosReservadosAdmin : []),
-        ...Object.keys(meta.res || {}),
-        ...Object.values(meta.seats || {}).map(x => typeof x === "string" ? x : x?.asiento).filter(Boolean),
-        ...Object.keys(localSeatState.res || {}),
-        ...Object.values(localSeatState.seats || {}).map(x => typeof x === "string" ? x : x?.asiento).filter(Boolean)
+        ...Object.keys(syncState.res || {}),
+        ...Object.values(syncState.seats || {}).map(x => typeof x === "string" ? x : x?.asiento).filter(Boolean)
     ]);
-    if (ev.miAsiento) codigosUnicos.add(ev.miAsiento);
+    if (ev.miAsiento && !syncState.liberados[ev.miAsiento]) codigosUnicos.add(ev.miAsiento);
 
+    const tieneControlSincronizado = Object.keys(syncState.liberados || {}).length > 0 || Object.keys(syncState.res || {}).length > 0 || Object.keys(syncState.seats || {}).length > 0;
     const ocupadosDirecto = Number(ev.asientosOcupados ?? ev.asientos_ocupados ?? ev.totalRegistrados ?? ev.total_registrados ?? meta.ocup ?? 0) || 0;
-    const minInscrito = ev.inscrito ? 1 : 0;
-    const ocupados = Math.min(capacidad, Math.max(0, ocupadosDirecto, codigosUnicos.size, minInscrito));
+    const ocupados = tieneControlSincronizado
+        ? Math.min(capacidad, codigosUnicos.size)
+        : Math.min(capacidad, Math.max(0, ocupadosDirecto, codigosUnicos.size));
     const disponibles = Math.max(0, capacidad - ocupados);
     const porcentaje = capacidad > 0 ? Math.min(100, Math.round((ocupados / capacidad) * 100)) : 0;
     const agotado = disponibles <= 0;
@@ -238,15 +295,15 @@ function etiquetaAudiencia(ev) {
 }
 
 async function _enriquecerOcupacionEventosWeb(lista) {
-    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "";
+    const emailYo = _obtenerEmailUsuarioWeb();
     const puedeVerAsistentes = typeof tienePermiso === "function" && (tienePermiso("asistencia.gestionar") || tienePermiso("eventos.publicar"));
 
     await Promise.all((lista || []).map(async (ev) => {
         if (!ev || !ev.id) return;
-        const meta = _extraerMetaDescripcion(ev);
-        const localState = _leerEstadoAsientosLocal(ev.id);
-        const resCombinado = { ...(meta.res || {}), ...(localState.res || {}) };
-        const seatsCombinado = { ...(meta.seats || {}), ...(localState.seats || {}) };
+        const syncState = _sincronizarEstadoAsientosConMetaEvento(ev);
+        const resCombinado = { ...syncState.res };
+        const seatsCombinado = { ...syncState.seats };
+        const liberadosCombinado = { ...syncState.liberados };
 
         if (emailYo && seatsCombinado[emailYo]) {
             const miCod = typeof seatsCombinado[emailYo] === "string" ? seatsCombinado[emailYo] : seatsCombinado[emailYo]?.asiento;
@@ -254,6 +311,9 @@ async function _enriquecerOcupacionEventosWeb(lista) {
                 ev.miAsiento = miCod;
                 ev.inscrito = true;
             }
+        } else if (emailYo && liberadosCombinado[emailYo]) {
+            ev.miAsiento = null;
+            ev.inscrito = false;
         }
 
         if (puedeVerAsistentes && !_eventoExpiradoAhoraWeb(ev)) {
@@ -261,17 +321,31 @@ async function _enriquecerOcupacionEventosWeb(lista) {
                 const asis = await api(`/eventos/${ev.id}/asistentes`);
                 if (Array.isArray(asis)) {
                     const usados = new Set(Object.keys(resCombinado));
+                    // Primero reservar todos los códigos explícitos que ya vienen en seatsCombinado (ej. K-04 desde la App)
+                    Object.values(seatsCombinado).forEach(val => {
+                        const c = typeof val === "string" ? val : val?.asiento;
+                        if (c) usados.add(c);
+                    });
+
                     asis.forEach((a, idx) => {
                         const em = (a.email || "").toLowerCase();
+                        const tsLibEm = Number(liberadosCombinado[em] || 0);
+                        const tsReg = a.fecha_registro ? new Date(a.fecha_registro).getTime() : 0;
+                        // Si el administrador liberó a este usuario y no hay un nuevo registro posterior, omitirlo
+                        if (tsLibEm > 0 && (!tsReg || tsLibEm >= tsReg)) {
+                            return;
+                        }
+
+                        const prevInfo = seatsCombinado[em];
                         const codGuardado = (a.asiento && a.asiento !== "—")
                             ? a.asiento
-                            : (typeof seatsCombinado[em] === "string" ? seatsCombinado[em] : seatsCombinado[em]?.asiento);
+                            : (typeof prevInfo === "string" ? prevInfo : prevInfo?.asiento);
                         let codFinal = codGuardado;
-                        if (!codFinal || usados.has(codFinal)) {
+                        if (!codFinal) {
                             let cIdx = idx;
                             while (cIdx < 500) {
                                 const cand = generarCodigoAsientoCine(cIdx, 10);
-                                if (!usados.has(cand)) { codFinal = cand; break; }
+                                if (!usados.has(cand) && !liberadosCombinado[cand]) { codFinal = cand; break; }
                                 cIdx++;
                             }
                         }
@@ -280,14 +354,15 @@ async function _enriquecerOcupacionEventosWeb(lista) {
                             if (em) {
                                 seatsCombinado[em] = {
                                     asiento: codFinal,
-                                    nombre: a.nombre,
-                                    email: a.email,
-                                    carrera: a.carrera,
-                                    grupos: a.grupos,
-                                    asistio: Boolean(a.asistio),
-                                    qrValidado: Boolean(a.qr_validado || a.asistio),
-                                    gpsValidado: Boolean(a.gps_validado || a.asistio),
-                                    fechaApartado: a.fecha_registro
+                                    asistenciaId: a.id,
+                                    nombre: a.nombre || prevInfo?.nombre,
+                                    email: a.email || em,
+                                    carrera: a.carrera || prevInfo?.carrera,
+                                    grupos: a.grupos || prevInfo?.grupos,
+                                    asistio: Boolean(a.asistio || prevInfo?.asistio),
+                                    qrValidado: Boolean(a.qr_validado || a.asistio || prevInfo?.qrValidado),
+                                    gpsValidado: Boolean(a.gps_validado || a.asistio || prevInfo?.gpsValidado),
+                                    fechaApartado: prevInfo?.fechaApartado || a.fecha_registro
                                 };
                             }
                             if (emailYo && em === emailYo) {
@@ -296,7 +371,7 @@ async function _enriquecerOcupacionEventosWeb(lista) {
                             }
                         }
                     });
-                    _guardarEstadoAsientosLocal(ev.id, resCombinado, seatsCombinado);
+                    _guardarEstadoAsientosLocal(ev.id, resCombinado, seatsCombinado, liberadosCombinado);
                     ev.asientosOcupados = usados.size;
                     ev.totalRegistrados = usados.size;
                 }
@@ -854,25 +929,43 @@ async function _cargarTablaAsistentesEnVivo(eventoId, mostrarLoader = false) {
         tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando lista de inscritos...</td></tr>`;
     }
     try {
-        const asistentes = await api(`/eventos/${eventoId}/asistentes`);
+        try {
+            const esGestor = typeof tienePermiso === "function" && tienePermiso("eventos.publicar");
+            const feedRec = await api(esGestor ? "/eventos/feed?incluir_programados=true" : "/eventos/feed");
+            const evR = (feedRec || []).find(x => String(x.id) === String(eventoId));
+            if (evR) eventosCache[eventoId] = evR;
+        } catch (_) {}
+
+        const asistentesCrudos = await api(`/eventos/${eventoId}/asistentes`);
         const ev = eventosCache[eventoId] || {};
-        const meta = _extraerMetaDescripcion(ev);
-        const localState = _leerEstadoAsientosLocal(eventoId);
-        const seatsMap = { ...(meta.seats || {}), ...(localState.seats || {}) };
-        const resMap = { ...(meta.res || {}), ...(localState.res || {}) };
+        const syncState = _sincronizarEstadoAsientosConMetaEvento(ev);
+        const seatsMap = { ...syncState.seats };
+        const resMap = { ...syncState.res };
+        const liberadosMap = { ...syncState.liberados };
+
+        const asistentes = (asistentesCrudos || []).filter(a => {
+            const em = (a.email || "").toLowerCase();
+            const tsLib = Number(liberadosMap[em] || 0);
+            const tsReg = a.fecha_registro ? new Date(a.fecha_registro).getTime() : 0;
+            return !(tsLib > 0 && (!tsReg || tsLib >= tsReg));
+        });
 
         if (!asistentes || asistentes.length === 0) {
             tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
             return;
         }
         const usados = new Set(Object.keys(resMap));
+        Object.values(seatsMap).forEach(v => {
+            const c = typeof v === "string" ? v : v?.asiento;
+            if (c) usados.add(c);
+        });
         tbody.innerHTML = asistentes.map((a, i) => {
             const em = (a.email || "").toLowerCase();
             const infoLocal = seatsMap[em];
             let codAsiento = (a.asiento && a.asiento !== "—")
                 ? a.asiento
                 : (typeof infoLocal === "string" ? infoLocal : infoLocal?.asiento);
-            if (!codAsiento || usados.has(codAsiento)) {
+            if (!codAsiento) {
                 let idx = i;
                 while (idx < 500) {
                     const cand = generarCodigoAsientoCine(idx, 10);
@@ -1511,25 +1604,41 @@ function cerrarModalMapaAsientos() {
     }
 }
 
-async function _persistirMetaAsientosEnEventoServidor(eventoId) {
+function _actualizarDescripcionMetaEnCacheLocal(eventoId) {
     const ev = eventosCache[eventoId];
-    if (!ev || !tienePermiso("eventos.publicar")) return;
-    try {
-        const hInd = _obtenerHorarioIndividualEvento(ev);
-        const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
-        const cap = Number(infoAud?.asientos || estadoMapaCine.capacidadTotal || ev.capacidadTotal || 100) || 100;
-        const localState = _leerEstadoAsientosLocal(eventoId);
-        const totOcup = Object.keys(estadoMapaCine.ocupadosPorCodigo || {}).length;
+    if (!ev) return null;
+    const hInd = _obtenerHorarioIndividualEvento(ev);
+    const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
+    const cap = Number(infoAud?.asientos || estadoMapaCine.capacidadTotal || ev.capacidadTotal || 100) || 100;
+    const localState = _leerEstadoAsientosLocal(eventoId);
 
-        const nuevaDesc = _construirDescripcionConMeta(ev.descripcion, {
-            disp: hInd.disponibleDesde,
-            fin: hInd.fechaFin,
-            cap,
-            ocup: totOcup,
-            res: localState.res,
-            seats: localState.seats
-        });
-        ev.descripcion = nuevaDesc;
+    const codigosUnicos = new Set([
+        ...Object.keys(localState.res || {}),
+        ...Object.values(localState.seats || {}).map(x => typeof x === "string" ? x : x?.asiento).filter(Boolean)
+    ]);
+    const totOcup = codigosUnicos.size;
+
+    const nuevaDesc = _construirDescripcionConMeta(ev.descripcion, {
+        disp: hInd.disponibleDesde,
+        fin: hInd.fechaFin,
+        cap,
+        ocup: totOcup,
+        res: localState.res,
+        seats: localState.seats,
+        liberados: localState.liberados
+    });
+    ev.descripcion = nuevaDesc;
+    ev.capacidadTotal = cap;
+    ev.asientosOcupados = totOcup;
+    ev.totalRegistrados = totOcup;
+    return { ev, hInd, nuevaDesc };
+}
+
+async function _persistirMetaAsientosEnEventoServidor(eventoId) {
+    const prep = _actualizarDescripcionMetaEnCacheLocal(eventoId);
+    if (!prep || !tienePermiso("eventos.publicar")) return;
+    const { ev, hInd, nuevaDesc } = prep;
+    try {
         await api(`/eventos/${eventoId}`, {
             method: "PUT",
             json: {
@@ -1552,20 +1661,34 @@ async function _persistirMetaAsientosEnEventoServidor(eventoId) {
 async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
     const eventoId = estadoMapaCine.eventoId;
     if (!eventoId) return;
+
+    // Traer primero la versión más reciente del evento desde el feed para captar cambios hechos desde la App móvil (ej. asiento K-04 o QR 1/2)
+    try {
+        const esGestor = typeof tienePermiso === "function" && tienePermiso("eventos.publicar");
+        const feedReciente = await api(esGestor ? "/eventos/feed?incluir_programados=true" : "/eventos/feed");
+        if (Array.isArray(feedReciente)) {
+            const evRemoto = feedReciente.find(x => String(x.id) === String(eventoId));
+            if (evRemoto) {
+                eventosCache[eventoId] = evRemoto;
+            }
+        }
+    } catch (_) {}
+
     const evLocal = eventosCache[eventoId] || {};
     const meta = _extraerMetaDescripcion(evLocal);
-    const localState = _leerEstadoAsientosLocal(eventoId);
+    const syncState = _sincronizarEstadoAsientosConMetaEvento(evLocal);
     const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(evLocal.lugar) : null;
     const capCatalogo = Number(infoAud?.asientos || evLocal.capacidadTotal || meta.cap || 100) || 100;
-    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "";
+    const emailYo = _obtenerEmailUsuarioWeb();
 
     const ocupadosCombinados = {};
     let miAsientoDetectado = null;
 
-    // 1. Cargar reservas de administración desde CCMETA + localStorage
-    const resMap = { ...(meta.res || {}), ...(localState.res || {}) };
-    const seatsMap = { ...(meta.seats || {}), ...(localState.seats || {}) };
+    const resMap = { ...syncState.res };
+    const seatsMap = { ...syncState.seats };
+    const liberadosMap = { ...syncState.liberados };
 
+    // 1. Cargar reservas de administración
     Object.entries(resMap).forEach(([cod, infoRes]) => {
         const etiqueta = typeof infoRes === "string" ? infoRes : (infoRes?.etiqueta || "Reservado: Maestro / Invitado Especial");
         ocupadosCombinados[cod] = {
@@ -1577,7 +1700,7 @@ async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
         };
     });
 
-    // 2. Cargar asientos de alumnos guardados en CCMETA / localStorage
+    // 2. Cargar asientos de alumnos sincronizados en CCMETA / localStorage (ej. K-04 elegido en la App)
     Object.entries(seatsMap).forEach(([emKey, val]) => {
         const cod = typeof val === "string" ? val : val?.asiento;
         if (!cod || ocupadosCombinados[cod]) return;
@@ -1587,7 +1710,7 @@ async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
             asiento: cod,
             estado: esMio ? "mio" : "ocupado_alumno",
             esMio,
-            nombre: val?.nombre || (esMio ? (usuarioActual?.nombre || "Tú") : "Alumno Registrado"),
+            nombre: val?.nombre || (esMio ? _obtenerNombreUsuarioWeb() : "Alumno Registrado"),
             email: val?.email || emKey,
             carrera: val?.carrera || "",
             grupos: val?.grupos || [],
@@ -1598,42 +1721,57 @@ async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
         };
     });
 
-    // 3. Intentar consultar endpoint nativo /mapa-asientos
+    // 3. Consultar endpoint nativo /mapa-asientos si está disponible
     try {
         const data = await api(`/eventos/${eventoId}/mapa-asientos`);
         if (data && Array.isArray(data.detalleAsientos)) {
             data.detalleAsientos.forEach(item => {
                 if (item && item.asiento) {
+                    const emItem = (item.email || "").toLowerCase();
+                    if (emItem && liberadosMap[emItem]) return;
+                    if (liberadosMap[item.asiento] && item.estado === "reservado_admin") return;
                     ocupadosCombinados[item.asiento] = item;
-                    if (item.esMio || (emailYo && (item.email || "").toLowerCase() === emailYo)) {
+                    if (item.esMio || (emailYo && emItem === emailYo)) {
                         miAsientoDetectado = item.asiento;
                     }
                 }
             });
         }
-        if (data?.miAsiento) miAsientoDetectado = data.miAsiento;
     } catch (_) {}
 
-    // 4. Sincronizar con GET /eventos/{id}/asistentes para reflejar todos los inscritos de PostgreSQL
+    // 4. Sincronizar con GET /eventos/{id}/asistentes respetando el asiento elegido en CCMETA (ej. K-04) y los liberados
     try {
         const listaAsis = await api(`/eventos/${eventoId}/asistentes`);
         if (Array.isArray(listaAsis)) {
             const usados = new Set(Object.keys(ocupadosCombinados));
             listaAsis.forEach((a, idx) => {
                 const em = (a.email || "").toLowerCase();
+                const tsLibEm = Number(liberadosMap[em] || 0);
+                const tsReg = a.fecha_registro ? new Date(a.fecha_registro).getTime() : 0;
+                if (tsLibEm > 0 && (!tsReg || tsLibEm >= tsReg)) {
+                    return;
+                }
+
+                const prevSeat = seatsMap[em];
                 let cod = (a.asiento && a.asiento !== "—")
                     ? a.asiento
-                    : (typeof seatsMap[em] === "string" ? seatsMap[em] : seatsMap[em]?.asiento);
+                    : (typeof prevSeat === "string" ? prevSeat : prevSeat?.asiento);
 
                 if (!cod) {
                     let cIdx = idx;
                     while (cIdx < capCatalogo) {
                         const cand = generarCodigoAsientoCine(cIdx, 10);
-                        if (!usados.has(cand)) { cod = cand; break; }
+                        if (!usados.has(cand) && !liberadosMap[cand]) { cod = cand; break; }
                         cIdx++;
                     }
                 }
                 if (cod) {
+                    // Si el alumno cambió de asiento (por ejemplo de A-01 a K-04), asegurarse de que no quede duplicado
+                    Object.keys(ocupadosCombinados).forEach(k => {
+                        if (k !== cod && (ocupadosCombinados[k]?.email || "").toLowerCase() === em) {
+                            delete ocupadosCombinados[k];
+                        }
+                    });
                     usados.add(cod);
                     const esMio = Boolean(emailYo && em === emailYo);
                     if (esMio) miAsientoDetectado = cod;
@@ -1642,21 +1780,21 @@ async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
                         asistenciaId: a.id,
                         estado: esMio ? "mio" : "ocupado_alumno",
                         esMio,
-                        nombre: a.nombre || "Alumno Registrado",
-                        email: a.email || "",
-                        matricula: a.matricula || "",
-                        carrera: a.carrera || "",
-                        grupos: a.grupos || [],
-                        qrValidado: Boolean(a.qr_validado || a.asistio),
-                        gpsValidado: Boolean(a.gps_validado || a.asistio),
-                        asistio: Boolean(a.asistio),
-                        fechaApartado: a.fecha_registro || seatsMap[em]?.fechaApartado || null
+                        nombre: a.nombre || prevSeat?.nombre || "Alumno Registrado",
+                        email: a.email || em,
+                        matricula: a.matricula || prevSeat?.matricula || "",
+                        carrera: a.carrera || prevSeat?.carrera || "",
+                        grupos: a.grupos || prevSeat?.grupos || [],
+                        qrValidado: Boolean(a.qr_validado || a.asistio || prevSeat?.qrValidado),
+                        gpsValidado: Boolean(a.gps_validado || a.asistio || prevSeat?.gpsValidado),
+                        asistio: Boolean(a.asistio || prevSeat?.asistio),
+                        fechaApartado: prevSeat?.fechaApartado || a.fecha_registro || null
                     };
                     ocupadosCombinados[cod] = itemAlumno;
                     if (em) seatsMap[em] = itemAlumno;
                 }
             });
-            _guardarEstadoAsientosLocal(eventoId, resMap, seatsMap);
+            _guardarEstadoAsientosLocal(eventoId, resMap, seatsMap, liberadosMap);
         }
     } catch (_) {}
 
@@ -1670,7 +1808,7 @@ async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
         eventosCache[eventoId].asientosOcupados = totOcup;
         eventosCache[eventoId].totalRegistrados = totOcup;
         eventosCache[eventoId].miAsiento = miAsientoDetectado;
-        eventosCache[eventoId].inscrito = Boolean(miAsientoDetectado || eventosCache[eventoId].inscrito);
+        eventosCache[eventoId].inscrito = Boolean(miAsientoDetectado);
         renderizarTarjetasEventos();
     }
 
@@ -1915,8 +2053,8 @@ function renderizarInspectorAsientoCine() {
 async function confirmarApartadoAsientoWeb(codigoAsiento) {
     const eventoId = estadoMapaCine.eventoId;
     if (!eventoId) return;
-    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "usuario@unach.mx";
-    const nombreYo = (typeof usuarioActual !== "undefined" && usuarioActual?.nombre) ? usuarioActual.nombre : "Usuario UNACH";
+    const emailYo = _obtenerEmailUsuarioWeb() || "usuario@unach.mx";
+    const nombreYo = _obtenerNombreUsuarioWeb();
 
     try {
         try {
@@ -1930,20 +2068,24 @@ async function confirmarApartadoAsientoWeb(codigoAsiento) {
             }
         }
 
-        const localState = _leerEstadoAsientosLocal(eventoId);
-        localState.seats[emailYo] = {
+        const syncState = _sincronizarEstadoAsientosConMetaEvento(eventosCache[eventoId]);
+        delete syncState.liberados[emailYo];
+        delete syncState.liberados[codigoAsiento];
+        const prev = syncState.seats[emailYo] || {};
+        syncState.seats[emailYo] = {
+            ...prev,
             asiento: codigoAsiento,
-            nombre: nombreYo,
+            nombre: prev.nombre || nombreYo,
             email: emailYo,
             esMio: true,
             fechaApartado: new Date().toISOString()
         };
-        _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+        _guardarEstadoAsientosLocal(eventoId, syncState.res, syncState.seats, syncState.liberados);
 
         estadoMapaCine.miAsiento = codigoAsiento;
         estadoMapaCine.asientoSeleccionado = codigoAsiento;
-        await refrescarMapaAsientosEnVivo(false);
         await _persistirMetaAsientosEnEventoServidor(eventoId);
+        await refrescarMapaAsientosEnVivo(false);
         toast(`¡Asiento ${codigoAsiento} apartado con éxito!`, "exito");
     } catch (err) {
         toast(err.message || "No se pudo apartar el asiento.", "error");
@@ -1954,23 +2096,32 @@ async function confirmarApartadoAsientoWeb(codigoAsiento) {
 async function cancelarMiAsientoDesdeMapa() {
     const eventoId = estadoMapaCine.eventoId;
     if (!eventoId) return;
-    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "";
+    const emailYo = _obtenerEmailUsuarioWeb();
+    const miCod = estadoMapaCine.miAsiento;
     try {
         try {
             await api(`/eventos/${eventoId}/registro`, { method: "DELETE" });
         } catch (_) {}
 
-        const localState = _leerEstadoAsientosLocal(eventoId);
-        if (emailYo) delete localState.seats[emailYo];
-        _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+        const syncState = _sincronizarEstadoAsientosConMetaEvento(eventosCache[eventoId]);
+        if (emailYo) {
+            delete syncState.seats[emailYo];
+            syncState.liberados[emailYo] = Date.now();
+        }
+        if (miCod) {
+            delete syncState.ocupados?.[miCod];
+            syncState.liberados[miCod] = Date.now();
+        }
+        _guardarEstadoAsientosLocal(eventoId, syncState.res, syncState.seats, syncState.liberados);
 
+        if (miCod) delete estadoMapaCine.ocupadosPorCodigo[miCod];
         estadoMapaCine.miAsiento = null;
         if (eventosCache[eventoId]) {
             eventosCache[eventoId].miAsiento = null;
             eventosCache[eventoId].inscrito = false;
         }
-        await refrescarMapaAsientosEnVivo(false);
         await _persistirMetaAsientosEnEventoServidor(eventoId);
+        await refrescarMapaAsientosEnVivo(false);
         toast("Tu asiento fue liberado correctamente.", "info");
     } catch (err) {
         toast(err.message || "Error al liberar el asiento.", "error");
@@ -1981,23 +2132,49 @@ async function gestionarReservaIndividualAdmin(codigoAsiento, accion) {
     const eventoId = estadoMapaCine.eventoId;
     if (!eventoId) return;
     const etiqueta = (document.getElementById("cine-admin-etiqueta-input")?.value || "Reservado: Maestro / Invitado Especial").trim();
-    const emailAdmin = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email : "Administración ETDA";
+    const emailYo = _obtenerEmailUsuarioWeb();
+    const emailAdmin = emailYo || "Administración ETDA";
 
-    const localState = _leerEstadoAsientosLocal(eventoId);
+    const syncState = _sincronizarEstadoAsientosConMetaEvento(eventosCache[eventoId]);
+    const infoActual = estadoMapaCine.ocupadosPorCodigo[codigoAsiento];
+
     if (accion === "liberar") {
-        delete localState.res[codigoAsiento];
-        Object.keys(localState.seats).forEach(em => {
-            const c = typeof localState.seats[em] === "string" ? localState.seats[em] : localState.seats[em]?.asiento;
-            if (c === codigoAsiento) delete localState.seats[em];
+        const ahoraMs = Date.now();
+        delete syncState.res[codigoAsiento];
+        syncState.liberados[codigoAsiento] = ahoraMs;
+
+        const emailOcupante = (infoActual?.email || "").trim().toLowerCase();
+        if (emailOcupante) {
+            delete syncState.seats[emailOcupante];
+            syncState.liberados[emailOcupante] = ahoraMs;
+            // Si el asiento liberado pertenece al usuario con sesión activa en la Web, eliminar también su registro en BD
+            if (emailYo && emailOcupante === emailYo) {
+                try {
+                    await api(`/eventos/${eventoId}/registro`, { method: "DELETE" });
+                } catch (_) {}
+                estadoMapaCine.miAsiento = null;
+            }
+        }
+
+        Object.keys(syncState.seats).forEach(em => {
+            const c = typeof syncState.seats[em] === "string" ? syncState.seats[em] : syncState.seats[em]?.asiento;
+            if (c === codigoAsiento) {
+                delete syncState.seats[em];
+                syncState.liberados[em.toLowerCase()] = ahoraMs;
+            }
         });
+
+        delete estadoMapaCine.ocupadosPorCodigo[codigoAsiento];
     } else {
-        localState.res[codigoAsiento] = {
+        delete syncState.liberados[codigoAsiento];
+        syncState.res[codigoAsiento] = {
             etiqueta,
             reservadoPor: emailAdmin,
             fecha: new Date().toISOString()
         };
     }
-    _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+
+    _guardarEstadoAsientosLocal(eventoId, syncState.res, syncState.seats, syncState.liberados);
 
     try {
         await api(`/eventos/${eventoId}/asientos-reservados`, {
@@ -2006,11 +2183,12 @@ async function gestionarReservaIndividualAdmin(codigoAsiento, accion) {
         });
     } catch (_) {}
 
-    await refrescarMapaAsientosEnVivo(false);
+    // Primero actualizar la descripción CCMETA en caché y en el servidor ANTES de refrescar el mapa
     await _persistirMetaAsientosEnEventoServidor(eventoId);
+    await refrescarMapaAsientosEnVivo(false);
     toast(
         accion === "liberar"
-            ? `Asiento ${codigoAsiento} liberado.`
+            ? `Asiento ${codigoAsiento} liberado y actualizado en tiempo real.`
             : `Asiento ${codigoAsiento} reservado para ${etiqueta}.`,
         "exito"
     );
@@ -2020,22 +2198,23 @@ async function reservarFilaPrimeraMaestros() {
     const eventoId = estadoMapaCine.eventoId;
     if (!eventoId) return;
     const etiqueta = (document.getElementById("cine-admin-etiqueta-input")?.value || "Reservado: Maestro / Invitado Especial").trim();
-    const emailAdmin = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email : "Administración ETDA";
+    const emailAdmin = _obtenerEmailUsuarioWeb() || "Administración ETDA";
     const candidatos = ["A-01", "A-02", "A-03", "A-04", "A-05"].filter(c => !estadoMapaCine.ocupadosPorCodigo[c]);
     if (!candidatos.length) {
         toast("Los primeros 5 asientos de la Fila A ya están ocupados o reservados.", "alerta");
         return;
     }
 
-    const localState = _leerEstadoAsientosLocal(eventoId);
+    const syncState = _sincronizarEstadoAsientosConMetaEvento(eventosCache[eventoId]);
     candidatos.forEach(c => {
-        localState.res[c] = {
+        delete syncState.liberados[c];
+        syncState.res[c] = {
             etiqueta,
             reservadoPor: emailAdmin,
             fecha: new Date().toISOString()
         };
     });
-    _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+    _guardarEstadoAsientosLocal(eventoId, syncState.res, syncState.seats, syncState.liberados);
 
     try {
         await api(`/eventos/${eventoId}/asientos-reservados`, {
@@ -2044,8 +2223,8 @@ async function reservarFilaPrimeraMaestros() {
         });
     } catch (_) {}
 
-    await refrescarMapaAsientosEnVivo(false);
     await _persistirMetaAsientosEnEventoServidor(eventoId);
+    await refrescarMapaAsientosEnVivo(false);
     toast(`Reservados ${candidatos.join(", ")} para invitados/maestros.`, "exito");
 }
 
@@ -2060,9 +2239,15 @@ async function liberarTodosReservadosAdmin() {
         return;
     }
 
-    const localState = _leerEstadoAsientosLocal(eventoId);
-    localState.res = {};
-    _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+    const syncState = _sincronizarEstadoAsientosConMetaEvento(eventosCache[eventoId]);
+    const ahoraMs = Date.now();
+    reservados.forEach(cod => {
+        delete syncState.res[cod];
+        syncState.liberados[cod] = ahoraMs;
+        delete estadoMapaCine.ocupadosPorCodigo[cod];
+    });
+    syncState.res = {};
+    _guardarEstadoAsientosLocal(eventoId, syncState.res, syncState.seats, syncState.liberados);
 
     try {
         await api(`/eventos/${eventoId}/asientos-reservados`, {
@@ -2071,7 +2256,7 @@ async function liberarTodosReservadosAdmin() {
         });
     } catch (_) {}
 
-    await refrescarMapaAsientosEnVivo(false);
     await _persistirMetaAsientosEnEventoServidor(eventoId);
-    toast("Se liberaron los asientos reservados de administración.", "exito");
+    await refrescarMapaAsientosEnVivo(false);
+    toast("Se liberaron todos los asientos reservados de administración.", "exito");
 }

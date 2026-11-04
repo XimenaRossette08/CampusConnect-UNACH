@@ -120,15 +120,52 @@ class ServicioUbicacionAsistencia : Service() {
                                 val respReg = api.registrarAsistenciaEvento(
                                     eventoId = idActual,
                                     body = mapOf(
-                                        "latitud" to lat,
-                                        "longitud" to lon,
+                                        "latitud" to lat.toString(),
+                                        "longitud" to lon.toString(),
                                         "codigo_qr" to "CCUNACH|EVENTO|$idActual",
-                                        "asistio" to true
+                                        "asistio" to "true"
                                     )
                                 )
                                 if (respReg.isSuccessful) {
                                     acreditadoRemoto = true
                                 }
+                                // Sincronizar también en la lista de asistencia de PostgreSQL (PATCH /asistentes/{id}) y en CCMETA del evento
+                                try {
+                                    val prefsN = applicationContext.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
+                                    val emailActual = prefsN.getString("usuario_email_actual", "")?.trim()?.lowercase().orEmpty()
+                                    val nombreActual = prefsN.getString("usuario_nombre_actual", "")?.trim().orEmpty()
+                                    val asientoGuardado = prefsN.getString("mi_asiento_$idActual", null) ?: "A-01"
+                                    if (emailActual.isNotBlank()) {
+                                        val asisResp = api.obtenerAsistentesEvento(idActual)
+                                        if (asisResp.isSuccessful) {
+                                            val arr = org.json.JSONArray(asisResp.body()?.string() ?: "[]")
+                                            for (i in 0 until arr.length()) {
+                                                val item = arr.optJSONObject(i) ?: continue
+                                                if (item.optString("email", "").trim().lowercase() == emailActual) {
+                                                    val asisId = item.optInt("id", -1)
+                                                    if (asisId > 0) {
+                                                        api.marcarAsistenciaAlumno(idActual, asisId, mapOf("asistio" to true))
+                                                        acreditadoRemoto = true
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        val listaEv = api.obtenerEventos()
+                                        val evObj = listaEv.find { it.id == idActual }
+                                        if (evObj != null) {
+                                            val payloadMeta = evObj.construirPayloadSincronizacionMeta(
+                                                emailUsuario = emailActual,
+                                                nombreUsuario = nombreActual,
+                                                asiento = asientoGuardado,
+                                                qrValidado = true,
+                                                gpsValidado = true,
+                                                asistio = true
+                                            )
+                                            api.actualizarEvento(idActual, payloadMeta)
+                                            acreditadoRemoto = true
+                                        }
+                                    }
+                                } catch (_: Exception) {}
                             }
                         } catch (e: Exception) {
                             Log.w("AsistenciaGPS", "Aviso al sincronizar ping GPS con servidor: ${e.message}")

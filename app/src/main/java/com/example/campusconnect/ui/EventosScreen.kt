@@ -337,6 +337,17 @@ fun EventosScreen(
                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val exp = RetrofitClient.obtenerApi(context).obtenerExpedienteAlumno()
+                if (exp.email.isNotBlank()) {
+                    prefsNotif.edit()
+                        .putString("usuario_email_actual", exp.email.trim().lowercase())
+                        .putString("usuario_nombre_actual", exp.nombre.trim())
+                        .apply()
+                }
+            } catch (_: Exception) {}
+        }
         try {
             FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
                 if (!token.isNullOrBlank()) {
@@ -453,17 +464,98 @@ fun EventosScreen(
         prefsNotif.edit().putStringSet("ids_eventos_conocidos", nuevosConocidos).apply()
     }
 
+    suspend fun sincronizarMetaAsientoEnServidor(
+        evento: Evento,
+        asiento: String?,
+        qrValidado: Boolean,
+        gpsValidado: Boolean
+    ) {
+        withContext(Dispatchers.IO) {
+            try {
+                val api = RetrofitClient.obtenerApi(context)
+                var emailUsr = prefsNotif.getString("usuario_email_actual", "") ?: ""
+                var nombreUsr = prefsNotif.getString("usuario_nombre_actual", "") ?: ""
+                if (emailUsr.isBlank()) {
+                    try {
+                        val exp = api.obtenerExpedienteAlumno()
+                        emailUsr = exp.email.trim().lowercase()
+                        nombreUsr = exp.nombre.trim()
+                        prefsNotif.edit()
+                            .putString("usuario_email_actual", emailUsr)
+                            .putString("usuario_nombre_actual", nombreUsr)
+                            .apply()
+                    } catch (_: Exception) {}
+                }
+                if (emailUsr.isNotBlank()) {
+                    val payloadMeta = evento.construirPayloadSincronizacionMeta(
+                        emailUsuario = emailUsr,
+                        nombreUsuario = nombreUsr,
+                        asiento = asiento,
+                        qrValidado = qrValidado,
+                        gpsValidado = gpsValidado,
+                        asistio = gpsValidado
+                    )
+                    api.actualizarEvento(eventoId = evento.id, body = payloadMeta)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     fun aplicarCapacidadCatalogoAEventos(lista: List<Evento>): List<Evento> {
+        val emailUsr = prefsNotif.getString("usuario_email_actual", "")?.trim()?.lowercase().orEmpty()
+        val setQr1 = prefsNotif.getStringSet("eventos_qr_1de2_set", emptySet()) ?: emptySet()
+        val setGps2 = prefsNotif.getStringSet("eventos_gps_2de2_set", emptySet()) ?: emptySet()
+
         return lista.map { ev ->
             val claveLugar = ev.lugar.trim().lowercase()
             val capCat = mapaAuditoriosCatalogo[claveLugar]
                 ?: mapaAuditoriosCatalogo.entries.firstOrNull { claveLugar.startsWith(it.key) || it.key in claveLugar }?.value
                 ?: ev.cupoMaximo
-            val miAsientoLocal = ev.miAsiento ?: prefsNotif.getString("mi_asiento_${ev.id}", null)
+
+            var asientoGuardadoPrefs = prefsNotif.getString("mi_asiento_${ev.id}", null)
+            val tsApartadoLocal = prefsNotif.getLong("ts_apartado_${ev.id}", 0L)
+            val tsLiberadoAdmin = ev.obtenerTimestampLiberacionAdmin(emailUsr, asientoGuardadoPrefs)
+
+            // Si el Administrador liberó el asiento desde la Web después de que el alumno lo apartó, liberar también en la App
+            if (tsLiberadoAdmin > 0L && tsLiberadoAdmin > tsApartadoLocal) {
+                if (asientoGuardadoPrefs != null || eventosInscritosIds.contains(ev.id)) {
+                    asientoGuardadoPrefs = null
+                    prefsNotif.edit()
+                        .remove("mi_asiento_${ev.id}")
+                        .remove("asientos_tomados_${ev.id}")
+                        .putInt("ocupados_min_${ev.id}", 0)
+                        .putLong("ts_apartado_${ev.id}", tsLiberadoAdmin)
+                        .apply()
+                    persistirInscritosActivos(eventosInscritosIds - ev.id)
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            RetrofitClient.obtenerApi(context).cancelarAsistenciaEvento(ev.id)
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            val asientoEnMeta = ev.obtenerAsientoDeUsuarioEnMeta(emailUsr)
+            val miAsientoLocal = ev.miAsiento ?: asientoGuardadoPrefs ?: asientoEnMeta
+
+            // Si el alumno ya eligió un asiento (ej. K-04) o ya escaneó el QR en la App y aún no figura en CCMETA del servidor, sincronizarlo automáticamente
+            val qrLocal = setQr1.contains(ev.id) || setGps2.contains(ev.id) || (ev.validacionQr == true)
+            val gpsLocal = setGps2.contains(ev.id) || (ev.validacionGps == true)
+            if (!miAsientoLocal.isNullOrBlank() && emailUsr.isNotBlank() && asientoEnMeta != miAsientoLocal) {
+                scope.launch {
+                    sincronizarMetaAsientoEnServidor(
+                        evento = ev.copy(capacidadTotal = capCat),
+                        asiento = miAsientoLocal,
+                        qrValidado = qrLocal,
+                        gpsValidado = gpsLocal
+                    )
+                }
+            }
+
             val tomadosLocalSet = prefsNotif.getStringSet("asientos_tomados_${ev.id}", emptySet()) ?: emptySet()
             val todosTomados = (ev.asientosTomadosEfectivos + tomadosLocalSet + listOfNotNull(miAsientoLocal)).distinct()
             val minOcupLocal = prefsNotif.getInt("ocupados_min_${ev.id}", 0)
-            val estaInsc = (ev.inscrito == true) || !miAsientoLocal.isNullOrBlank() || eventosInscritosIds.contains(ev.id)
+            val estaInsc = !miAsientoLocal.isNullOrBlank() || (ev.inscrito == true && tsLiberadoAdmin <= tsApartadoLocal) || eventosInscritosIds.contains(ev.id)
             val ocupadosCalc = maxOf(
                 ev.lugaresOcupados,
                 todosTomados.size,
@@ -706,6 +798,17 @@ fun EventosScreen(
                                     body = mapOf("codigo_qr" to codigoCrudo)
                                 )
                             }
+                        }
+                        val evObj = eventoParaEscanear ?: listaEventosActiva.find { it.id == idEscaneado }
+                        if (evObj != null) {
+                            val asientoActual = evObj.miAsiento ?: prefsNotif.getString("mi_asiento_$idEscaneado", null) ?: "A-01"
+                            val setGps2 = prefsNotif.getStringSet("eventos_gps_2de2_set", emptySet()) ?: emptySet()
+                            sincronizarMetaAsientoEnServidor(
+                                evento = evObj,
+                                asiento = asientoActual,
+                                qrValidado = true,
+                                gpsValidado = setGps2.contains(idEscaneado)
+                            )
                         }
                         recargarEventosDesdeServidor(mostrarMensaje = false)
                     } catch (_: Exception) {}
@@ -1285,7 +1388,14 @@ fun EventosScreen(
                                     .remove("mi_asiento_${evento.id}")
                                     .putStringSet("asientos_tomados_${evento.id}", prevTomados)
                                     .putInt("ocupados_min_${evento.id}", nuevoOcupMin)
+                                    .putLong("ts_apartado_${evento.id}", System.currentTimeMillis())
                                     .apply()
+                                sincronizarMetaAsientoEnServidor(
+                                    evento = evento,
+                                    asiento = null,
+                                    qrValidado = false,
+                                    gpsValidado = false
+                                )
 
                                 eventosServidor = eventosServidor.map { item ->
                                     if (item.id == evento.id) {
@@ -1331,11 +1441,20 @@ fun EventosScreen(
                                 prevTomados.add(codigoElegido)
                                 val nuevosTomadosGlobal = (evCine.asientosTomadosEfectivos + prevTomados + codigoElegido).distinct()
                                 val ocupadosNuevos = maxOf(evCine.lugaresOcupados + 1, nuevosTomadosGlobal.size)
+                                val setQr1 = prefsNotif.getStringSet("eventos_qr_1de2_set", emptySet()) ?: emptySet()
+                                val setGps2 = prefsNotif.getStringSet("eventos_gps_2de2_set", emptySet()) ?: emptySet()
                                 prefsNotif.edit()
                                     .putString("mi_asiento_${evCine.id}", codigoElegido)
                                     .putStringSet("asientos_tomados_${evCine.id}", nuevosTomadosGlobal.toSet())
                                     .putInt("ocupados_min_${evCine.id}", ocupadosNuevos)
+                                    .putLong("ts_apartado_${evCine.id}", System.currentTimeMillis())
                                     .apply()
+                                sincronizarMetaAsientoEnServidor(
+                                    evento = evCine,
+                                    asiento = codigoElegido,
+                                    qrValidado = setQr1.contains(evCine.id) || setGps2.contains(evCine.id),
+                                    gpsValidado = setGps2.contains(evCine.id)
+                                )
 
                                 eventosServidor = eventosServidor.map { item ->
                                     if (item.id == evCine.id) {
@@ -2356,16 +2475,23 @@ private fun DetalleEventoSheet(
 
                         Button(
                             onClick = onAbrirEscaner,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF059669),
+                                contentColor = Color.White
+                            ),
                             modifier = Modifier.fillMaxWidth().height(46.dp),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp)
                         ) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (qrValidado) "Volver a Escanear QR de Asistencia" else "Escanear QR de Asistencia (Validación 1/2)",
+                                text = if (qrValidado) "QR 1/2 Validado • Volver a Escanear" else "Escanear QR Oficial (Validación 1/2)",
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 12.5.sp
+                                fontSize = 11.5.sp,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -2394,6 +2520,7 @@ private fun DetalleEventoSheet(
                         text = "Cerrar",
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
+                        color = EtdaNavy,
                         maxLines = 1,
                         softWrap = false
                     )
@@ -2414,14 +2541,16 @@ private fun DetalleEventoSheet(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (estaInscrito) EtdaNavy else EtdaOrange,
+                        contentColor = Color.White,
                         disabledContainerColor = Color.Gray.copy(alpha = 0.45f)
                     ),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
                     Icon(
-                        imageVector = if (estaInscrito) Icons.Default.EventSeat else Icons.Default.EventSeat,
+                        imageVector = Icons.Default.EventSeat,
                         contentDescription = null,
+                        tint = Color.White,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -2432,9 +2561,10 @@ private fun DetalleEventoSheet(
                             else -> "Inscribirme • Elegir Asiento"
                         },
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 12.5.sp,
+                        fontSize = 12.sp,
+                        color = Color.White,
                         maxLines = 1,
-                        softWrap = false
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -2691,7 +2821,7 @@ private fun ModalSelectorAsientosCine(
                                                         color = bordeButaca,
                                                         shape = RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp, bottomStart = 3.dp, bottomEnd = 3.dp)
                                                     )
-                                                    .clickable(enabled = !esOcupadoOtro && miAsientoActual.isNullOrBlank()) {
+                                                    .clickable(enabled = !esOcupadoOtro) {
                                                         asientoElegido = codigo
                                                     },
                                                 contentAlignment = Alignment.Center
@@ -2727,8 +2857,8 @@ private fun ModalSelectorAsientosCine(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Botón de confirmación del asiento elegido
-            if (!miAsientoActual.isNullOrBlank()) {
+            // Botón de confirmación o cambio del asiento elegido
+            if (!miAsientoActual.isNullOrBlank() && (asientoElegido == null || asientoElegido == miAsientoActual)) {
                 Surface(
                     color = Color(0xFFECFDF5),
                     shape = RoundedCornerShape(14.dp),
@@ -2743,8 +2873,8 @@ private fun ModalSelectorAsientosCine(
                         Icon(Icons.Default.Verified, contentDescription = null, tint = EtdaSuccess, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Ya tienes apartado el asiento $miAsientoActual (máx. 1 lugar por alumno)",
-                            fontSize = 12.sp,
+                            text = "Tu lugar apartado es $miAsientoActual (toca otro asiento libre si deseas cambiarlo)",
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color(0xFF065F46)
                         )
@@ -2755,25 +2885,30 @@ private fun ModalSelectorAsientosCine(
                     onClick = {
                         asientoElegido?.let { onConfirmarAsiento(it) }
                     },
-                    enabled = !asientoElegido.isNullOrBlank() && totalLibres > 0,
+                    enabled = !asientoElegido.isNullOrBlank() && (totalLibres > 0 || !miAsientoActual.isNullOrBlank()),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = EtdaOrange,
+                        contentColor = Color.White,
                         disabledContainerColor = Color(0xFFCBD5E1)
                     )
                 ) {
-                    Icon(Icons.Default.EventSeat, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.EventSeat, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (!asientoElegido.isNullOrBlank())
-                            "Confirmar y Apartar Asiento $asientoElegido"
-                        else
-                            "Toca un asiento libre en el mapa para elegirlo",
+                        text = when {
+                            !miAsientoActual.isNullOrBlank() && !asientoElegido.isNullOrBlank() ->
+                                "Cambiar mi lugar a Asiento $asientoElegido"
+                            !asientoElegido.isNullOrBlank() ->
+                                "Confirmar y Apartar Asiento $asientoElegido"
+                            else ->
+                                "Toca un asiento libre en el mapa para elegirlo"
+                        },
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 13.5.sp,
+                        fontSize = 13.sp,
                         color = Color.White
                     )
                 }

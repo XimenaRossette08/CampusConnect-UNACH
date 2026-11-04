@@ -16,7 +16,9 @@ import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 
 interface CampusConnectApi {
@@ -68,6 +70,24 @@ interface CampusConnectApi {
     suspend fun crearEvento(
         @Body evento: EventoCreateRequest
     ): Evento
+
+    @PUT("eventos/{eventoId}")
+    suspend fun actualizarEvento(
+        @Path("eventoId") eventoId: String,
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
+    ): Response<ResponseBody>
+
+    @GET("eventos/{eventoId}/asistentes")
+    suspend fun obtenerAsistentesEvento(
+        @Path("eventoId") eventoId: String
+    ): Response<ResponseBody>
+
+    @PATCH("eventos/{eventoId}/asistentes/{asistenciaId}")
+    suspend fun marcarAsistenciaAlumno(
+        @Path("eventoId") eventoId: String,
+        @Path("asistenciaId") asistenciaId: Int,
+        @Body body: Map<String, Boolean>
+    ): Response<ResponseBody>
 
     @POST("eventos/{eventoId}/registro")
     suspend fun registrarAsistenciaEvento(

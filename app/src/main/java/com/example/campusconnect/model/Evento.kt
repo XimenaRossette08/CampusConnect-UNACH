@@ -1,6 +1,7 @@
 package com.example.campusconnect.model
 
 import com.google.gson.annotations.SerializedName
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
@@ -32,6 +33,10 @@ data class Evento(
     val lugar: String,
     @SerializedName(value = "imagenUrl", alternate = ["imagen_url"]) val imagenUrl: String? = null,
     val categoria: String? = null,
+    @SerializedName(value = "esGeneral", alternate = ["es_general"]) val esGeneral: Boolean? = true,
+    @SerializedName(value = "idFacultadDestino", alternate = ["id_facultad_destino"]) val idFacultadDestino: String? = null,
+    @SerializedName(value = "idCarreraDestino", alternate = ["id_carrera_destino"]) val idCarreraDestino: String? = null,
+    @SerializedName(value = "gruposDestino", alternate = ["grupos_destino"]) val gruposDestino: List<String>? = null,
     @SerializedName(value = "urlMaps", alternate = ["url_maps"]) val urlMaps: String? = null,
     val archivos: List<ArchivoEvento>? = null,
 
@@ -51,7 +56,7 @@ data class Evento(
     /** Archivos que deben ver los alumnos (las evidencias son solo para el panel de administración). */
     val materiales: List<ArchivoEvento> get() = archivos.orEmpty().filter { it.tipo == "material" }
 
-    /** Extrae metadatos embebidos `<!--CCMETA:{...}-->` sincronizados desde el panel web si existen. */
+    /** Extrae metadatos embebidos `<!--CCMETA:{...}-->` sincronizados entre la App y el Panel Web. */
     private val metaJsonObj: JSONObject?
         get() {
             val idxIni = descripcion.indexOf("<!--CCMETA:")
@@ -77,6 +82,32 @@ data class Evento(
     val fechaFinEfectiva: String?
         get() = fechaFin?.takeIf { it.isNotBlank() }
             ?: metaJsonObj?.optString("fin", "")?.takeIf { it.isNotBlank() }
+
+    /** Devuelve el asiento exacto registrado para `emailUsuario` dentro de CCMETA (ej. "K-04"). */
+    fun obtenerAsientoDeUsuarioEnMeta(emailUsuario: String?): String? {
+        if (emailUsuario.isNullOrBlank()) return null
+        val seatsObj = metaJsonObj?.optJSONObject("seats") ?: return null
+        val clave = emailUsuario.trim().lowercase()
+        val item = seatsObj.opt(clave) ?: return null
+        return when (item) {
+            is JSONObject -> item.optString("asiento", "").trim().uppercase().takeIf { it.isNotBlank() }
+            is String -> item.trim().uppercase().takeIf { it.isNotBlank() }
+            else -> null
+        }
+    }
+
+    /** Verifica si el administrador liberó explícitamente el asiento del usuario desde el Panel Web. */
+    fun obtenerTimestampLiberacionAdmin(emailUsuario: String?, asiento: String?): Long {
+        val libObj = metaJsonObj?.optJSONObject("liberados") ?: return 0L
+        var ts = 0L
+        if (!emailUsuario.isNullOrBlank()) {
+            ts = maxOf(ts, libObj.optLong(emailUsuario.trim().lowercase(), 0L))
+        }
+        if (!asiento.isNullOrBlank()) {
+            ts = maxOf(ts, libObj.optLong(asiento.trim().uppercase(), 0L))
+        }
+        return ts
+    }
 
     val asientosReservadosAdminEfectivos: List<String>
         get() {
@@ -123,8 +154,8 @@ data class Evento(
     private val metaCapacidad: Int?
         get() = metaJsonObj?.optInt("cap", 0)?.takeIf { it > 0 }
 
-    private val metaOcupados: Int
-        get() = metaJsonObj?.optInt("ocup", 0)?.coerceAtLeast(0) ?: 0
+    private val metaOcupados: Int?
+        get() = if (metaJsonObj?.has("ocup") == true) metaJsonObj?.optInt("ocup", 0)?.coerceAtLeast(0) else null
 
     val cupoMaximo: Int
         get() = (capacidadTotal ?: metaCapacidad ?: 100).coerceAtLeast(1)
@@ -132,9 +163,18 @@ data class Evento(
     val lugaresOcupados: Int
         get() {
             val minimoPorInscripcionPropia = if (inscrito == true || !miAsiento.isNullOrBlank()) 1 else 0
+            val ocupadosMeta = metaOcupados
+            // Si CCMETA tiene el mapa actualizado de asientos y reservas, respetarlo con exactitud
+            if (metaJsonObj != null && (metaJsonObj?.has("seats") == true || metaJsonObj?.has("res") == true || ocupadosMeta != null)) {
+                return maxOf(
+                    asientosOcupados ?: 0,
+                    ocupadosMeta ?: 0,
+                    asientosTomadosEfectivos.size,
+                    minimoPorInscripcionPropia
+                ).coerceIn(0, cupoMaximo)
+            }
             return maxOf(
                 asientosOcupados ?: 0,
-                metaOcupados,
                 asientosTomadosEfectivos.size,
                 minimoPorInscripcionPropia
             ).coerceIn(0, cupoMaximo)
@@ -143,6 +183,88 @@ data class Evento(
     val lugaresDisponibles: Int get() = (cupoMaximo - lugaresOcupados).coerceAtLeast(0)
     val porcentajeOcupacion: Float get() = (lugaresOcupados.toFloat() / cupoMaximo.toFloat()).coerceIn(0f, 1f)
     val cupoAgotado: Boolean get() = lugaresDisponibles == 0
+
+    /**
+     * Construye el cuerpo JSON para `PUT /eventos/{id}` actualizando `<!--CCMETA:{...}-->`
+     * con el asiento exacto elegido en la App (ej. `K-04`) y el estado de validación QR/GPS.
+     */
+    fun construirPayloadSincronizacionMeta(
+        emailUsuario: String,
+        nombreUsuario: String,
+        asiento: String?,
+        qrValidado: Boolean,
+        gpsValidado: Boolean,
+        asistio: Boolean
+    ): Map<String, Any?> {
+        val actualMeta = metaJsonObj ?: JSONObject()
+        val resObj = actualMeta.optJSONObject("res") ?: JSONObject()
+        val seatsObj = actualMeta.optJSONObject("seats") ?: JSONObject()
+        val liberadosObj = actualMeta.optJSONObject("liberados") ?: JSONObject()
+
+        val emailKey = emailUsuario.trim().lowercase()
+        if (asiento.isNullOrBlank()) {
+            val prev = seatsObj.optJSONObject(emailKey)
+            val prevCod = prev?.optString("asiento", "") ?: ""
+            seatsObj.remove(emailKey)
+            liberadosObj.put(emailKey, System.currentTimeMillis())
+            if (prevCod.isNotBlank()) liberadosObj.put(prevCod, System.currentTimeMillis())
+        } else {
+            val codLimpio = asiento.trim().uppercase()
+            liberadosObj.remove(emailKey)
+            liberadosObj.remove(codLimpio)
+            val itemSeat = JSONObject().apply {
+                put("asiento", codLimpio)
+                put("nombre", nombreUsuario.ifBlank { "Alumno UNACH" })
+                put("email", emailKey)
+                put("qrValidado", qrValidado || asistio)
+                put("gpsValidado", gpsValidado || asistio)
+                put("asistio", asistio)
+                put("fechaApartado", Instant.now().toString())
+            }
+            seatsObj.put(emailKey, itemSeat)
+        }
+
+        val codigosUnicos = mutableSetOf<String>()
+        val rk = resObj.keys()
+        while (rk.hasNext()) codigosUnicos.add(rk.next().trim().uppercase())
+        val sk = seatsObj.keys()
+        while (sk.hasNext()) {
+            val k = sk.next()
+            val v = seatsObj.opt(k)
+            val c = when (v) {
+                is JSONObject -> v.optString("asiento", "")
+                is String -> v
+                else -> ""
+            }.trim().uppercase()
+            if (c.isNotBlank()) codigosUnicos.add(c)
+        }
+
+        val nuevoMeta = JSONObject().apply {
+            disponibleDesdeEfectivo?.let { put("disp", it) }
+            fechaFinEfectiva?.let { put("fin", it) }
+            put("cap", cupoMaximo)
+            put("ocup", codigosUnicos.size)
+            put("res", resObj)
+            put("seats", seatsObj)
+            put("liberados", liberadosObj)
+        }
+
+        val nuevaDescripcion = "${descripcionLimpia}\n<!--CCMETA:${nuevoMeta}-->"
+
+        return mapOf(
+            "titulo" to titulo,
+            "descripcion" to nuevaDescripcion,
+            "fechaHora" to fechaHora,
+            "fechaFin" to fechaFinEfectiva,
+            "disponibleDesde" to disponibleDesdeEfectivo,
+            "lugar" to lugar,
+            "categoria" to categoria,
+            "esGeneral" to (esGeneral ?: true),
+            "idFacultadDestino" to idFacultadDestino,
+            "idCarreraDestino" to idCarreraDestino,
+            "gruposDestino" to gruposDestino
+        )
+    }
 
     fun estaVigenteEnTiempoReal(ahoraMillis: Long = System.currentTimeMillis()): Boolean {
         if (finalizado == true) return false

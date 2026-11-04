@@ -8,6 +8,66 @@ let filtroCategoriaEvento = "Todos";
 let busquedaEventoTexto = "";
 
 const STORAGE_HORARIOS_POR_EVENTO = "cc_vigencia_por_evento_v3";
+const STORAGE_MAPA_ASIENTOS_WEB = "cc_mapa_asientos_v2";
+let _eventosExpiradosNotificadosWeb = new Set();
+let _relojVigenciaWebIniciado = false;
+
+function _extraerMetaDescripcion(evOrDesc) {
+    const raw = typeof evOrDesc === "string" ? evOrDesc : (evOrDesc?.descripcion || "");
+    if (!raw) return {};
+    const m = raw.match(/<!--CCMETA:([\s\S]*?)-->/);
+    if (!m || !m[1]) return {};
+    try {
+        return JSON.parse(m[1].trim()) || {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function _limpiarDescripcionVisible(desc) {
+    return String(desc || "").replace(/\s*<!--CCMETA:[\s\S]*?-->/g, "").trim();
+}
+
+function _construirDescripcionConMeta(descVisible, metaObj) {
+    const base = _limpiarDescripcionVisible(descVisible);
+    const limpioMeta = {};
+    if (metaObj && typeof metaObj === "object") {
+        if (metaObj.disp) limpioMeta.disp = metaObj.disp;
+        if (metaObj.fin) limpioMeta.fin = metaObj.fin;
+        if (metaObj.cap) limpioMeta.cap = Number(metaObj.cap) || 100;
+        if (typeof metaObj.ocup === "number") limpioMeta.ocup = Math.max(0, metaObj.ocup);
+        if (metaObj.res && Object.keys(metaObj.res).length) limpioMeta.res = metaObj.res;
+        if (metaObj.seats && Object.keys(metaObj.seats).length) limpioMeta.seats = metaObj.seats;
+    }
+    if (!Object.keys(limpioMeta).length) return base;
+    return `${base}\n<!--CCMETA:${JSON.stringify(limpioMeta)}-->`;
+}
+
+function _leerEstadoAsientosLocal(eventoId) {
+    if (!eventoId) return { res: {}, seats: {} };
+    try {
+        const todo = JSON.parse(localStorage.getItem(STORAGE_MAPA_ASIENTOS_WEB) || "{}") || {};
+        const item = todo[String(eventoId)] || {};
+        return {
+            res: item.res && typeof item.res === "object" ? item.res : {},
+            seats: item.seats && typeof item.seats === "object" ? item.seats : {}
+        };
+    } catch (_) {
+        return { res: {}, seats: {} };
+    }
+}
+
+function _guardarEstadoAsientosLocal(eventoId, resMap, seatsMap) {
+    if (!eventoId) return;
+    try {
+        const todo = JSON.parse(localStorage.getItem(STORAGE_MAPA_ASIENTOS_WEB) || "{}") || {};
+        todo[String(eventoId)] = {
+            res: resMap || {},
+            seats: seatsMap || {}
+        };
+        localStorage.setItem(STORAGE_MAPA_ASIENTOS_WEB, JSON.stringify(todo));
+    } catch (_) {}
+}
 
 function _leerMapaHorariosPorEvento() {
     try {
@@ -33,12 +93,26 @@ function _obtenerHorarioIndividualEvento(ev) {
     if (!ev || !ev.id) return { disponibleDesde: null, fechaFin: null };
     const mapa = _leerMapaHorariosPorEvento();
     const local = mapa[String(ev.id)] || {};
+    const meta = _extraerMetaDescripcion(ev);
+
     const disp = (ev.disponibleDesde !== undefined && ev.disponibleDesde !== null)
         ? ev.disponibleDesde
-        : ((ev.disponible_desde !== undefined && ev.disponible_desde !== null) ? ev.disponible_desde : (local.disponibleDesde || null));
-    const fin = (ev.fechaFin !== undefined && ev.fechaFin !== null)
+        : ((ev.disponible_desde !== undefined && ev.disponible_desde !== null)
+            ? ev.disponible_desde
+            : (meta.disp || local.disponibleDesde || null));
+
+    let fin = (ev.fechaFin !== undefined && ev.fechaFin !== null)
         ? ev.fechaFin
-        : ((ev.fecha_fin !== undefined && ev.fecha_fin !== null) ? ev.fecha_fin : (local.fechaFin || null));
+        : ((ev.fecha_fin !== undefined && ev.fecha_fin !== null)
+            ? ev.fecha_fin
+            : (meta.fin || local.fechaFin || null));
+
+    if (!fin && ev.fechaHora) {
+        const tIni = new Date(ev.fechaHora).getTime();
+        if (!Number.isNaN(tIni)) {
+            fin = new Date(tIni + 4 * 3600 * 1000).toISOString();
+        }
+    }
     return { disponibleDesde: disp, fechaFin: fin };
 }
 
@@ -81,6 +155,7 @@ function _sincronizarInputsFechasModal(ev) {
 }
 
 function _eventoDisponibleAhoraWeb(ev) {
+    if (!ev) return false;
     const { disponibleDesde } = _obtenerHorarioIndividualEvento(ev);
     if (!disponibleDesde) return true;
     const t = new Date(disponibleDesde).getTime();
@@ -88,7 +163,8 @@ function _eventoDisponibleAhoraWeb(ev) {
 }
 
 function _eventoExpiradoAhoraWeb(ev) {
-    if (ev.finalizado) return true;
+    if (!ev) return false;
+    if (ev.finalizado === true) return true;
     const { fechaFin } = _obtenerHorarioIndividualEvento(ev);
     if (fechaFin) {
         const tFin = new Date(fechaFin).getTime();
@@ -98,9 +174,25 @@ function _eventoExpiradoAhoraWeb(ev) {
 }
 
 function _calcularEstadoAsientosEvento(ev) {
+    if (!ev) return { capacidad: 100, ocupados: 0, disponibles: 100, porcentaje: 0, agotado: false };
+    const meta = _extraerMetaDescripcion(ev);
+    const localSeatState = _leerEstadoAsientosLocal(ev.id);
     const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
-    const capacidad = Number(infoAud?.asientos ?? ev.capacidadTotal ?? ev.capacidad_total ?? 100) || 100;
-    const ocupados = Math.max(0, Number(ev.asientosOcupados ?? ev.asientos_ocupados ?? ev.totalRegistrados ?? ev.total_registrados ?? 0) || 0);
+    const capacidad = Number(infoAud?.asientos ?? ev.capacidadTotal ?? ev.capacidad_total ?? meta.cap ?? 100) || 100;
+
+    const codigosUnicos = new Set([
+        ...(Array.isArray(ev.asientosTomados) ? ev.asientosTomados : []),
+        ...(Array.isArray(ev.asientosReservadosAdmin) ? ev.asientosReservadosAdmin : []),
+        ...Object.keys(meta.res || {}),
+        ...Object.values(meta.seats || {}).map(x => typeof x === "string" ? x : x?.asiento).filter(Boolean),
+        ...Object.keys(localSeatState.res || {}),
+        ...Object.values(localSeatState.seats || {}).map(x => typeof x === "string" ? x : x?.asiento).filter(Boolean)
+    ]);
+    if (ev.miAsiento) codigosUnicos.add(ev.miAsiento);
+
+    const ocupadosDirecto = Number(ev.asientosOcupados ?? ev.asientos_ocupados ?? ev.totalRegistrados ?? ev.total_registrados ?? meta.ocup ?? 0) || 0;
+    const minInscrito = ev.inscrito ? 1 : 0;
+    const ocupados = Math.min(capacidad, Math.max(0, ocupadosDirecto, codigosUnicos.size, minInscrito));
     const disponibles = Math.max(0, capacidad - ocupados);
     const porcentaje = capacidad > 0 ? Math.min(100, Math.round((ocupados / capacidad) * 100)) : 0;
     const agotado = disponibles <= 0;
@@ -145,7 +237,118 @@ function etiquetaAudiencia(ev) {
     return `<span class="px-2.5 py-0.5 rounded-full bg-sky-50 text-[#122652] border border-sky-200 text-[10px] font-extrabold">${esc(partes.join(" · ") || "Segmentado")}</span>`;
 }
 
+async function _enriquecerOcupacionEventosWeb(lista) {
+    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "";
+    const puedeVerAsistentes = typeof tienePermiso === "function" && (tienePermiso("asistencia.gestionar") || tienePermiso("eventos.publicar"));
+
+    await Promise.all((lista || []).map(async (ev) => {
+        if (!ev || !ev.id) return;
+        const meta = _extraerMetaDescripcion(ev);
+        const localState = _leerEstadoAsientosLocal(ev.id);
+        const resCombinado = { ...(meta.res || {}), ...(localState.res || {}) };
+        const seatsCombinado = { ...(meta.seats || {}), ...(localState.seats || {}) };
+
+        if (emailYo && seatsCombinado[emailYo]) {
+            const miCod = typeof seatsCombinado[emailYo] === "string" ? seatsCombinado[emailYo] : seatsCombinado[emailYo]?.asiento;
+            if (miCod) {
+                ev.miAsiento = miCod;
+                ev.inscrito = true;
+            }
+        }
+
+        if (puedeVerAsistentes && !_eventoExpiradoAhoraWeb(ev)) {
+            try {
+                const asis = await api(`/eventos/${ev.id}/asistentes`);
+                if (Array.isArray(asis)) {
+                    const usados = new Set(Object.keys(resCombinado));
+                    asis.forEach((a, idx) => {
+                        const em = (a.email || "").toLowerCase();
+                        const codGuardado = (a.asiento && a.asiento !== "—")
+                            ? a.asiento
+                            : (typeof seatsCombinado[em] === "string" ? seatsCombinado[em] : seatsCombinado[em]?.asiento);
+                        let codFinal = codGuardado;
+                        if (!codFinal || usados.has(codFinal)) {
+                            let cIdx = idx;
+                            while (cIdx < 500) {
+                                const cand = generarCodigoAsientoCine(cIdx, 10);
+                                if (!usados.has(cand)) { codFinal = cand; break; }
+                                cIdx++;
+                            }
+                        }
+                        if (codFinal) {
+                            usados.add(codFinal);
+                            if (em) {
+                                seatsCombinado[em] = {
+                                    asiento: codFinal,
+                                    nombre: a.nombre,
+                                    email: a.email,
+                                    carrera: a.carrera,
+                                    grupos: a.grupos,
+                                    asistio: Boolean(a.asistio),
+                                    qrValidado: Boolean(a.qr_validado || a.asistio),
+                                    gpsValidado: Boolean(a.gps_validado || a.asistio),
+                                    fechaApartado: a.fecha_registro
+                                };
+                            }
+                            if (emailYo && em === emailYo) {
+                                ev.miAsiento = codFinal;
+                                ev.inscrito = true;
+                            }
+                        }
+                    });
+                    _guardarEstadoAsientosLocal(ev.id, resCombinado, seatsCombinado);
+                    ev.asientosOcupados = usados.size;
+                    ev.totalRegistrados = usados.size;
+                }
+            } catch (_) {}
+        }
+    }));
+}
+
+function _iniciarRelojVigenciaYPollingWeb() {
+    if (_relojVigenciaWebIniciado) return;
+    _relojVigenciaWebIniciado = true;
+
+    // 1. Reloj cada 2 segundos: retira automáticamente de la cartelera cualquier evento cuya fechaFin haya vencido
+    setInterval(() => {
+        if (!Array.isArray(eventosLista) || !eventosLista.length) return;
+        let huboCambioVigencia = false;
+        for (const ev of eventosLista) {
+            if (!ev || !ev.id) continue;
+            const yaExpiro = _eventoExpiradoAhoraWeb(ev);
+            if (yaExpiro && !_eventosExpiradosNotificadosWeb.has(ev.id)) {
+                _eventosExpiradosNotificadosWeb.add(ev.id);
+                huboCambioVigencia = true;
+                toast(`✅ El evento "${ev.titulo}" ha finalizado y se retiró de la cartelera activa.`, "info");
+            }
+        }
+        if (huboCambioVigencia) {
+            renderizarTarjetasEventos();
+            if (typeof cargarPasados === "function") {
+                try { cargarPasados(); } catch (_) {}
+            }
+        }
+    }, 2000);
+
+    // 2. Sincronización silenciosa cada 8 segundos con el servidor
+    setInterval(async () => {
+        if (typeof token === "undefined" || !token) return;
+        try {
+            const esGestor = typeof tienePermiso === "function" && tienePermiso("eventos.publicar");
+            const endpoint = esGestor ? "/eventos/feed?incluir_programados=true" : "/eventos/feed";
+            const todos = await api(endpoint);
+            if (Array.isArray(todos)) {
+                await _enriquecerOcupacionEventosWeb(todos);
+                eventosLista = todos;
+                eventosLista.forEach(e => { eventosCache[e.id] = e; });
+                renderizarTarjetasEventos();
+            }
+        } catch (_) {}
+    }, 8000);
+}
+
 async function cargarEventos() {
+    _iniciarRelojVigenciaYPollingWeb();
     const container = document.getElementById("eventos-container");
     if (!container) return;
     inicializarFiltrosCategorias();
@@ -160,7 +363,11 @@ async function cargarEventos() {
         const endpoint = esGestor ? "/eventos/feed?incluir_programados=true" : "/eventos/feed";
         const todos = await api(endpoint);
         eventosLista = todos || [];
-        eventosLista.forEach(e => { eventosCache[e.id] = e; });
+        await _enriquecerOcupacionEventosWeb(eventosLista);
+        eventosLista.forEach(e => {
+            if (_eventoExpiradoAhoraWeb(e)) _eventosExpiradosNotificadosWeb.add(e.id);
+            eventosCache[e.id] = e;
+        });
         renderizarTarjetasEventos();
     } catch (err) {
         container.innerHTML = `
@@ -278,7 +485,7 @@ function renderizarTarjetasEventos() {
                             </div>` : ''}
 
                         <h3 class="text-base font-extrabold text-[#122652] leading-snug">${esc(ev.titulo)}</h3>
-                        <p class="text-xs text-[#5B6670] mt-2 line-clamp-3 leading-relaxed">${esc(ev.descripcion)}</p>
+                        <p class="text-xs text-[#5B6670] mt-2 line-clamp-3 leading-relaxed">${esc(_limpiarDescripcionVisible(ev.descripcion))}</p>
 
                         <!-- Barra de Ocupación de Asientos en Tiempo Real -->
                         <div class="mt-4 pt-3 border-t border-slate-100">
@@ -445,7 +652,7 @@ async function abrirModalEvento(id = null) {
     document.getElementById("ev-id").value = ev ? ev.id : "";
     document.getElementById("ev-titulo").value = ev ? ev.titulo : "";
     if (ev && ev.categoria) document.getElementById("ev-categoria").value = ev.categoria;
-    document.getElementById("ev-descripcion").value = ev ? ev.descripcion : "";
+    document.getElementById("ev-descripcion").value = ev ? _limpiarDescripcionVisible(ev.descripcion) : "";
     _sincronizarInputsFechasModal(ev);
     setTimeout(() => _sincronizarInputsFechasModal(ev), 40);
     if (ev && ev.lugar) {
@@ -505,13 +712,32 @@ async function guardarEvento(e) {
     const isoFin = rawFin ? new Date(rawFin).toISOString() : null;
     const isoDisp = rawDisp ? new Date(rawDisp).toISOString() : null;
 
+    const lugarVal = document.getElementById("ev-lugar").value.trim();
+    const infoAudGuardar = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(lugarVal) : null;
+    const capGuardar = Number(infoAudGuardar?.asientos || 100) || 100;
+    const evPrevio = id ? eventosCache[id] : null;
+    const metaPrevia = _extraerMetaDescripcion(evPrevio);
+    const localStatePrev = id ? _leerEstadoAsientosLocal(id) : { res: {}, seats: {} };
+
+    const descConMeta = _construirDescripcionConMeta(
+        document.getElementById("ev-descripcion").value.trim(),
+        {
+            disp: isoDisp,
+            fin: isoFin,
+            cap: capGuardar,
+            ocup: metaPrevia.ocup || 0,
+            res: { ...(metaPrevia.res || {}), ...(localStatePrev.res || {}) },
+            seats: { ...(metaPrevia.seats || {}), ...(localStatePrev.seats || {}) }
+        }
+    );
+
     const payload = {
         titulo: document.getElementById("ev-titulo").value.trim(),
-        descripcion: document.getElementById("ev-descripcion").value.trim(),
+        descripcion: descConMeta,
         fechaHora: isoInicio,
         fechaFin: isoFin,
         disponibleDesde: isoDisp,
-        lugar: document.getElementById("ev-lugar").value.trim(),
+        lugar: lugarVal,
         categoria: document.getElementById("ev-categoria").value.trim() || null,
         esGeneral: !segmentado,
         idFacultadDestino: segmentado ? (facultad || null) : null,
@@ -619,27 +845,46 @@ async function cancelarInscripcionEventoWeb(eventoId) {
 }
 
 let asistentesActual = null;
-async function verAsistentesEvento(eventoId) {
-    if (!tienePermiso("asistencia.gestionar")) {
-        toast("No tienes permiso para gestionar listas de asistencia.", "alerta");
-        return;
-    }
-    const ev = eventosCache[eventoId] || {};
-    asistentesActual = { id: eventoId, titulo: ev.titulo || "Evento" };
-    document.getElementById("modal-asistentes-titulo").innerText = `Lista de Asistencia: ${asistentesActual.titulo}`;
-    const tbody = document.getElementById("tabla-asistentes-body");
-    tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando lista de inscritos...</td></tr>`;
-    document.getElementById("modal-asistentes").classList.remove("hidden");
+let _timerAsistentesVivo = null;
 
+async function _cargarTablaAsistentesEnVivo(eventoId, mostrarLoader = false) {
+    const tbody = document.getElementById("tabla-asistentes-body");
+    if (!tbody) return;
+    if (mostrarLoader) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando lista de inscritos...</td></tr>`;
+    }
     try {
         const asistentes = await api(`/eventos/${eventoId}/asistentes`);
+        const ev = eventosCache[eventoId] || {};
+        const meta = _extraerMetaDescripcion(ev);
+        const localState = _leerEstadoAsientosLocal(eventoId);
+        const seatsMap = { ...(meta.seats || {}), ...(localState.seats || {}) };
+        const resMap = { ...(meta.res || {}), ...(localState.res || {}) };
+
         if (!asistentes || asistentes.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
             return;
         }
+        const usados = new Set(Object.keys(resMap));
         tbody.innerHTML = asistentes.map((a, i) => {
-            const qrOk = Boolean(a.qr_validado || a.asistio);
-            const gpsOk = Boolean(a.gps_validado || a.asistio);
+            const em = (a.email || "").toLowerCase();
+            const infoLocal = seatsMap[em];
+            let codAsiento = (a.asiento && a.asiento !== "—")
+                ? a.asiento
+                : (typeof infoLocal === "string" ? infoLocal : infoLocal?.asiento);
+            if (!codAsiento || usados.has(codAsiento)) {
+                let idx = i;
+                while (idx < 500) {
+                    const cand = generarCodigoAsientoCine(idx, 10);
+                    if (!usados.has(cand)) { codAsiento = cand; break; }
+                    idx++;
+                }
+            }
+            if (codAsiento) usados.add(codAsiento);
+
+            const asistioReal = Boolean(a.asistio || infoLocal?.asistio);
+            const qrOk = Boolean(a.qr_validado || asistioReal || infoLocal?.qrValidado);
+            const gpsOk = Boolean(a.gps_validado || asistioReal || infoLocal?.gpsValidado);
             const badgeVal = (qrOk && gpsOk)
                 ? `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-[10px]">2/2 QR + GPS ✓</span>`
                 : qrOk
@@ -648,19 +893,40 @@ async function verAsistentesEvento(eventoId) {
             return `
             <tr class="border-b hover:bg-slate-50">
                 <td class="p-3 font-bold text-slate-400">${i + 1}</td>
-                <td class="p-3"><span class="px-2 py-1 rounded-lg bg-[#122652] text-[#FFB74D] font-mono font-extrabold text-xs">${esc(a.asiento || "—")}</span></td>
+                <td class="p-3"><span class="px-2 py-1 rounded-lg bg-[#122652] text-[#FFB74D] font-mono font-extrabold text-xs">${esc(codAsiento || "—")}</span></td>
                 <td class="p-3 font-semibold text-[#122652]">${esc(a.nombre)}</td>
                 <td class="p-3 text-slate-500 font-mono text-xs">${esc(a.email)}</td>
                 <td class="p-3 text-slate-600">${esc([a.carrera, (a.grupos || []).join(", ")].filter(Boolean).join(" · ") || "—")}</td>
                 <td class="p-3">${badgeVal}</td>
                 <td class="p-3 text-center">
-                    <input type="checkbox" ${a.asistio ? "checked" : ""} onchange="marcarAsistio(${Number(a.id)}, this)" class="w-4 h-4 accent-[#10B981] rounded cursor-pointer">
+                    <input type="checkbox" ${asistioReal ? "checked" : ""} onchange="marcarAsistio(${Number(a.id)}, this)" class="w-4 h-4 accent-[#10B981] rounded cursor-pointer">
                 </td>
             </tr>`;
         }).join("");
     } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-red-500">${esc(err.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-red-500">${esc(err.message)}</td></tr>`;
     }
+}
+
+async function verAsistentesEvento(eventoId) {
+    if (!tienePermiso("asistencia.gestionar")) {
+        toast("No tienes permiso para gestionar listas de asistencia.", "alerta");
+        return;
+    }
+    const ev = eventosCache[eventoId] || {};
+    asistentesActual = { id: eventoId, titulo: ev.titulo || "Evento" };
+    document.getElementById("modal-asistentes-titulo").innerText = `Lista de Asistencia: ${asistentesActual.titulo}`;
+    document.getElementById("modal-asistentes").classList.remove("hidden");
+
+    await _cargarTablaAsistentesEnVivo(eventoId, true);
+
+    if (_timerAsistentesVivo) clearInterval(_timerAsistentesVivo);
+    _timerAsistentesVivo = setInterval(() => {
+        const visible = !document.getElementById("modal-asistentes")?.classList.contains("hidden");
+        if (visible && asistentesActual?.id) {
+            _cargarTablaAsistentesEnVivo(asistentesActual.id, false);
+        }
+    }, 5000);
 }
 
 async function marcarAsistio(asistenciaId, checkbox) {
@@ -669,6 +935,8 @@ async function marcarAsistio(asistenciaId, checkbox) {
             method: "PATCH",
             json: { asistio: checkbox.checked }
         });
+        await _cargarTablaAsistentesEnVivo(asistentesActual.id, false);
+        toast(checkbox.checked ? "Asistencia confirmada (2/2)." : "Asistencia desmarcada.", "exito");
     } catch (err) {
         checkbox.checked = !checkbox.checked;
         toast(err.message, "error");
@@ -677,6 +945,10 @@ async function marcarAsistio(asistenciaId, checkbox) {
 
 function cerrarModalAsistentes() {
     document.getElementById("modal-asistentes").classList.add("hidden");
+    if (_timerAsistentesVivo) {
+        clearInterval(_timerAsistentesVivo);
+        _timerAsistentesVivo = null;
+    }
 }
 
 async function descargarPDFDe(eventoId) {
@@ -1239,48 +1511,176 @@ function cerrarModalMapaAsientos() {
     }
 }
 
+async function _persistirMetaAsientosEnEventoServidor(eventoId) {
+    const ev = eventosCache[eventoId];
+    if (!ev || !tienePermiso("eventos.publicar")) return;
+    try {
+        const hInd = _obtenerHorarioIndividualEvento(ev);
+        const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
+        const cap = Number(infoAud?.asientos || estadoMapaCine.capacidadTotal || ev.capacidadTotal || 100) || 100;
+        const localState = _leerEstadoAsientosLocal(eventoId);
+        const totOcup = Object.keys(estadoMapaCine.ocupadosPorCodigo || {}).length;
+
+        const nuevaDesc = _construirDescripcionConMeta(ev.descripcion, {
+            disp: hInd.disponibleDesde,
+            fin: hInd.fechaFin,
+            cap,
+            ocup: totOcup,
+            res: localState.res,
+            seats: localState.seats
+        });
+        ev.descripcion = nuevaDesc;
+        await api(`/eventos/${eventoId}`, {
+            method: "PUT",
+            json: {
+                titulo: ev.titulo,
+                descripcion: nuevaDesc,
+                fechaHora: ev.fechaHora,
+                fechaFin: hInd.fechaFin,
+                disponibleDesde: hInd.disponibleDesde,
+                lugar: ev.lugar,
+                categoria: ev.categoria || null,
+                esGeneral: Boolean(ev.esGeneral),
+                idFacultadDestino: ev.idFacultadDestino || null,
+                idCarreraDestino: ev.idCarreraDestino || null,
+                gruposDestino: ev.gruposDestino || null
+            }
+        });
+    } catch (_) {}
+}
+
 async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
     const eventoId = estadoMapaCine.eventoId;
     if (!eventoId) return;
     const evLocal = eventosCache[eventoId] || {};
+    const meta = _extraerMetaDescripcion(evLocal);
+    const localState = _leerEstadoAsientosLocal(eventoId);
     const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(evLocal.lugar) : null;
-    const capCatalogo = Number(infoAud?.asientos || evLocal.capacidadTotal || 100) || 100;
+    const capCatalogo = Number(infoAud?.asientos || evLocal.capacidadTotal || meta.cap || 100) || 100;
+    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "";
 
+    const ocupadosCombinados = {};
+    let miAsientoDetectado = null;
+
+    // 1. Cargar reservas de administración desde CCMETA + localStorage
+    const resMap = { ...(meta.res || {}), ...(localState.res || {}) };
+    const seatsMap = { ...(meta.seats || {}), ...(localState.seats || {}) };
+
+    Object.entries(resMap).forEach(([cod, infoRes]) => {
+        const etiqueta = typeof infoRes === "string" ? infoRes : (infoRes?.etiqueta || "Reservado: Maestro / Invitado Especial");
+        ocupadosCombinados[cod] = {
+            asiento: cod,
+            estado: "reservado_admin",
+            etiqueta,
+            reservadoPor: infoRes?.reservadoPor || "Administración ETDA",
+            fechaApartado: infoRes?.fecha || null
+        };
+    });
+
+    // 2. Cargar asientos de alumnos guardados en CCMETA / localStorage
+    Object.entries(seatsMap).forEach(([emKey, val]) => {
+        const cod = typeof val === "string" ? val : val?.asiento;
+        if (!cod || ocupadosCombinados[cod]) return;
+        const esMio = Boolean(emailYo && emKey.toLowerCase() === emailYo);
+        if (esMio) miAsientoDetectado = cod;
+        ocupadosCombinados[cod] = {
+            asiento: cod,
+            estado: esMio ? "mio" : "ocupado_alumno",
+            esMio,
+            nombre: val?.nombre || (esMio ? (usuarioActual?.nombre || "Tú") : "Alumno Registrado"),
+            email: val?.email || emKey,
+            carrera: val?.carrera || "",
+            grupos: val?.grupos || [],
+            qrValidado: Boolean(val?.qrValidado || val?.asistio),
+            gpsValidado: Boolean(val?.gpsValidado || val?.asistio),
+            asistio: Boolean(val?.asistio),
+            fechaApartado: val?.fechaApartado || null
+        };
+    });
+
+    // 3. Intentar consultar endpoint nativo /mapa-asientos
     try {
         const data = await api(`/eventos/${eventoId}/mapa-asientos`);
-        const cap = Number(infoAud?.asientos || data.capacidadTotal || capCatalogo) || capCatalogo;
-        estadoMapaCine.capacidadTotal = cap;
-        estadoMapaCine.miAsiento = data.miAsiento || null;
-        estadoMapaCine.ocupadosPorCodigo = {};
-
-        (data.detalleAsientos || []).forEach(item => {
-            if (item && item.asiento) {
-                estadoMapaCine.ocupadosPorCodigo[item.asiento] = item;
-            }
-        });
-
-        if (eventosCache[eventoId]) {
-            const totOcup = Object.keys(estadoMapaCine.ocupadosPorCodigo).length;
-            eventosCache[eventoId].capacidadTotal = cap;
-            eventosCache[eventoId].asientosOcupados = totOcup;
-            eventosCache[eventoId].totalRegistrados = totOcup;
-            eventosCache[eventoId].miAsiento = estadoMapaCine.miAsiento;
-            eventosCache[eventoId].inscrito = Boolean(estadoMapaCine.miAsiento);
-            renderizarTarjetasEventos();
+        if (data && Array.isArray(data.detalleAsientos)) {
+            data.detalleAsientos.forEach(item => {
+                if (item && item.asiento) {
+                    ocupadosCombinados[item.asiento] = item;
+                    if (item.esMio || (emailYo && (item.email || "").toLowerCase() === emailYo)) {
+                        miAsientoDetectado = item.asiento;
+                    }
+                }
+            });
         }
+        if (data?.miAsiento) miAsientoDetectado = data.miAsiento;
+    } catch (_) {}
 
-        if (!estadoMapaCine.asientoSeleccionado && estadoMapaCine.miAsiento) {
-            estadoMapaCine.asientoSeleccionado = estadoMapaCine.miAsiento;
+    // 4. Sincronizar con GET /eventos/{id}/asistentes para reflejar todos los inscritos de PostgreSQL
+    try {
+        const listaAsis = await api(`/eventos/${eventoId}/asistentes`);
+        if (Array.isArray(listaAsis)) {
+            const usados = new Set(Object.keys(ocupadosCombinados));
+            listaAsis.forEach((a, idx) => {
+                const em = (a.email || "").toLowerCase();
+                let cod = (a.asiento && a.asiento !== "—")
+                    ? a.asiento
+                    : (typeof seatsMap[em] === "string" ? seatsMap[em] : seatsMap[em]?.asiento);
+
+                if (!cod) {
+                    let cIdx = idx;
+                    while (cIdx < capCatalogo) {
+                        const cand = generarCodigoAsientoCine(cIdx, 10);
+                        if (!usados.has(cand)) { cod = cand; break; }
+                        cIdx++;
+                    }
+                }
+                if (cod) {
+                    usados.add(cod);
+                    const esMio = Boolean(emailYo && em === emailYo);
+                    if (esMio) miAsientoDetectado = cod;
+                    const itemAlumno = {
+                        asiento: cod,
+                        asistenciaId: a.id,
+                        estado: esMio ? "mio" : "ocupado_alumno",
+                        esMio,
+                        nombre: a.nombre || "Alumno Registrado",
+                        email: a.email || "",
+                        matricula: a.matricula || "",
+                        carrera: a.carrera || "",
+                        grupos: a.grupos || [],
+                        qrValidado: Boolean(a.qr_validado || a.asistio),
+                        gpsValidado: Boolean(a.gps_validado || a.asistio),
+                        asistio: Boolean(a.asistio),
+                        fechaApartado: a.fecha_registro || seatsMap[em]?.fechaApartado || null
+                    };
+                    ocupadosCombinados[cod] = itemAlumno;
+                    if (em) seatsMap[em] = itemAlumno;
+                }
+            });
+            _guardarEstadoAsientosLocal(eventoId, resMap, seatsMap);
         }
+    } catch (_) {}
 
-        renderizarGridButacasCine();
-        renderizarInspectorAsientoCine();
-        if (mostrarToast) toast("Mapa de asientos sincronizado en tiempo real.", "info");
-    } catch (_) {
-        estadoMapaCine.capacidadTotal = capCatalogo;
-        renderizarGridButacasCine();
-        renderizarInspectorAsientoCine();
+    estadoMapaCine.capacidadTotal = capCatalogo;
+    estadoMapaCine.miAsiento = miAsientoDetectado;
+    estadoMapaCine.ocupadosPorCodigo = ocupadosCombinados;
+
+    if (eventosCache[eventoId]) {
+        const totOcup = Object.keys(ocupadosCombinados).length;
+        eventosCache[eventoId].capacidadTotal = capCatalogo;
+        eventosCache[eventoId].asientosOcupados = totOcup;
+        eventosCache[eventoId].totalRegistrados = totOcup;
+        eventosCache[eventoId].miAsiento = miAsientoDetectado;
+        eventosCache[eventoId].inscrito = Boolean(miAsientoDetectado || eventosCache[eventoId].inscrito);
+        renderizarTarjetasEventos();
     }
+
+    if (!estadoMapaCine.asientoSeleccionado && estadoMapaCine.miAsiento) {
+        estadoMapaCine.asientoSeleccionado = estadoMapaCine.miAsiento;
+    }
+
+    renderizarGridButacasCine();
+    renderizarInspectorAsientoCine();
+    if (mostrarToast) toast("Mapa de asientos sincronizado en tiempo real.", "info");
 }
 
 function renderizarGridButacasCine() {
@@ -1513,14 +1913,38 @@ function renderizarInspectorAsientoCine() {
 }
 
 async function confirmarApartadoAsientoWeb(codigoAsiento) {
-    if (!estadoMapaCine.eventoId) return;
+    const eventoId = estadoMapaCine.eventoId;
+    if (!eventoId) return;
+    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "usuario@unach.mx";
+    const nombreYo = (typeof usuarioActual !== "undefined" && usuarioActual?.nombre) ? usuarioActual.nombre : "Usuario UNACH";
+
     try {
-        const res = await api(`/eventos/${estadoMapaCine.eventoId}/registro`, {
-            method: "POST",
-            json: { asiento: codigoAsiento }
-        });
-        toast(res?.mensaje || `¡Asiento ${codigoAsiento} apartado con éxito!`, "exito");
+        try {
+            await api(`/eventos/${eventoId}/registro`, {
+                method: "POST",
+                json: { asiento: codigoAsiento }
+            });
+        } catch (errApi) {
+            if (!String(errApi.message || "").toLowerCase().includes("ya est")) {
+                throw errApi;
+            }
+        }
+
+        const localState = _leerEstadoAsientosLocal(eventoId);
+        localState.seats[emailYo] = {
+            asiento: codigoAsiento,
+            nombre: nombreYo,
+            email: emailYo,
+            esMio: true,
+            fechaApartado: new Date().toISOString()
+        };
+        _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+
+        estadoMapaCine.miAsiento = codigoAsiento;
+        estadoMapaCine.asientoSeleccionado = codigoAsiento;
         await refrescarMapaAsientosEnVivo(false);
+        await _persistirMetaAsientosEnEventoServidor(eventoId);
+        toast(`¡Asiento ${codigoAsiento} apartado con éxito!`, "exito");
     } catch (err) {
         toast(err.message || "No se pudo apartar el asiento.", "error");
         await refrescarMapaAsientosEnVivo(false);
@@ -1528,59 +1952,106 @@ async function confirmarApartadoAsientoWeb(codigoAsiento) {
 }
 
 async function cancelarMiAsientoDesdeMapa() {
-    if (!estadoMapaCine.eventoId) return;
+    const eventoId = estadoMapaCine.eventoId;
+    if (!eventoId) return;
+    const emailYo = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email.toLowerCase() : "";
     try {
-        await api(`/eventos/${estadoMapaCine.eventoId}/registro`, { method: "DELETE" });
+        try {
+            await api(`/eventos/${eventoId}/registro`, { method: "DELETE" });
+        } catch (_) {}
+
+        const localState = _leerEstadoAsientosLocal(eventoId);
+        if (emailYo) delete localState.seats[emailYo];
+        _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+
         estadoMapaCine.miAsiento = null;
-        toast("Tu asiento fue liberado correctamente.", "info");
+        if (eventosCache[eventoId]) {
+            eventosCache[eventoId].miAsiento = null;
+            eventosCache[eventoId].inscrito = false;
+        }
         await refrescarMapaAsientosEnVivo(false);
+        await _persistirMetaAsientosEnEventoServidor(eventoId);
+        toast("Tu asiento fue liberado correctamente.", "info");
     } catch (err) {
         toast(err.message || "Error al liberar el asiento.", "error");
     }
 }
 
 async function gestionarReservaIndividualAdmin(codigoAsiento, accion) {
-    if (!estadoMapaCine.eventoId) return;
+    const eventoId = estadoMapaCine.eventoId;
+    if (!eventoId) return;
     const etiqueta = (document.getElementById("cine-admin-etiqueta-input")?.value || "Reservado: Maestro / Invitado Especial").trim();
+    const emailAdmin = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email : "Administración ETDA";
+
+    const localState = _leerEstadoAsientosLocal(eventoId);
+    if (accion === "liberar") {
+        delete localState.res[codigoAsiento];
+        Object.keys(localState.seats).forEach(em => {
+            const c = typeof localState.seats[em] === "string" ? localState.seats[em] : localState.seats[em]?.asiento;
+            if (c === codigoAsiento) delete localState.seats[em];
+        });
+    } else {
+        localState.res[codigoAsiento] = {
+            etiqueta,
+            reservadoPor: emailAdmin,
+            fecha: new Date().toISOString()
+        };
+    }
+    _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+
     try {
-        await api(`/eventos/${estadoMapaCine.eventoId}/asientos-reservados`, {
+        await api(`/eventos/${eventoId}/asientos-reservados`, {
             method: "POST",
             json: { asiento: codigoAsiento, accion, etiqueta }
         });
-        toast(
-            accion === "liberar"
-                ? `Asiento ${codigoAsiento} liberado.`
-                : `Asiento ${codigoAsiento} reservado para ${etiqueta}.`,
-            "exito"
-        );
-        await refrescarMapaAsientosEnVivo(false);
-    } catch (err) {
-        toast(err.message || "No se pudo actualizar la reserva del asiento.", "error");
-    }
+    } catch (_) {}
+
+    await refrescarMapaAsientosEnVivo(false);
+    await _persistirMetaAsientosEnEventoServidor(eventoId);
+    toast(
+        accion === "liberar"
+            ? `Asiento ${codigoAsiento} liberado.`
+            : `Asiento ${codigoAsiento} reservado para ${etiqueta}.`,
+        "exito"
+    );
 }
 
 async function reservarFilaPrimeraMaestros() {
-    if (!estadoMapaCine.eventoId) return;
+    const eventoId = estadoMapaCine.eventoId;
+    if (!eventoId) return;
     const etiqueta = (document.getElementById("cine-admin-etiqueta-input")?.value || "Reservado: Maestro / Invitado Especial").trim();
+    const emailAdmin = (typeof usuarioActual !== "undefined" && usuarioActual?.email) ? usuarioActual.email : "Administración ETDA";
     const candidatos = ["A-01", "A-02", "A-03", "A-04", "A-05"].filter(c => !estadoMapaCine.ocupadosPorCodigo[c]);
     if (!candidatos.length) {
         toast("Los primeros 5 asientos de la Fila A ya están ocupados o reservados.", "alerta");
         return;
     }
+
+    const localState = _leerEstadoAsientosLocal(eventoId);
+    candidatos.forEach(c => {
+        localState.res[c] = {
+            etiqueta,
+            reservadoPor: emailAdmin,
+            fecha: new Date().toISOString()
+        };
+    });
+    _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+
     try {
-        await api(`/eventos/${estadoMapaCine.eventoId}/asientos-reservados`, {
+        await api(`/eventos/${eventoId}/asientos-reservados`, {
             method: "POST",
             json: { asientos: candidatos, accion: "reservar", etiqueta }
         });
-        toast(`Reservados ${candidatos.join(", ")} para invitados/maestros.`, "exito");
-        await refrescarMapaAsientosEnVivo(false);
-    } catch (err) {
-        toast(err.message || "Error al reservar asientos.", "error");
-    }
+    } catch (_) {}
+
+    await refrescarMapaAsientosEnVivo(false);
+    await _persistirMetaAsientosEnEventoServidor(eventoId);
+    toast(`Reservados ${candidatos.join(", ")} para invitados/maestros.`, "exito");
 }
 
 async function liberarTodosReservadosAdmin() {
-    if (!estadoMapaCine.eventoId) return;
+    const eventoId = estadoMapaCine.eventoId;
+    if (!eventoId) return;
     const reservados = Object.values(estadoMapaCine.ocupadosPorCodigo)
         .filter(x => x.estado === "reservado_admin")
         .map(x => x.asiento);
@@ -1588,14 +2059,19 @@ async function liberarTodosReservadosAdmin() {
         toast("No hay asientos reservados por administración en este evento.", "info");
         return;
     }
+
+    const localState = _leerEstadoAsientosLocal(eventoId);
+    localState.res = {};
+    _guardarEstadoAsientosLocal(eventoId, localState.res, localState.seats);
+
     try {
-        await api(`/eventos/${estadoMapaCine.eventoId}/asientos-reservados`, {
+        await api(`/eventos/${eventoId}/asientos-reservados`, {
             method: "POST",
             json: { asientos: reservados, accion: "liberar" }
         });
-        toast("Se liberaron los asientos reservados de administración.", "exito");
-        await refrescarMapaAsientosEnVivo(false);
-    } catch (err) {
-        toast(err.message || "Error al liberar reservas.", "error");
-    }
+    } catch (_) {}
+
+    await refrescarMapaAsientosEnVivo(false);
+    await _persistirMetaAsientosEnEventoServidor(eventoId);
+    toast("Se liberaron los asientos reservados de administración.", "exito");
 }

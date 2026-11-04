@@ -30,6 +30,8 @@ import com.example.campusconnect.ComposeLoginActivity
 import com.example.campusconnect.TokenManager
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
+import com.example.campusconnect.service.ServicioUbicacionAsistencia
+import kotlinx.coroutines.delay
 import retrofit2.HttpException
 
 // Paleta Oficial ETDA - UNACH Intacta (pública para todas las pantallas)
@@ -64,25 +66,39 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        try {
-            cargandoEventos = true
-            val respuesta = RetrofitClient.obtenerApi(context).obtenerEventos()
-            listaEventosReal = respuesta
-            errorEventos = null
-        } catch (e: HttpException) {
-            if (e.code() == 401 || e.code() == 403) {
-                TokenManager.cerrarSesion(context)
-                val intent = Intent(context, ComposeLoginActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        // Iniciar monitor automático en segundo plano para notificaciones de 30m, fin de evento y cartelera
+        ServicioUbicacionAsistencia.iniciarMonitorEnSegundoPlano(context)
+
+        var primeraCarga = true
+        while (true) {
+            try {
+                if (primeraCarga) cargandoEventos = true
+                val respuesta = RetrofitClient.obtenerApi(context).obtenerEventos()
+                ServicioUbicacionAsistencia.procesarEventosYNotificacionesAutomaticas(context, respuesta)
+                listaEventosReal = respuesta.filter { it.estaVigenteEnTiempoReal() }
+                errorEventos = null
+            } catch (e: HttpException) {
+                if (e.code() == 401 || e.code() == 403) {
+                    TokenManager.cerrarSesion(context)
+                    val intent = Intent(context, ComposeLoginActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    }
+                    context.startActivity(intent)
+                    break
+                } else if (primeraCarga) {
+                    errorEventos = "No se pudieron conectar los eventos del servidor (${e.code()})"
                 }
-                context.startActivity(intent)
-            } else {
-                errorEventos = "No se pudieron conectar los eventos del servidor (${e.code()})"
+            } catch (e: Exception) {
+                if (primeraCarga) {
+                    errorEventos = "No se pudieron conectar los eventos del servidor"
+                }
+            } finally {
+                if (primeraCarga) {
+                    cargandoEventos = false
+                    primeraCarga = false
+                }
             }
-        } catch (e: Exception) {
-            errorEventos = "No se pudieron conectar los eventos del servidor"
-        } finally {
-            cargandoEventos = false
+            delay(8_000L)
         }
     }
 

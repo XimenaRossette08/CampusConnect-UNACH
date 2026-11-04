@@ -50,6 +50,7 @@ import com.example.campusconnect.MyFirebaseMessagingService
 import com.example.campusconnect.model.ArchivoEvento
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
+import com.example.campusconnect.service.ServicioUbicacionAsistencia
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -208,30 +209,14 @@ private fun generarCodigoAsientoCineApp(indiceBase0: Int, cols: Int = 10): Strin
 }
 
 private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscritosIds: Set<String>) {
-    val estaInscrito = (ev.inscrito == true) || inscritosIds.contains(ev.id)
-    if (!estaInscrito) return
-
-    val ahora = Instant.now()
-    val finInstant = parsearInstanteEventoMx(ev.fechaFin)
-        ?: parsearInstanteEventoMx(ev.fechaHora)?.plus(Duration.ofHours(4))
-        ?: return
-
-    val segundosRestantes = Duration.between(ahora, finInstant).seconds
-    if (segundosRestantes in 1..1800) {
-        val prefs = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
-        val firmaFin = ev.fechaFin ?: ev.fechaHora
-        val clave = "notificado_aviso_30m_fin_${ev.id}_$firmaFin"
-        if (!prefs.getBoolean(clave, false)) {
-            prefs.edit().putBoolean(clave, true).apply()
-            val minRestantes = ((segundosRestantes + 59) / 60).coerceAtLeast(1)
-            MyFirebaseMessagingService.mostrarNotificacion(
-                context = context,
-                titulo = "⏳ Últimos $minRestantes min: ${ev.titulo}",
-                cuerpo = "El evento en ${ev.lugar} está por finalizar. ¡No olvides confirmar tu asistencia!",
-                notifId = ("fin30_${ev.id}").hashCode()
-            )
-        }
-    }
+    ServicioUbicacionAsistencia.verificarAviso30MinUnico(
+        context = context,
+        eventoId = ev.id,
+        titulo = ev.titulo,
+        lugar = ev.lugar,
+        fechaFinEfectiva = ev.fechaFinEfectiva,
+        fechaHoraInicio = ev.fechaHora
+    )
 }
 
 private fun dispararNotificacionEventoFinalizado(
@@ -326,7 +311,7 @@ fun EventosScreen(
         val serializados = cacheEventosVistos.values.map { ev ->
             val titLimpio = ev.titulo.replace("|||", " ")
             val lugLimpio = ev.lugar.replace("|||", " ")
-            val finStr = (ev.fechaFin ?: "").replace("|||", "")
+            val finStr = (ev.fechaFinEfectiva ?: "").replace("|||", "")
             val iniStr = ev.fechaHora.replace("|||", "")
             "${ev.id}|||$titLimpio|||$lugLimpio|||$finStr|||$iniStr"
         }.toSet()
@@ -390,7 +375,7 @@ fun EventosScreen(
         // 2. Revisar si algún evento que estaba activo en cacheEventosVistos acaba de finalizar
         var cambioCacheVistos = false
         for ((idPrevio, evPrevio) in cacheEventosVistos.entries.toList()) {
-            val finInstant = parsearInstanteEventoMx(evPrevio.fechaFin)
+            val finInstant = parsearInstanteEventoMx(evPrevio.fechaFinEfectiva)
                 ?: parsearInstanteEventoMx(evPrevio.fechaHora)?.plus(Duration.ofHours(4))
             val segundosParaFin = if (finInstant != null) Duration.between(ahora, finInstant).seconds else 0L
             val yaAlcanzoHoraFin = finInstant != null && !ahora.isBefore(finInstant)
@@ -403,7 +388,7 @@ fun EventosScreen(
                     eventoId = evPrevio.id,
                     titulo = evPrevio.titulo,
                     lugar = evPrevio.lugar,
-                    firmaFin = evPrevio.fechaFin ?: evPrevio.fechaHora
+                    firmaFin = evPrevio.fechaFinEfectiva ?: evPrevio.fechaHora
                 )
                 cacheEventosVistos.remove(idPrevio)
                 cambioCacheVistos = true
@@ -425,7 +410,7 @@ fun EventosScreen(
         if (idsConocidos == null) {
             val iniciales = mutableSetOf<String>()
             for (ev in vigentes) {
-                val disp = parsearInstanteEventoMx(ev.disponibleDesde)
+                val disp = parsearInstanteEventoMx(ev.disponibleDesdeEfectivo)
                 val aparecioRecien = disp != null && Duration.between(disp, ahora).seconds in 0..300
                 if (aparecioRecien) {
                     val clave = "notificado_evento_disponible_${ev.id}"
@@ -450,7 +435,7 @@ fun EventosScreen(
         for (ev in vigentes) {
             val claveAparicion = "notificado_evento_disponible_${ev.id}"
             val esNuevoEnFeed = !nuevosConocidos.contains(ev.id)
-            val disp = parsearInstanteEventoMx(ev.disponibleDesde)
+            val disp = parsearInstanteEventoMx(ev.disponibleDesdeEfectivo)
             val aparecioRecien = disp != null && Duration.between(disp, ahora).seconds in 0..300
 
             if ((esNuevoEnFeed || aparecioRecien) && !prefsNotif.getBoolean(claveAparicion, false)) {
@@ -473,10 +458,29 @@ fun EventosScreen(
             val claveLugar = ev.lugar.trim().lowercase()
             val capCat = mapaAuditoriosCatalogo[claveLugar]
                 ?: mapaAuditoriosCatalogo.entries.firstOrNull { claveLugar.startsWith(it.key) || it.key in claveLugar }?.value
-                ?: ev.capacidadTotal
-                ?: 100
+                ?: ev.cupoMaximo
             val miAsientoLocal = ev.miAsiento ?: prefsNotif.getString("mi_asiento_${ev.id}", null)
-            ev.copy(capacidadTotal = capCat, miAsiento = miAsientoLocal)
+            val tomadosLocalSet = prefsNotif.getStringSet("asientos_tomados_${ev.id}", emptySet()) ?: emptySet()
+            val todosTomados = (ev.asientosTomadosEfectivos + tomadosLocalSet + listOfNotNull(miAsientoLocal)).distinct()
+            val minOcupLocal = prefsNotif.getInt("ocupados_min_${ev.id}", 0)
+            val estaInsc = (ev.inscrito == true) || !miAsientoLocal.isNullOrBlank() || eventosInscritosIds.contains(ev.id)
+            val ocupadosCalc = maxOf(
+                ev.lugaresOcupados,
+                todosTomados.size,
+                minOcupLocal,
+                if (estaInsc) 1 else 0
+            ).coerceIn(0, capCat)
+
+            ev.copy(
+                capacidadTotal = capCat,
+                miAsiento = miAsientoLocal,
+                inscrito = estaInsc,
+                asientosOcupados = ocupadosCalc,
+                asientosTomados = todosTomados,
+                asientosReservadosAdmin = ev.asientosReservadosAdminEfectivos,
+                disponibleDesde = ev.disponibleDesdeEfectivo,
+                fechaFin = ev.fechaFinEfectiva
+            )
         }
     }
 
@@ -518,41 +522,48 @@ fun EventosScreen(
         }
     }
 
-    // Reloj local de alta precisión (cada 2 segundos) para disparar la notificación de evento finalizado
-    // en el segundo exacto en que se cumple fechaFin sin esperar al siguiente ciclo de red
+    // Reloj local de alta precisión (cada 1 segundo) que actualiza pulsoReloj incondicionalmente,
+    // retira eventos finalizados al instante y dispara las notificaciones de 30m y fin sin tocar la pantalla
     LaunchedEffect(Unit) {
+        ServicioUbicacionAsistencia.iniciarMonitorEnSegundoPlano(context)
         while (true) {
             val ahora = Instant.now()
             var huboExpiradoLocal = false
-            for ((idPrevio, evPrevio) in cacheEventosVistos.entries.toList()) {
-                val finInstant = parsearInstanteEventoMx(evPrevio.fechaFin)
-                    ?: parsearInstanteEventoMx(evPrevio.fechaHora)?.plus(Duration.ofHours(4))
+
+            // 1. Revisar todos los eventos en memoria y en caché
+            val todosParaRevisar = (cacheEventosVistos.values + eventosServidor + eventos).associateBy { it.id }
+            for ((idEv, evObj) in todosParaRevisar) {
+                val finInstant = parsearInstanteEventoMx(evObj.fechaFinEfectiva)
+                    ?: parsearInstanteEventoMx(evObj.fechaHora)?.plus(Duration.ofHours(4))
                 if (finInstant != null && !ahora.isBefore(finInstant)) {
                     dispararNotificacionEventoFinalizado(
                         context = context,
-                        eventoId = evPrevio.id,
-                        titulo = evPrevio.titulo,
-                        lugar = evPrevio.lugar,
-                        firmaFin = evPrevio.fechaFin ?: evPrevio.fechaHora
+                        eventoId = evObj.id,
+                        titulo = evObj.titulo,
+                        lugar = evObj.lugar,
+                        firmaFin = evObj.fechaFinEfectiva ?: evObj.fechaHora
                     )
-                    cacheEventosVistos.remove(idPrevio)
-                    huboExpiradoLocal = true
-                    if (eventosInscritosIds.contains(idPrevio)) {
-                        persistirInscritosActivos(eventosInscritosIds - idPrevio)
+                    if (cacheEventosVistos.containsKey(idEv)) {
+                        cacheEventosVistos.remove(idEv)
+                        huboExpiradoLocal = true
+                    }
+                    if (eventosInscritosIds.contains(idEv)) {
+                        persistirInscritosActivos(eventosInscritosIds - idEv)
                     }
                 } else {
-                    verificarYDispararAviso30MinFin(context, evPrevio, eventosInscritosIds)
+                    verificarYDispararAviso30MinFin(context, evObj, eventosInscritosIds)
                 }
             }
             if (huboExpiradoLocal) {
                 persistirCacheEventosVistos()
-                pulsoReloj = System.currentTimeMillis()
+                eventosServidor = eventosServidor.filter { it.estaVigenteEnTiempoReal() }
             }
-            delay(2_000L)
+            pulsoReloj = System.currentTimeMillis()
+            delay(1_000L)
         }
     }
 
-    // Sincronización automática al abrir la pantalla y actualización periódica cada 15 segundos
+    // Sincronización automática en segundo plano cada 6 segundos sin necesidad de refrescar manualmente
     LaunchedEffect(Unit) {
         while (true) {
             try {
@@ -571,6 +582,7 @@ fun EventosScreen(
                     RetrofitClient.obtenerApi(context).obtenerEventos()
                 }
                 val remotos = aplicarCapacidadCatalogoAEventos(remotosCrudos)
+                ServicioUbicacionAsistencia.procesarEventosYNotificacionesAutomaticas(context, remotos)
                 evaluarNotificacionesYSincronizarInscritos(remotos)
                 eventosServidor = remotos
                 yaSincronizoConServidor = true
@@ -578,14 +590,14 @@ fun EventosScreen(
             } catch (_: Exception) {
             }
             pulsoReloj = System.currentTimeMillis()
-            delay(15_000L)
+            delay(6_000L)
         }
     }
 
-    // Lista de eventos vigentes en tiempo real
+    // Lista de eventos vigentes en tiempo real evaluada cada segundo con pulsoReloj
     val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor, pulsoReloj) {
-        val base = if (yaSincronizoConServidor) eventosServidor else eventos
-        base.filter { it.estaVigenteEnTiempoReal() }
+        val base = if (yaSincronizoConServidor) eventosServidor else aplicarCapacidadCatalogoAEventos(eventos)
+        base.filter { it.estaVigenteEnTiempoReal(pulsoReloj) }
     }
 
     // Limpieza inmediata de eventosInscritosIds cada vez que cambia listaEventosActiva (ej. al vencer la hora de fin)
@@ -683,10 +695,17 @@ fun EventosScreen(
                 scope.launch {
                     try {
                         withContext(Dispatchers.IO) {
-                            RetrofitClient.obtenerApi(context).validarQrEvento(
+                            val api = RetrofitClient.obtenerApi(context)
+                            val respQr = api.validarQrEvento(
                                 eventoId = idEscaneado,
                                 body = mapOf("codigo_qr" to codigoCrudo)
                             )
+                            if (!respQr.isSuccessful) {
+                                api.registrarAsistenciaEvento(
+                                    eventoId = idEscaneado,
+                                    body = mapOf("codigo_qr" to codigoCrudo)
+                                )
+                            }
                         }
                         recargarEventosDesdeServidor(mostrarMensaje = false)
                     } catch (_: Exception) {}
@@ -1259,15 +1278,22 @@ fun EventosScreen(
                             if (resp.isSuccessful) {
                                 val actualizados = eventosInscritosIds - evento.id
                                 persistirInscritosActivos(actualizados)
-                                prefsNotif.edit().remove("mi_asiento_${evento.id}").apply()
+                                val prevTomados = (prefsNotif.getStringSet("asientos_tomados_${evento.id}", emptySet()) ?: emptySet()).toMutableSet()
+                                if (!asientoGuardado.isNullOrBlank()) prevTomados.remove(asientoGuardado)
+                                val nuevoOcupMin = (evento.lugaresOcupados - 1).coerceAtLeast(0)
+                                prefsNotif.edit()
+                                    .remove("mi_asiento_${evento.id}")
+                                    .putStringSet("asientos_tomados_${evento.id}", prevTomados)
+                                    .putInt("ocupados_min_${evento.id}", nuevoOcupMin)
+                                    .apply()
 
                                 eventosServidor = eventosServidor.map { item ->
                                     if (item.id == evento.id) {
                                         item.copy(
                                             inscrito = false,
                                             miAsiento = null,
-                                            asientosOcupados = (item.lugaresOcupados - 1).coerceAtLeast(0),
-                                            asientosTomados = item.asientosTomados?.filterNot { it == asientoGuardado }
+                                            asientosOcupados = nuevoOcupMin,
+                                            asientosTomados = item.asientosTomadosEfectivos.filterNot { it == asientoGuardado }
                                         )
                                     } else item
                                 }
@@ -1301,17 +1327,23 @@ fun EventosScreen(
                             if (resp.isSuccessful) {
                                 val actualizados = eventosInscritosIds + evCine.id
                                 persistirInscritosActivos(actualizados)
-                                prefsNotif.edit().putString("mi_asiento_${evCine.id}", codigoElegido).apply()
+                                val prevTomados = (prefsNotif.getStringSet("asientos_tomados_${evCine.id}", emptySet()) ?: emptySet()).toMutableSet()
+                                prevTomados.add(codigoElegido)
+                                val nuevosTomadosGlobal = (evCine.asientosTomadosEfectivos + prevTomados + codigoElegido).distinct()
+                                val ocupadosNuevos = maxOf(evCine.lugaresOcupados + 1, nuevosTomadosGlobal.size)
+                                prefsNotif.edit()
+                                    .putString("mi_asiento_${evCine.id}", codigoElegido)
+                                    .putStringSet("asientos_tomados_${evCine.id}", nuevosTomadosGlobal.toSet())
+                                    .putInt("ocupados_min_${evCine.id}", ocupadosNuevos)
+                                    .apply()
 
                                 eventosServidor = eventosServidor.map { item ->
                                     if (item.id == evCine.id) {
-                                        val nuevosTomados = (item.asientosTomados.orEmpty() + codigoElegido).distinct()
-                                        val ocupadosNuevos = maxOf(item.lugaresOcupados + 1, nuevosTomados.size)
                                         item.copy(
                                             inscrito = true,
                                             miAsiento = codigoElegido,
                                             asientosOcupados = ocupadosNuevos,
-                                            asientosTomados = nuevosTomados
+                                            asientosTomados = nuevosTomadosGlobal
                                         )
                                     } else item
                                 }
@@ -1523,7 +1555,7 @@ private fun TarjetaEventoAnimada(
 
     val catInfo = detectarCategoriaEvento(evento)
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
-    val horaFinTxt = parsearZonedDateTimeMx(evento.fechaFin)?.let {
+    val horaFinTxt = parsearZonedDateTimeMx(evento.fechaFinEfectiva)?.let {
         String.format(Locale.US, "%02d:%02d", it.hour, it.minute)
     }
     val miAsiento = evento.miAsiento ?: prefsNotif.getString("mi_asiento_${evento.id}", null)
@@ -1676,7 +1708,28 @@ private fun TarjetaEventoAnimada(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val progresoCard by animateFloatAsState(
+                    targetValue = evento.porcentajeOcupacion,
+                    animationSpec = tween(250),
+                    label = "progresoCard"
+                )
+                LinearProgressIndicator(
+                    progress = { progresoCard },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = when {
+                        agotado -> Color(0xFFDC2626)
+                        evento.porcentajeOcupacion >= 0.85f -> EtdaOrange
+                        else -> EtdaBlue
+                    },
+                    trackColor = Color(0xFFE2E8F0)
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1773,8 +1826,8 @@ private fun DetalleEventoSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val catInfo = detectarCategoriaEvento(evento)
     val (mesTxt, diaTxt, horaTxt) = extraerFechaVisual(evento.fechaHora)
-    val (horarioInicioTexto, horarioFinTexto) = remember(evento.fechaHora, evento.fechaFin) {
-        extraerHorarioInicioYFin(evento.fechaHora, evento.fechaFin)
+    val (horarioInicioTexto, horarioFinTexto) = remember(evento.fechaHora, evento.fechaFinEfectiva) {
+        extraerHorarioInicioYFin(evento.fechaHora, evento.fechaFinEfectiva)
     }
 
     val capacidad = evento.cupoMaximo
@@ -2188,7 +2241,7 @@ private fun DetalleEventoSheet(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = evento.descripcion,
+                        text = evento.descripcionLimpia,
                         color = Color(0xFF475569),
                         fontSize = 12.5.sp,
                         lineHeight = 18.sp
@@ -2404,11 +2457,30 @@ private fun ModalSelectorAsientosCine(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var cargandoMapa by remember { mutableStateOf(true) }
+    val prefsCine = remember { context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE) }
+    val miAsientoInicial = evento.miAsiento ?: prefsCine.getString("mi_asiento_${evento.id}", null)
+    val reservadosInicial = evento.asientosReservadosAdminEfectivos.toSet()
+    val tomadosInicial = remember(evento, miAsientoInicial) {
+        val base = (evento.asientosTomadosEfectivos + (prefsCine.getStringSet("asientos_tomados_${evento.id}", emptySet()) ?: emptySet())).toMutableSet()
+        base.removeAll(reservadosInicial)
+        val faltantes = (evento.lugaresOcupados - (base.size + reservadosInicial.size)).coerceAtLeast(0)
+        var idx = 0
+        var agregados = 0
+        while (agregados < faltantes && idx < evento.cupoMaximo) {
+            val cod = generarCodigoAsientoCineApp(idx, 10)
+            if (!base.contains(cod) && !reservadosInicial.contains(cod) && cod != miAsientoInicial) {
+                base.add(cod)
+                agregados++
+            }
+            idx++
+        }
+        base.toSet()
+    }
     var capacidadRecinto by remember { mutableIntStateOf(evento.cupoMaximo) }
-    var miAsientoActual by remember { mutableStateOf(evento.miAsiento) }
-    var asientosOcupadosAlumnos by remember { mutableStateOf(evento.asientosTomados.orEmpty().toSet()) }
-    var asientosReservadosMaestros by remember { mutableStateOf(evento.asientosReservadosAdmin.orEmpty().toSet()) }
-    var asientoElegido by remember { mutableStateOf<String?>(evento.miAsiento) }
+    var miAsientoActual by remember { mutableStateOf(miAsientoInicial) }
+    var asientosOcupadosAlumnos by remember { mutableStateOf(tomadosInicial) }
+    var asientosReservadosMaestros by remember { mutableStateOf(reservadosInicial) }
+    var asientoElegido by remember { mutableStateOf<String?>(miAsientoInicial) }
 
     LaunchedEffect(evento.id) {
         cargandoMapa = true

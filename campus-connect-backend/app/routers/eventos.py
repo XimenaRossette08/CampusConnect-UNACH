@@ -1,3 +1,4 @@
+import math
 import json
 import re
 import unicodedata
@@ -920,11 +921,39 @@ def eliminar_archivo(
     return {"mensaje": "Archivo eliminado."}
 
 
+
+SEDES_UNACH_COORDS = [
+    (16.7542, -93.1538),  # ETDA / Edificio Principal Campus I
+    (16.7529, -93.1526),  # Auditorio Los Constituyentes / Biblioteca Central Campus I
+    (16.7551, -93.1549),  # Zona Norte Campus I UNACH
+]
+RADIO_PERMITIDO_METROS = 280.0
+
+
+def _distancia_haversine_metros(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
+    return 2.0 * r * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+
+
+def _esta_dentro_del_recinto_unach(lat: Optional[float], lon: Optional[float]) -> Tuple[bool, float]:
+    if lat is None or lon is None:
+        return False, 999999.0
+    distancias = [_distancia_haversine_metros(lat, lon, slat, slon) for slat, slon in SEDES_UNACH_COORDS]
+    menor = min(distancias) if distancias else 999999.0
+    return (menor <= RADIO_PERMITIDO_METROS), menor
+
+
 class ApartarAsientoRequest(BaseModel):
     asiento: Optional[str] = None
     codigo_qr: Optional[str] = None
     latitud: Optional[float] = None
     longitud: Optional[float] = None
+    asistio: Optional[bool] = None
 
 
 class PingGpsEventoRequest(BaseModel):
@@ -966,18 +995,42 @@ def apartar_asiento_e_inscribir(
     filas_actuales, reservados_admin = _asegurar_asientos_asignados_en_evento(db, evento, capacidad_maxima)
     ya = next((f for f in filas_actuales if f.usuario_id == usuario.id), None)
 
-    # Cada alumno solo tiene derecho a apartar 1 lugar
+    # Si ya está inscrito, permitir actualizar validación QR/GPS o asignar asiento si no tenía
     if ya is not None:
+        hubo_mod = False
+        if datos and datos.asiento:
+            cod_sol = _normalizar_codigo_asiento(datos.asiento)
+            ocupados_otros = (set(reservados_admin.keys()) | {
+                _normalizar_codigo_asiento(f.asiento_codigo) for f in filas_actuales if f.id != ya.id and f.asiento_codigo
+            })
+            if cod_sol and cod_sol in codigos_validos and cod_sol not in ocupados_otros and ya.asiento_codigo != cod_sol:
+                ya.asiento_codigo = cod_sol
+                hubo_mod = True
+        if datos and datos.codigo_qr and str(evento.id).lower() in datos.codigo_qr.lower():
+            ya.qr_validado = True
+            hubo_mod = True
+        if datos and datos.asistio is True and datos.latitud is not None and datos.longitud is not None:
+            dentro, _ = _esta_dentro_del_recinto_unach(datos.latitud, datos.longitud)
+            if dentro:
+                ya.qr_validado = True
+                ya.gps_validado = True
+                ya.asistio = True
+                hubo_mod = True
+        if hubo_mod:
+            db.commit()
+            db.refresh(ya)
+
         ocupados_totales = min(capacidad_maxima, len(filas_actuales) + len(reservados_admin))
         disponibles = max(0, capacidad_maxima - ocupados_totales)
         qr_ok = bool(getattr(ya, "qr_validado", False) or ya.asistio)
         gps_ok = bool(getattr(ya, "gps_validado", False) or ya.asistio)
         return {
-            "mensaje": f"Ya tienes apartado el asiento {ya.asiento_codigo}. Cada alumno solo puede apartar 1 lugar.",
+            "mensaje": f"Asiento {ya.asiento_codigo} confirmado.",
             "inscrito": True,
             "miAsiento": ya.asiento_codigo,
             "validacionQr": qr_ok,
             "validacionGps": gps_ok,
+            "asistio": bool(ya.asistio),
             "pasosValidacion": 2 if (qr_ok and gps_ok) else (1 if qr_ok else 0),
             "capacidadTotal": capacidad_maxima,
             "asientosOcupados": ocupados_totales,
@@ -1145,6 +1198,24 @@ def registrar_ping_gps_permanencia(
             status_code=400,
             detail="Primero debes apartar tu asiento y escanear el código QR oficial del evento.",
         )
+
+    dentro_recinto, distancia_m = _esta_dentro_del_recinto_unach(datos.latitud, datos.longitud)
+    cat_norm = _normalizar_nombre_categoria(evento.categoria, evento.titulo, evento.descripcion)
+
+    if not dentro_recinto:
+        return {
+            "mensaje": f"Te encuentras fuera del recinto UNACH ({int(round(distancia_m))} m). Acércate a la sede para validar tu permanencia GPS.",
+            "eventoId": str(evento.id),
+            "miAsiento": fila.asiento_codigo,
+            "validacionQr": bool(getattr(fila, "qr_validado", False)),
+            "validacionGps": False,
+            "asistio": False,
+            "dentroDelRecinto": False,
+            "distanciaMetros": round(distancia_m, 1),
+            "pasosValidacion": 1 if getattr(fila, "qr_validado", False) else 0,
+            "pingsGps": int(getattr(fila, "pings_gps", 0) or 0),
+            "categoria": cat_norm,
+        }
 
     ahora = ahora_utc()
     pings_previos = int(getattr(fila, "pings_gps", 0) or 0)

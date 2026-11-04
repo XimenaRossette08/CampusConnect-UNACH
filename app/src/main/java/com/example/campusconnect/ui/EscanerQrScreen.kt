@@ -1,6 +1,7 @@
 package com.example.campusconnect.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -160,9 +161,16 @@ fun EscanerQrScreen(
                                         idEventoExtraido = idFinal
                                         qrDetectado = codigo
 
+                                        // Persistir Validación 1/2 inmediatamente antes de arrancar el servicio GPS
+                                        val prefsNotif = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
+                                        val setQr1 = (prefsNotif.getStringSet("eventos_qr_1de2_set", emptySet()) ?: emptySet()).toMutableSet()
+                                        setQr1.add(idFinal)
+                                        prefsNotif.edit().putStringSet("eventos_qr_1de2_set", setQr1).apply()
+
                                         onQrValidadoConExito(idFinal, codigo)
 
                                         val intentServicio = Intent(context, ServicioUbicacionAsistencia::class.java).apply {
+                                            action = ServicioUbicacionAsistencia.ACCION_INICIAR_RASTREO_QR
                                             putExtra("EVENTO_ID", idFinal)
                                             putExtra("EVENTO_TITULO", eventoObjetivo?.titulo ?: "Evento Académico UNACH")
                                             putExtra("EVENTO_CATEGORIA", eventoObjetivo?.categoria ?: "Académicos")
@@ -388,7 +396,7 @@ fun EscanerQrScreen(
                         }
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            "¡QR Verificado y Asiento Asignado!",
+                            "¡QR Oficial Verificado!",
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 19.sp,
                             color = EtdaNavy,
@@ -396,7 +404,7 @@ fun EscanerQrScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "El evento ya aparece en tu pestaña 'Mis Inscritos'. Ahora el sistema verificará tu permanencia por GPS (Validación 2 de 2) para acreditarte +1 en ${eventoObjetivo?.categoria ?: "tu insignia"}.",
+                            text = "Ahora el sistema comprobará que te encuentres dentro del recinto en Campus I UNACH por GPS (Validación 2 de 2) para acreditarte +1 en ${eventoObjetivo?.categoria ?: "tu insignia"}.",
                             textAlign = TextAlign.Center,
                             fontSize = 13.sp,
                             lineHeight = 18.sp,

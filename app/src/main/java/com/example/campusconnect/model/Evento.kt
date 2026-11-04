@@ -86,8 +86,9 @@ data class Evento(
                 Instant.parse(limpio)
             } catch (_: Exception) {
                 try {
-                    val norm = if (limpio.length == 16) "${limpio}:00" else limpio.take(19)
-                    LocalDateTime.parse(norm).atZone(zoneMx).toInstant()
+                    val norm = limpio.replace(" ", "T").take(19)
+                    val padded = if (norm.length == 16) "$norm:00" else norm
+                    LocalDateTime.parse(padded).atZone(zoneMx).toInstant()
                 } catch (_: Exception) {
                     null
                 }
@@ -95,3 +96,18 @@ data class Evento(
         }
     }
 }
+
+/** Lo que se manda al crear un evento (POST /eventos/); sin id ni organizador. */
+data class EventoCreateRequest(
+    val titulo: String,
+    val descripcion: String,
+    val fechaHora: String,
+    val disponibleDesde: String? = null,
+    val fechaFin: String? = null,
+    val lugar: String,
+    val categoria: String? = null,
+    val esGeneral: Boolean,
+    val idFacultadDestino: String? = null,
+    val idCarreraDestino: String? = null,
+    val gruposDestino: List<String>? = null
+)

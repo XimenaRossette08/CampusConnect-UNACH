@@ -986,3 +986,616 @@ async function descargarPDFDe(eventoId) {
 function descargarAsistenciaPDF() {
     if (asistentesActual) descargarPDFDe(asistentesActual.id);
 }
+
+// ============================================================================
+// GENERACIÓN AUTOMÁTICA DE CÓDIGO QR OFICIAL POR EVENTO (VER, DESCARGAR, COMPARTIR E IMPRIMIR)
+// ============================================================================
+let eventoQrActual = null;
+
+function obtenerPayloadQrOficialEvento(ev) {
+    if (!ev) return "";
+    return ev.qrCodigo || ev.qr_codigo || `CCUNACH|EVENTO|${ev.id}`;
+}
+
+function abrirModalQrEvento(eventoId) {
+    const ev = eventosCache[eventoId];
+    if (!ev) {
+        toast("No se encontró la información del evento.", "alerta");
+        return;
+    }
+    eventoQrActual = ev;
+    const codigoQr = obtenerPayloadQrOficialEvento(ev);
+    const catInfo = detectarCategoriaEventoWeb(ev);
+    const fInicio = extraerFechaVisualWeb(ev.fechaHora);
+    const hInd = _obtenerHorarioIndividualEvento(ev);
+    const textoFin = hInd.fechaFin
+        ? new Date(hInd.fechaFin).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })
+        : "4 horas después del inicio";
+
+    const elCat = document.getElementById("qr-modal-categoria");
+    if (elCat) {
+        elCat.innerText = (ev.categoria || catInfo.nombre || "ACADÉMICOS").toUpperCase();
+        elCat.style.backgroundColor = catInfo.color || "#122652";
+    }
+    const elTit = document.getElementById("qr-modal-titulo");
+    if (elTit) elTit.innerText = ev.titulo || "Evento Académico UNACH";
+
+    const cupo = _calcularEstadoAsientosEvento(ev);
+    const elLug = document.getElementById("qr-modal-lugar");
+    if (elLug) elLug.innerText = `📍 ${ev.lugar || "Campus I"} (${cupo.disponibles} disponibles de ${cupo.capacidad} asientos)`;
+
+    const elHor = document.getElementById("qr-modal-horario");
+    if (elHor) elHor.innerText = `🕒 Inicio: ${fInicio.completo}  •  Fin: ${textoFin}`;
+
+    const elCod = document.getElementById("qr-modal-codigo-texto");
+    if (elCod) elCod.innerText = codigoQr;
+
+    const lienzo = document.getElementById("qr-evento-lienzo");
+    if (lienzo) {
+        lienzo.innerHTML = "";
+        if (typeof QRCode !== "undefined") {
+            new QRCode(lienzo, {
+                text: codigoQr,
+                width: 210,
+                height: 210,
+                colorDark: "#122652",
+                colorLight: "#FFFFFF",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+        } else {
+            const urlApiQr = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&color=122652&bgcolor=FFFFFF&data=${encodeURIComponent(codigoQr)}`;
+            lienzo.innerHTML = `<img src="${urlApiQr}" alt="QR ${esc(ev.titulo)}" crossorigin="anonymous" class="w-[210px] h-[210px] object-contain">`;
+        }
+    }
+
+    document.getElementById("modal-qr-evento")?.classList.remove("hidden");
+}
+
+function cerrarModalQrEvento() {
+    document.getElementById("modal-qr-evento")?.classList.add("hidden");
+}
+
+function _obtenerDataUrlQrActual() {
+    const lienzo = document.getElementById("qr-evento-lienzo");
+    if (!lienzo) return null;
+    const canvasQr = lienzo.querySelector("canvas");
+    const imgQr = lienzo.querySelector("img");
+    if (canvasQr) return canvasQr.toDataURL("image/png");
+    if (imgQr && imgQr.src) return imgQr.src;
+    return null;
+}
+
+function descargarQrEventoPNG() {
+    if (!eventoQrActual) return;
+    const dataUrl = _obtenerDataUrlQrActual();
+    if (!dataUrl) {
+        toast("No se pudo generar la imagen del QR.", "error");
+        return;
+    }
+
+    const a = document.createElement("a");
+    const slug = (eventoQrActual.titulo || "evento").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+    a.href = dataUrl;
+    a.download = `qr-asistencia-${slug}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast("Código QR descargado en formato PNG.", "exito");
+}
+
+async function compartirQrEvento() {
+    if (!eventoQrActual) return;
+    const dataUrl = _obtenerDataUrlQrActual();
+    const codigoQr = obtenerPayloadQrOficialEvento(eventoQrActual);
+    const fInicio = extraerFechaVisualWeb(eventoQrActual.fechaHora);
+    const textoCompartir = `🎓 Código QR Oficial de Asistencia — ${eventoQrActual.titulo}\n📍 Sede: ${eventoQrActual.lugar || "Campus I UNACH"}\n🕒 Inicio: ${fInicio.completo}\n🔑 Código: ${codigoQr}`;
+
+    try {
+        if (dataUrl && dataUrl.startsWith("data:image/")) {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            const archivo = new File([blob], "qr-evento-unach.png", { type: "image/png" });
+
+            if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+                await navigator.share({
+                    title: `QR Oficial — ${eventoQrActual.titulo}`,
+                    text: textoCompartir,
+                    files: [archivo]
+                });
+                toast("Código QR compartido con éxito.", "exito");
+                return;
+            }
+
+            if (navigator.clipboard && typeof ClipboardItem !== "undefined") {
+                await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                toast("¡Imagen del Código QR copiada al portapapeles! Ya puedes pegarla (Ctrl+V) en WhatsApp, redes o documentos.", "exito");
+                return;
+            }
+        }
+        if (navigator.share) {
+            await navigator.share({
+                title: `QR Oficial — ${eventoQrActual.titulo}`,
+                text: textoCompartir
+            });
+            return;
+        }
+        await navigator.clipboard.writeText(textoCompartir);
+        toast("Datos del QR copiados al portapapeles.", "exito");
+    } catch (_) {
+        toast("Puedes descargar el QR en PNG o imprimir el cartel.", "info");
+    }
+}
+
+function imprimirHojaQrEvento() {
+    if (!eventoQrActual) return;
+    const dataUrl = _obtenerDataUrlQrActual() || "";
+    const codigoQr = obtenerPayloadQrOficialEvento(eventoQrActual);
+    const fInicio = extraerFechaVisualWeb(eventoQrActual.fechaHora);
+    const hInd = _obtenerHorarioIndividualEvento(eventoQrActual);
+    const textoFin = hInd.fechaFin
+        ? new Date(hInd.fechaFin).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })
+        : "Al concluir la sesión";
+
+    const w = window.open("", "_blank", "width=850,height=950");
+    if (!w) {
+        toast("Permite las ventanas emergentes para imprimir el cartel QR.", "alerta");
+        return;
+    }
+    w.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Cartel QR — ${esc(eventoQrActual.titulo)}</title>
+<style>
+    body { font-family: "Inter", Arial, sans-serif; text-align: center; padding: 40px; color: #122652; }
+    .marco { border: 4px solid #122652; border-radius: 28px; padding: 36px; max-width: 620px; margin: 0 auto; }
+    .tag { display: inline-block; background: #F57C00; color: #fff; font-weight: 800; font-size: 12px; padding: 6px 16px; border-radius: 99px; text-transform: uppercase; letter-spacing: 1px; }
+    h1 { font-size: 26px; margin: 16px 0 8px; color: #122652; }
+    .meta { font-size: 14px; color: #475569; margin-bottom: 24px; font-weight: 600; }
+    .qr-box { display: inline-block; padding: 24px; border: 3px dashed #0093FF; border-radius: 24px; background: #fff; margin: 12px 0; }
+    .pasos { margin-top: 24px; background: #F4F7FB; border-radius: 16px; padding: 16px; font-size: 13px; text-align: left; line-height: 1.6; }
+</style>
+</head>
+<body>
+    <div class="marco">
+        <span class="tag">UNIVERSIDAD AUTÓNOMA DE CHIAPAS • ETDA</span>
+        <h1>${esc(eventoQrActual.titulo)}</h1>
+        <div class="meta">
+            📍 ${esc(eventoQrActual.lugar || "Campus I")} &nbsp;|&nbsp; 🏷️ ${esc(eventoQrActual.categoria || "Académicos")}<br>
+            🕒 Inicio: ${esc(fInicio.completo)} &nbsp;•&nbsp; Fin: ${esc(textoFin)}
+        </div>
+        <div class="qr-box">
+            <img src="${dataUrl}" width="280" height="280" alt="Código QR Oficial"><br>
+            <small style="font-family:monospace;color:#64748B;font-size:11px;">${esc(codigoQr)}</small>
+        </div>
+        <div class="pasos">
+            <strong>📱 Instrucciones para acreditar tu asistencia (+1 en ${esc(eventoQrActual.categoria || "tu insignia")}):</strong><br>
+            1. Abre la App <b>Campus Connect UNACH</b>, elige tu asiento en este evento.<br>
+            2. Al llegar al recinto, escanea este código QR para registrar tu <b>Validación 1/2 (Llegada por QR)</b>.<br>
+            3. Mantén tu ubicación activa durante la sesión para completar la <b>Validación 2/2 (Permanencia GPS)</b>.
+        </div>
+    </div>
+    <script>window.onload = () => { setTimeout(() => window.print(), 350); };<\/script>
+</body>
+</html>`);
+    w.document.close();
+}
+
+// ============================================================================
+// MAPA INTERACTIVO DE ASIENTOS TIPO CINE EN TIEMPO REAL (ALUMNOS + RESERVAS ADMIN)
+// ============================================================================
+let estadoMapaCine = {
+    eventoId: null,
+    capacidadTotal: 100,
+    miAsiento: null,
+    asientoSeleccionado: null,
+    ocupadosPorCodigo: {},
+    timerPolling: null
+};
+
+function generarCodigoAsientoCine(indiceBase0, cols = 10) {
+    const filaIdx = Math.floor(Math.max(0, indiceBase0) / cols);
+    const colNum = (Math.max(0, indiceBase0) % cols) + 1;
+    let letra = "";
+    if (filaIdx < 26) {
+        letra = String.fromCharCode(65 + filaIdx);
+    } else {
+        letra = String.fromCharCode(65 + Math.floor(filaIdx / 26) - 1) + String.fromCharCode(65 + (filaIdx % 26));
+    }
+    return `${letra}-${String(colNum).padStart(2, "0")}`;
+}
+
+async function abrirModalMapaAsientos(eventoId) {
+    const ev = eventosCache[eventoId];
+    if (!ev) {
+        toast("No se encontró el evento.", "alerta");
+        return;
+    }
+    estadoMapaCine.eventoId = eventoId;
+    estadoMapaCine.asientoSeleccionado = null;
+
+    const puedeAdmin = tienePermiso("eventos.publicar") || tienePermiso("asistencia.gestionar") || esAdminReal();
+    document.getElementById("cine-panel-admin-reservas")?.classList.toggle("hidden", !puedeAdmin);
+
+    document.getElementById("cine-modal-titulo").innerText = `${ev.titulo || "Evento Académico"}`;
+    document.getElementById("modal-mapa-asientos")?.classList.remove("hidden");
+
+    await refrescarMapaAsientosEnVivo(false);
+
+    if (estadoMapaCine.timerPolling) clearInterval(estadoMapaCine.timerPolling);
+    estadoMapaCine.timerPolling = setInterval(() => {
+        const modalVisible = !document.getElementById("modal-mapa-asientos")?.classList.contains("hidden");
+        if (modalVisible && estadoMapaCine.eventoId) {
+            refrescarMapaAsientosEnVivo(false);
+        }
+    }, 4000);
+}
+
+function cerrarModalMapaAsientos() {
+    document.getElementById("modal-mapa-asientos")?.classList.add("hidden");
+    if (estadoMapaCine.timerPolling) {
+        clearInterval(estadoMapaCine.timerPolling);
+        estadoMapaCine.timerPolling = null;
+    }
+}
+
+async function refrescarMapaAsientosEnVivo(mostrarToast = false) {
+    const eventoId = estadoMapaCine.eventoId;
+    if (!eventoId) return;
+    const evLocal = eventosCache[eventoId] || {};
+    const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(evLocal.lugar) : null;
+    const capCatalogo = Number(infoAud?.asientos || evLocal.capacidadTotal || 100) || 100;
+
+    try {
+        const data = await api(`/eventos/${eventoId}/mapa-asientos`);
+        const cap = Number(infoAud?.asientos || data.capacidadTotal || capCatalogo) || capCatalogo;
+        estadoMapaCine.capacidadTotal = cap;
+        estadoMapaCine.miAsiento = data.miAsiento || null;
+        estadoMapaCine.ocupadosPorCodigo = {};
+
+        (data.detalleAsientos || []).forEach(item => {
+            if (item && item.asiento) {
+                estadoMapaCine.ocupadosPorCodigo[item.asiento] = item;
+            }
+        });
+
+        if (eventosCache[eventoId]) {
+            const totOcup = Object.keys(estadoMapaCine.ocupadosPorCodigo).length;
+            eventosCache[eventoId].capacidadTotal = cap;
+            eventosCache[eventoId].asientosOcupados = totOcup;
+            eventosCache[eventoId].totalRegistrados = totOcup;
+            eventosCache[eventoId].miAsiento = estadoMapaCine.miAsiento;
+            eventosCache[eventoId].inscrito = Boolean(estadoMapaCine.miAsiento);
+            renderizarTarjetasEventos();
+        }
+
+        if (!estadoMapaCine.asientoSeleccionado && estadoMapaCine.miAsiento) {
+            estadoMapaCine.asientoSeleccionado = estadoMapaCine.miAsiento;
+        }
+
+        renderizarGridButacasCine();
+        renderizarInspectorAsientoCine();
+        if (mostrarToast) toast("Mapa de asientos sincronizado en tiempo real.", "info");
+    } catch (_) {
+        estadoMapaCine.capacidadTotal = capCatalogo;
+        renderizarGridButacasCine();
+        renderizarInspectorAsientoCine();
+    }
+}
+
+function renderizarGridButacasCine() {
+    const cont = document.getElementById("cine-grid-contenedor");
+    if (!cont) return;
+
+    const ev = eventosCache[estadoMapaCine.eventoId] || {};
+    const cap = estadoMapaCine.capacidadTotal;
+    const ocupadosMap = estadoMapaCine.ocupadosPorCodigo;
+    const totalOcupados = Object.keys(ocupadosMap).length;
+    const libres = Math.max(0, cap - totalOcupados);
+
+    const subEl = document.getElementById("cine-modal-subtitulo");
+    if (subEl) {
+        subEl.innerText = `📍 ${ev.lugar || "Recinto UNACH"} · Capacidad del Catálogo: ${cap} asientos`;
+    }
+    const kpiEl = document.getElementById("cine-modal-resumen-kpi");
+    if (kpiEl) {
+        kpiEl.innerHTML = `<span class="text-emerald-700">${libres} disponibles</span> &nbsp;•&nbsp; <span class="text-[#0093FF]">${totalOcupados}/${cap} ocupados</span>`;
+    }
+
+    const cols = 10;
+    const totalFilas = Math.ceil(cap / cols);
+    let htmlFilas = "";
+
+    for (let r = 0; r < totalFilas; r++) {
+        const letraFila = r < 26 ? String.fromCharCode(65 + r) : String.fromCharCode(65 + Math.floor(r / 26) - 1) + String.fromCharCode(65 + (r % 26));
+        let celdasIzq = "";
+        let celdasDer = "";
+
+        for (let c = 0; c < cols; c++) {
+            const idx = r * cols + c;
+            if (idx >= cap) break;
+            const codigo = generarCodigoAsientoCine(idx, cols);
+            const info = ocupadosMap[codigo];
+            const esSeleccionado = estadoMapaCine.asientoSeleccionado === codigo;
+            const esMio = estadoMapaCine.miAsiento === codigo || info?.esMio;
+
+            let claseColor = "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600";
+            let iconoHtml = `<span class="text-[9px] font-extrabold">${c + 1}</span>`;
+
+            if (info) {
+                if (info.estado === "reservado_admin") {
+                    claseColor = "bg-[#F57C00] hover:bg-amber-500 text-white border-amber-300 shadow-sm";
+                    iconoHtml = `<i class="fa-solid fa-crown text-[9px]"></i>`;
+                } else if (esMio) {
+                    claseColor = "bg-[#122652] text-[#FFB74D] border-[#F57C00] shadow-md";
+                    iconoHtml = `<i class="fa-solid fa-user-check text-[9px]"></i>`;
+                } else if (info.asistio) {
+                    claseColor = "bg-[#10B981] hover:bg-emerald-500 text-white border-emerald-300 shadow-sm";
+                    iconoHtml = `<i class="fa-solid fa-check-double text-[9px]"></i>`;
+                } else {
+                    claseColor = "bg-[#0093FF] hover:bg-sky-400 text-white border-sky-200 shadow-sm";
+                    iconoHtml = `<i class="fa-solid fa-user text-[9px]"></i>`;
+                }
+            }
+
+            if (esSeleccionado) {
+                claseColor += " ring-2 ring-white scale-110 z-10";
+            }
+
+            const btnHtml = `
+                <button type="button" onclick="seleccionarAsientoEnMapaCine('${codigo}')"
+                    title="Asiento ${codigo}${info ? (info.nombre ? " · " + esc(info.nombre) : " · " + esc(info.etiqueta || "Reservado")) : " · Libre"}"
+                    class="w-7 h-7 sm:w-8 sm:h-8 rounded-t-xl rounded-b-md border transition-all duration-150 flex flex-col items-center justify-center shrink-0 ${claseColor}">
+                    ${iconoHtml}
+                </button>`;
+
+            if (c < 5) celdasIzq += btnHtml;
+            else celdasDer += btnHtml;
+        }
+
+        htmlFilas += `
+            <div class="flex items-center gap-2 sm:gap-3">
+                <span class="w-6 text-right text-[10px] font-mono font-extrabold text-slate-400">${letraFila}</span>
+                <div class="flex items-center gap-1 sm:gap-1.5">${celdasIzq}</div>
+                <span class="w-5 text-center text-[9px] font-mono text-slate-500 select-none">│</span>
+                <div class="flex items-center gap-1 sm:gap-1.5">${celdasDer}</div>
+                <span class="w-6 text-left text-[10px] font-mono font-extrabold text-slate-400">${letraFila}</span>
+            </div>`;
+    }
+
+    cont.innerHTML = htmlFilas;
+}
+
+function seleccionarAsientoEnMapaCine(codigo) {
+    estadoMapaCine.asientoSeleccionado = codigo;
+    renderizarGridButacasCine();
+    renderizarInspectorAsientoCine();
+}
+
+function renderizarInspectorAsientoCine() {
+    const panel = document.getElementById("cine-inspector-detalle");
+    if (!panel) return;
+
+    const codigo = estadoMapaCine.asientoSeleccionado;
+    const puedeAdmin = tienePermiso("eventos.publicar") || tienePermiso("asistencia.gestionar") || esAdminReal();
+
+    if (!codigo) {
+        panel.innerHTML = `
+            <div class="text-center py-8 px-3 space-y-2">
+                <div class="w-12 h-12 rounded-2xl bg-[#122652]/10 text-[#122652] flex items-center justify-center mx-auto text-xl">
+                    <i class="fa-solid fa-hand-pointer text-[#F57C00]"></i>
+                </div>
+                <h4 class="text-sm font-extrabold text-[#122652]">Selecciona una butaca del auditorio</h4>
+                <p class="text-xs text-[#5B6670] leading-relaxed">
+                    Haz clic en cualquier asiento libre para apartarlo, o toca un asiento ocupado para consultar <b>quién lo apartó</b>, su horario de registro y su validación QR/GPS.
+                </p>
+            </div>`;
+        return;
+    }
+
+    const info = estadoMapaCine.ocupadosPorCodigo[codigo];
+
+    if (info && info.estado === "reservado_admin") {
+        panel.innerHTML = `
+            <div class="bg-white p-4 rounded-2xl border-2 border-[#F57C00] space-y-3 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <span class="px-2.5 py-1 rounded-lg bg-[#F57C00] text-white font-mono font-extrabold text-sm">Asiento ${esc(codigo)}</span>
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                        <i class="fa-solid fa-crown mr-1"></i>Lugar Reservado
+                    </span>
+                </div>
+                <div class="space-y-1 text-xs">
+                    <p class="font-extrabold text-[#122652] text-sm">${esc(info.etiqueta || "Reservado: Maestro / Invitado Especial")}</p>
+                    <p class="text-[#5B6670]"><b>Asignado por:</b> ${esc(info.reservadoPor || "Administración ETDA")}</p>
+                    ${info.fechaApartado ? `<p class="text-[11px] text-slate-400">Fecha: ${esc(new Date(info.fechaApartado).toLocaleString("es-MX"))}</p>` : ""}
+                </div>
+                ${puedeAdmin ? `
+                    <button type="button" onclick="gestionarReservaIndividualAdmin('${esc(codigo)}', 'liberar')"
+                        class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-unlock"></i> Liberar este Asiento Reservado
+                    </button>
+                ` : `<p class="text-[11px] text-amber-700 font-semibold">Este lugar está reservado para maestros o invitados especiales.</p>`}
+            </div>`;
+        return;
+    }
+
+    if (info) {
+        const esMio = Boolean(info.esMio || estadoMapaCine.miAsiento === codigo);
+        const qrOk = Boolean(info.qrValidado || info.asistio);
+        const gpsOk = Boolean(info.gpsValidado || info.asistio);
+
+        panel.innerHTML = `
+            <div class="bg-white p-4 rounded-2xl border-2 ${esMio ? "border-[#10B981]" : "border-[#0093FF]"} space-y-3 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <span class="px-2.5 py-1 rounded-lg bg-[#122652] text-[#FFB74D] font-mono font-extrabold text-sm">Asiento ${esc(codigo)}</span>
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${esMio ? "bg-emerald-100 text-emerald-800" : "bg-sky-100 text-sky-800"}">
+                        ${esMio ? "Tu Lugar Apartado" : "Apartado por Alumno"}
+                    </span>
+                </div>
+
+                <div class="space-y-1.5 text-xs border-t border-slate-100 pt-2.5">
+                    <div>
+                        <span class="text-[10px] font-bold uppercase text-slate-400 block">Titular del Asiento</span>
+                        <p class="font-extrabold text-[#122652] text-sm">${esc(info.nombre || "Alumno Registrado")}</p>
+                        ${info.email ? `<p class="font-mono text-[11px] text-[#0093FF]">${esc(info.email)}</p>` : ""}
+                    </div>
+                    ${(info.matricula || info.carrera) ? `
+                        <div class="bg-[#F4F7FB] p-2.5 rounded-xl border border-slate-200/80 space-y-0.5">
+                            ${info.matricula ? `<p><b>Matrícula:</b> <span class="font-mono">${esc(info.matricula)}</span></p>` : ""}
+                            ${info.carrera ? `<p><b>Programa:</b> ${esc(info.carrera)}</p>` : ""}
+                            ${(info.grupos && info.grupos.length) ? `<p><b>Grupo:</b> ${esc(info.grupos.join(", "))}</p>` : ""}
+                        </div>
+                    ` : ""}
+                    ${info.fechaApartado ? `<p class="text-[11px] text-slate-500"><i class="fa-regular fa-clock mr-1"></i><b>Apartado el:</b> ${esc(new Date(info.fechaApartado).toLocaleString("es-MX"))}</p>` : ""}
+                </div>
+
+                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1 text-[11px]">
+                    <span class="font-extrabold text-[#122652] block">Estado de Validación en Conferencia:</span>
+                    <div class="flex items-center justify-between">
+                        <span>1/2 Escaneo QR Oficial:</span>
+                        <strong class="${qrOk ? "text-emerald-600" : "text-slate-400"}">${qrOk ? "✓ Validado" : "Pendiente"}</strong>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>2/2 Permanencia GPS:</span>
+                        <strong class="${gpsOk ? "text-emerald-600" : "text-slate-400"}">${gpsOk ? "✓ Confirmada (+1)" : "Pendiente"}</strong>
+                    </div>
+                </div>
+
+                ${esMio ? `
+                    <button type="button" onclick="cancelarMiAsientoDesdeMapa()"
+                        class="w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-extrabold py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-xmark"></i> Cancelar mi apartado (${esc(codigo)})
+                    </button>
+                ` : (puedeAdmin ? `
+                    <button type="button" onclick="gestionarReservaIndividualAdmin('${esc(codigo)}', 'liberar')"
+                        class="w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-extrabold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-user-xmark"></i> Liberar Asiento (Resolver Conflicto)
+                    </button>
+                ` : "")}
+            </div>`;
+        return;
+    }
+
+    const yaTieneOtroAsiento = Boolean(estadoMapaCine.miAsiento && estadoMapaCine.miAsiento !== codigo);
+    panel.innerHTML = `
+        <div class="bg-white p-4 rounded-2xl border-2 border-emerald-500/40 space-y-3 shadow-sm">
+            <div class="flex items-center justify-between">
+                <span class="px-2.5 py-1 rounded-lg bg-[#122652] text-white font-mono font-extrabold text-sm">Asiento ${esc(codigo)}</span>
+                <span class="text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                    Disponible
+                </span>
+            </div>
+
+            ${yaTieneOtroAsiento ? `
+                <div class="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-semibold">
+                    Ya tienes apartado el asiento <b>${esc(estadoMapaCine.miAsiento)}</b>. Cada alumno solo tiene derecho a apartar 1 lugar.
+                </div>
+            ` : `
+                <p class="text-xs text-[#5B6670]">
+                    Aparta el asiento <b>${esc(codigo)}</b> para asegurar tu lugar el día del evento.
+                </p>
+                <button type="button" onclick="confirmarApartadoAsientoWeb('${esc(codigo)}')"
+                    class="w-full bg-[#10B981] hover:bg-emerald-600 text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-check-circle"></i> Apartar Asiento ${esc(codigo)} (1 lugar)
+                </button>
+            `}
+
+            ${puedeAdmin ? `
+                <div class="pt-2.5 border-t border-slate-100 space-y-2">
+                    <span class="block text-[10px] font-extrabold uppercase text-[#F57C00]">Acción de Administrador:</span>
+                    <button type="button" onclick="gestionarReservaIndividualAdmin('${esc(codigo)}', 'reservar')"
+                        class="w-full bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-crown text-[#F57C00]"></i> Reservar ${esc(codigo)} para Invitado / Maestro
+                    </button>
+                </div>
+            ` : ""}
+        </div>`;
+}
+
+async function confirmarApartadoAsientoWeb(codigoAsiento) {
+    if (!estadoMapaCine.eventoId) return;
+    try {
+        const res = await api(`/eventos/${estadoMapaCine.eventoId}/registro`, {
+            method: "POST",
+            json: { asiento: codigoAsiento }
+        });
+        toast(res?.mensaje || `¡Asiento ${codigoAsiento} apartado con éxito!`, "exito");
+        await refrescarMapaAsientosEnVivo(false);
+    } catch (err) {
+        toast(err.message || "No se pudo apartar el asiento.", "error");
+        await refrescarMapaAsientosEnVivo(false);
+    }
+}
+
+async function cancelarMiAsientoDesdeMapa() {
+    if (!estadoMapaCine.eventoId) return;
+    try {
+        await api(`/eventos/${estadoMapaCine.eventoId}/registro`, { method: "DELETE" });
+        estadoMapaCine.miAsiento = null;
+        toast("Tu asiento fue liberado correctamente.", "info");
+        await refrescarMapaAsientosEnVivo(false);
+    } catch (err) {
+        toast(err.message || "Error al liberar el asiento.", "error");
+    }
+}
+
+async function gestionarReservaIndividualAdmin(codigoAsiento, accion) {
+    if (!estadoMapaCine.eventoId) return;
+    const etiqueta = (document.getElementById("cine-admin-etiqueta-input")?.value || "Reservado: Maestro / Invitado Especial").trim();
+    try {
+        await api(`/eventos/${estadoMapaCine.eventoId}/asientos-reservados`, {
+            method: "POST",
+            json: { asiento: codigoAsiento, accion, etiqueta }
+        });
+        toast(
+            accion === "liberar"
+                ? `Asiento ${codigoAsiento} liberado.`
+                : `Asiento ${codigoAsiento} reservado para ${etiqueta}.`,
+            "exito"
+        );
+        await refrescarMapaAsientosEnVivo(false);
+    } catch (err) {
+        toast(err.message || "No se pudo actualizar la reserva del asiento.", "error");
+    }
+}
+
+async function reservarFilaPrimeraMaestros() {
+    if (!estadoMapaCine.eventoId) return;
+    const etiqueta = (document.getElementById("cine-admin-etiqueta-input")?.value || "Reservado: Maestro / Invitado Especial").trim();
+    const candidatos = ["A-01", "A-02", "A-03", "A-04", "A-05"].filter(c => !estadoMapaCine.ocupadosPorCodigo[c]);
+    if (!candidatos.length) {
+        toast("Los primeros 5 asientos de la Fila A ya están ocupados o reservados.", "alerta");
+        return;
+    }
+    try {
+        await api(`/eventos/${estadoMapaCine.eventoId}/asientos-reservados`, {
+            method: "POST",
+            json: { asientos: candidatos, accion: "reservar", etiqueta }
+        });
+        toast(`Reservados ${candidatos.join(", ")} para invitados/maestros.`, "exito");
+        await refrescarMapaAsientosEnVivo(false);
+    } catch (err) {
+        toast(err.message || "Error al reservar asientos.", "error");
+    }
+}
+
+async function liberarTodosReservadosAdmin() {
+    if (!estadoMapaCine.eventoId) return;
+    const reservados = Object.values(estadoMapaCine.ocupadosPorCodigo)
+        .filter(x => x.estado === "reservado_admin")
+        .map(x => x.asiento);
+    if (!reservados.length) {
+        toast("No hay asientos reservados por administración en este evento.", "info");
+        return;
+    }
+    try {
+        await api(`/eventos/${estadoMapaCine.eventoId}/asientos-reservados`, {
+            method: "POST",
+            json: { asientos: reservados, accion: "liberar" }
+        });
+        toast("Se liberaron los asientos reservados de administración.", "exito");
+        await refrescarMapaAsientosEnVivo(false);
+    } catch (err) {
+        toast(err.message || "Error al liberar reservas.", "error");
+    }
+}

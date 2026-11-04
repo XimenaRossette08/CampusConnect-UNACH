@@ -6,6 +6,8 @@ import com.example.campusconnect.model.EventoCreateRequest
 import com.example.campusconnect.model.ExpedienteAlumnoResponse
 import com.example.campusconnect.model.LoginRequest
 import com.example.campusconnect.model.LoginResponse
+import com.example.campusconnect.model.MapaAsientosEventoResponse
+import com.example.campusconnect.model.MisRecompensasResponse
 import com.example.campusconnect.model.RegistroRequest
 import com.example.campusconnect.model.TokenResponse
 import com.example.campusconnect.model.Verificar2FARequest
@@ -54,6 +56,14 @@ interface CampusConnectApi {
     @GET("eventos/feed")
     suspend fun obtenerEventos(): List<Evento>
 
+    @GET("eventos/mis-recompensas")
+    suspend fun obtenerMisRecompensas(): MisRecompensasResponse
+
+    @GET("eventos/{eventoId}/mapa-asientos")
+    suspend fun obtenerMapaAsientosEvento(
+        @Path("eventoId") eventoId: String
+    ): MapaAsientosEventoResponse
+
     @POST("eventos/")
     suspend fun crearEvento(
         @Body evento: EventoCreateRequest
@@ -61,7 +71,20 @@ interface CampusConnectApi {
 
     @POST("eventos/{eventoId}/registro")
     suspend fun registrarAsistenciaEvento(
-        @Path("eventoId") eventoId: String
+        @Path("eventoId") eventoId: String,
+        @Body body: Map<String, String> = emptyMap()
+    ): Response<ResponseBody>
+
+    @POST("eventos/{eventoId}/validar-qr")
+    suspend fun validarQrEvento(
+        @Path("eventoId") eventoId: String,
+        @Body body: Map<String, String>
+    ): Response<ResponseBody>
+
+    @POST("eventos/{eventoId}/ping-gps")
+    suspend fun enviarPingGpsEvento(
+        @Path("eventoId") eventoId: String,
+        @Body body: Map<String, @JvmSuppressWildcards Any>
     ): Response<ResponseBody>
 
     @DELETE("eventos/{eventoId}/registro")

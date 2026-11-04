@@ -49,6 +49,7 @@ try:
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_aparicion_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_fin_30m_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
         _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS notificacion_finalizado_enviada BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS asientos_reservados_json TEXT DEFAULT '{}'"))
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla eventos: {e}")
 
@@ -65,6 +66,11 @@ try:
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS id_facultad VARCHAR"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS id_carrera VARCHAR"))
         _conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS permisos_personalizados TEXT"))
+        _conn.execute(text("ALTER TABLE evento_asistencias ADD COLUMN IF NOT EXISTS asiento_codigo VARCHAR"))
+        _conn.execute(text("ALTER TABLE evento_asistencias ADD COLUMN IF NOT EXISTS qr_validado BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.execute(text("ALTER TABLE evento_asistencias ADD COLUMN IF NOT EXISTS gps_validado BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.execute(text("ALTER TABLE evento_asistencias ADD COLUMN IF NOT EXISTS pings_gps INTEGER NOT NULL DEFAULT 0"))
+        _conn.execute(text("ALTER TABLE evento_asistencias ADD COLUMN IF NOT EXISTS ultimo_ping_gps TIMESTAMPTZ"))
 except Exception as e:
     logger.warning(f"No se pudo alterar la tabla usuarios para expediente/egresados/permisos/2FA/FCM: {e}")
 

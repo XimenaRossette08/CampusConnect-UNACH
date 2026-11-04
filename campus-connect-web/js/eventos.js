@@ -99,7 +99,7 @@ function _eventoExpiradoAhoraWeb(ev) {
 
 function _calcularEstadoAsientosEvento(ev) {
     const infoAud = typeof buscarAuditorioPorNombre === "function" ? buscarAuditorioPorNombre(ev.lugar) : null;
-    const capacidad = Number(ev.capacidadTotal ?? ev.capacidad_total ?? infoAud?.asientos ?? 100) || 100;
+    const capacidad = Number(infoAud?.asientos ?? ev.capacidadTotal ?? ev.capacidad_total ?? 100) || 100;
     const ocupados = Math.max(0, Number(ev.asientosOcupados ?? ev.asientos_ocupados ?? ev.totalRegistrados ?? ev.total_registrados ?? 0) || 0);
     const disponibles = Math.max(0, capacidad - ocupados);
     const porcentaje = capacidad > 0 ? Math.min(100, Math.round((ocupados / capacidad) * 100)) : 0;
@@ -242,8 +242,11 @@ function renderizarTarjetasEventos() {
                         </div>
 
                         <!-- Acciones administrativas según permisos granulares -->
-                        ${(pCompartir || pEditar || pEliminar) ? `
+                        ${(pCompartir || pEditar || pEliminar || pAsistentes) ? `
                             <div class="absolute top-3 right-3 flex items-center gap-1.5 bg-white/95 backdrop-blur-sm p-1 rounded-xl shadow border border-slate-200">
+                                <button onclick="abrirModalQrEvento('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#122652] hover:bg-sky-50 transition" title="Ver Código QR Oficial del Evento" aria-label="Código QR del Evento">
+                                    <i class="fa-solid fa-qrcode text-xs text-[#0093FF]"></i>
+                                </button>
                                 ${pCompartir ? `
                                     <button onclick="abrirSocial('${esc(ev.id)}')" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#F57C00] hover:bg-amber-50 transition" title="Compartir en Redes Sociales" aria-label="Compartir en Redes Sociales">
                                         <i class="fa-solid fa-share-nodes text-xs"></i>
@@ -302,23 +305,39 @@ function renderizarTarjetasEventos() {
                 </div>
 
                 <div class="px-5 py-3.5 bg-[#F4F7FB] border-t border-slate-200/80 space-y-3">
-                    <div class="flex justify-between items-center text-xs text-[#5B6670] font-medium">
-                        <span class="truncate"><i class="fa-regular fa-clock text-[#0093FF] mr-1"></i> ${esc(f.completo)}</span>
-                        <span class="truncate ml-2"><i class="fa-solid fa-location-dot text-[#F57C00] mr-1"></i> ${esc(ev.lugar || 'Campus I')}</span>
+                    <div class="space-y-1 text-xs text-[#5B6670] font-medium">
+                        <div class="flex justify-between items-center gap-2">
+                            <span class="truncate"><i class="fa-regular fa-clock text-[#0093FF] mr-1"></i> <b>Inicio:</b> ${esc(f.completo)}</span>
+                            <span class="truncate text-right"><i class="fa-solid fa-location-dot text-[#F57C00] mr-1"></i> ${esc(ev.lugar || 'Campus I')}</span>
+                        </div>
+                        ${_obtenerHorarioIndividualEvento(ev).fechaFin ? `
+                        <div class="text-[11px] text-slate-500">
+                            <i class="fa-solid fa-flag-checkered text-[#F57C00] mr-1"></i> <b>Finaliza:</b> ${esc(new Date(_obtenerHorarioIndividualEvento(ev).fechaFin).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" }))}
+                        </div>` : ""}
                     </div>
 
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="abrirModalQrEvento('${esc(ev.id)}')"
+                            class="bg-white hover:bg-sky-50 text-[#122652] border border-slate-300 text-xs font-extrabold px-3 py-2 rounded-xl transition flex items-center justify-center gap-1.5"
+                            title="Mostrar Código QR de Asistencia">
+                            <i class="fa-solid fa-qrcode text-[#0093FF]"></i> QR
+                        </button>
+                        <button onclick="abrirModalMapaAsientos('${esc(ev.id)}')"
+                            class="bg-white hover:bg-amber-50 text-[#122652] border border-slate-300 text-xs font-extrabold px-3 py-2 rounded-xl transition flex items-center justify-center gap-1.5"
+                            title="Ver mapa de asientos en tiempo real y quién apartó cada lugar">
+                            <i class="fa-solid fa-couch text-[#F57C00]"></i> Sala
+                        </button>
                         ${estaInscrito ? `
-                            <button onclick="cancelarInscripcionEventoWeb('${esc(ev.id)}')"
+                            <button onclick="abrirModalMapaAsientos('${esc(ev.id)}')"
                                 class="flex-1 bg-[#10B981] hover:bg-emerald-600 text-white text-xs font-extrabold py-2 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5"
-                                title="Haz clic si deseas cancelar tu lugar">
-                                <i class="fa-solid fa-circle-check"></i> Inscrito (Cancelar)
+                                title="Ver tu asiento apartado o cancelar">
+                                <i class="fa-solid fa-ticket"></i> ${ev.miAsiento ? `Asiento ${esc(ev.miAsiento)}` : "Inscrito"}
                             </button>
                         ` : `
-                            <button onclick="registrarAsistenciaEvento('${esc(ev.id)}')"
+                            <button onclick="abrirModalMapaAsientos('${esc(ev.id)}')"
                                 ${cupo.agotado ? "disabled" : ""}
                                 class="flex-1 ${cupo.agotado ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-[#F57C00] hover:bg-amber-600 text-white shadow-sm'} text-xs font-bold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5">
-                                <i class="fa-solid ${cupo.agotado ? 'fa-ban' : 'fa-user-check'}"></i> ${cupo.agotado ? "Cupo Agotado" : "Inscribirme"}
+                                <i class="fa-solid ${cupo.agotado ? 'fa-ban' : 'fa-couch'}"></i> ${cupo.agotado ? "Cupo Agotado" : "Elegir Asiento"}
                             </button>
                         `}
                         ${pCompartir ? `
@@ -522,8 +541,8 @@ async function guardarEvento(e) {
         cerrarModalEvento();
         toast(aviso, "exito");
         await cargarEventos();
-        if (!id && tienePermiso("redes.compartir")) {
-            abrirSocial(guardado.id);
+        if (!id && guardado && guardado.id) {
+            abrirModalQrEvento(guardado.id);
         }
     } catch (err) {
         toast(err.message, "error");
@@ -618,17 +637,27 @@ async function verAsistentesEvento(eventoId) {
             tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-500">Aún no hay alumnos registrados en este evento.</td></tr>`;
             return;
         }
-        tbody.innerHTML = asistentes.map((a, i) => `
+        tbody.innerHTML = asistentes.map((a, i) => {
+            const qrOk = Boolean(a.qr_validado || a.asistio);
+            const gpsOk = Boolean(a.gps_validado || a.asistio);
+            const badgeVal = (qrOk && gpsOk)
+                ? `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-[10px]">2/2 QR + GPS ✓</span>`
+                : qrOk
+                    ? `<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-extrabold text-[10px]">1/2 QR ✓ · Pend. GPS</span>`
+                    : `<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold text-[10px]">Asiento apartado</span>`;
+            return `
             <tr class="border-b hover:bg-slate-50">
                 <td class="p-3 font-bold text-slate-400">${i + 1}</td>
+                <td class="p-3"><span class="px-2 py-1 rounded-lg bg-[#122652] text-[#FFB74D] font-mono font-extrabold text-xs">${esc(a.asiento || "—")}</span></td>
                 <td class="p-3 font-semibold text-[#122652]">${esc(a.nombre)}</td>
                 <td class="p-3 text-slate-500 font-mono text-xs">${esc(a.email)}</td>
                 <td class="p-3 text-slate-600">${esc([a.carrera, (a.grupos || []).join(", ")].filter(Boolean).join(" · ") || "—")}</td>
-                <td class="p-3 text-slate-400">${a.fecha_registro ? new Date(a.fecha_registro).toLocaleString("es-MX") : "Reciente"}</td>
+                <td class="p-3">${badgeVal}</td>
                 <td class="p-3 text-center">
                     <input type="checkbox" ${a.asistio ? "checked" : ""} onchange="marcarAsistio(${Number(a.id)}, this)" class="w-4 h-4 accent-[#10B981] rounded cursor-pointer">
                 </td>
-            </tr>`).join("");
+            </tr>`;
+        }).join("");
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-red-500">${esc(err.message)}</td></tr>`;
     }

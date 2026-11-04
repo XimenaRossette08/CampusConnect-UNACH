@@ -1,5 +1,6 @@
 package com.example.campusconnect.ui
 
+import android.content.Context
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -27,6 +28,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -34,13 +36,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.campusconnect.network.RetrofitClient
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-// Paleta Oficial ETDA - UNACH
+// Paleta Oficial ETDA - UNACH Intacta
 private val EtdaNavy = Color(0xFF122652)
 private val EtdaBlue = Color(0xFF0093FF)
 private val EtdaOrange = Color(0xFFF57C00)
@@ -209,6 +214,9 @@ fun RewardsScreen(
     snackbarHostState: SnackbarHostState,
     scope: CoroutineScope
 ) {
+    val context = LocalContext.current
+    val prefsRecompensas = remember { context.getSharedPreferences("cc_recompensas_validadas", Context.MODE_PRIVATE) }
+
     val listaCategorias = remember {
         listOf(
             CategoriaEvolutiva("cat_tutorias", "Tutorías", "Mentor Ocelote", "Compromiso Tutorial", "Seguimiento académico y sesiones de tutoría en la ETDA.", 0, 0, Icons.Default.School, EtdaBlue, "ETDA-TUT-2026"),
@@ -222,15 +230,55 @@ fun RewardsScreen(
 
     val asistenciasMap = remember {
         mutableStateMapOf<String, Int>().apply {
-            listaCategorias.forEach { put(it.categoria, it.asistenciasIniciales) }
+            listaCategorias.forEach { cat ->
+                val guardadasLocal = prefsRecompensas.getInt("asistencias_cat_${cat.categoria}", cat.asistenciasIniciales)
+                put(cat.categoria, guardadasLocal)
+            }
         }
     }
     val nivelesReclamadosMap = remember {
         mutableStateMapOf<String, Int>().apply {
-            listaCategorias.forEach { put(it.categoria, it.nivelInicialReclamado) }
+            listaCategorias.forEach { cat ->
+                val nivGuardado = prefsRecompensas.getInt("nivel_reclamado_${cat.categoria}", cat.nivelInicialReclamado)
+                put(cat.categoria, nivGuardado)
+            }
         }
     }
     var modalLogro by remember { mutableStateOf<LogroDesbloqueadoModal?>(null) }
+
+    // Sincronización automática con el backend (GET /eventos/mis-recompensas) y con las validaciones 2/2 (QR + GPS)
+    LaunchedEffect(Unit) {
+        while (true) {
+            // 1. Leer primero cualquier actualización local realizada por ServicioUbicacionAsistencia o EventosScreen
+            listaCategorias.forEach { cat ->
+                val localVal = prefsRecompensas.getInt("asistencias_cat_${cat.categoria}", 0)
+                val actual = asistenciasMap[cat.categoria] ?: 0
+                if (localVal > actual) {
+                    asistenciasMap[cat.categoria] = localVal.coerceAtMost(12)
+                }
+            }
+
+            // 2. Consultar al servidor las asistencias confirmadas en BD (QR + GPS o validadas por el organizador en la Web)
+            try {
+                val remotas = withContext(Dispatchers.IO) {
+                    RetrofitClient.obtenerApi(context).obtenerMisRecompensas()
+                }
+                val mapaServidor = remotas.asistenciasPorCategoria.orEmpty()
+                val editor = prefsRecompensas.edit()
+                listaCategorias.forEach { cat ->
+                    val conteoRemoto = mapaServidor[cat.categoria] ?: 0
+                    val conteoLocal = prefsRecompensas.getInt("asistencias_cat_${cat.categoria}", 0)
+                    val sincronizado = maxOf(conteoRemoto, conteoLocal).coerceAtMost(12)
+                    asistenciasMap[cat.categoria] = sincronizado
+                    editor.putInt("asistencias_cat_${cat.categoria}", sincronizado)
+                }
+                editor.apply()
+            } catch (_: Exception) {
+            }
+
+            delay(4_000L)
+        }
+    }
 
     val totalInsigniasGanadas = nivelesReclamadosMap.values.sum()
     val totalAsistenciasAcumuladas = asistenciasMap.values.sum()
@@ -300,7 +348,7 @@ fun RewardsScreen(
                     )
                 }
                 Text(
-                    "Gana tu primera medalla al cumplir 5 asistencias verificadas y evoluciona tu insignia hasta el rango Oro.",
+                    "Cada asistencia se acredita automáticamente al completar las 2 validaciones del evento (1/2 Código QR + 2/2 Permanencia GPS).",
                     fontSize = 12.sp,
                     color = EtdaSlate,
                     lineHeight = 17.sp
@@ -308,7 +356,7 @@ fun RewardsScreen(
             }
         }
 
-        // LISTA DE MEDALLAS
+        // LISTA DE MEDALLAS (SIN BOTÓN MANUAL DE AGREGAR ASISTENCIA)
         itemsIndexed(items = listaCategorias, key = { _, item -> item.id }) { index, catItem ->
             val asistencias = asistenciasMap[catItem.categoria] ?: catItem.asistenciasIniciales
             val nivelReclamado = nivelesReclamadosMap[catItem.categoria] ?: catItem.nivelInicialReclamado
@@ -323,19 +371,11 @@ fun RewardsScreen(
                 escalafonActivo = escalafonActual,
                 maximoCompletado = maximoAlcanzado,
                 index = index,
-                onSimularAsistencia = {
-                    if (asistencias < 12) {
-                        val nuevo = asistencias + 1
-                        asistenciasMap[catItem.categoria] = nuevo
-                        scope.launch {
-                            snackbarHostState.showSnackbar("+1 asistencia en ${catItem.categoria} ($nuevo/${escalafonActual.metaAsistencias})")
-                        }
-                    }
-                },
                 onReclamarNivel = {
                     if (!maximoAlcanzado && asistencias >= escalafonActual.metaAsistencias) {
                         val nuevoNivelReclamado = nivelReclamado + 1
                         nivelesReclamadosMap[catItem.categoria] = nuevoNivelReclamado
+                        prefsRecompensas.edit().putInt("nivel_reclamado_${catItem.categoria}", nuevoNivelReclamado).apply()
                         onPuntosCambiados(puntos + escalafonActual.puntosPremio)
                         val siguienteMeta = nivelesProgresivos.getOrNull(nuevoNivelReclamado)?.metaAsistencias
                         modalLogro = LogroDesbloqueadoModal(
@@ -436,7 +476,7 @@ private fun TarjetaEncabezadoYVitrina(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        "$totalInsignias medallas ganadas • $totalAsistencias asistencias registradas",
+                        "$totalInsignias medallas ganadas • $totalAsistencias asistencias verificadas",
                         color = Color.White.copy(alpha = 0.85f),
                         fontSize = 11.sp,
                         maxLines = 1,
@@ -545,7 +585,6 @@ private fun TarjetaCategoriaConMedalla(
     escalafonActivo: EscalafonMeta,
     maximoCompletado: Boolean,
     index: Int,
-    onSimularAsistencia: () -> Unit,
     onReclamarNivel: () -> Unit
 ) {
     var visible by remember { mutableStateOf(false) }
@@ -790,8 +829,8 @@ private fun TarjetaCategoriaConMedalla(
                     text = when {
                         maximoCompletado -> "🏆 ¡Colección Oro completada (12/12)!"
                         metaAlcanzada -> "¡Meta de $metaActual lograda! Reclama +${escalafonActivo.puntosPremio} pts y sube a $siguienteMetaTexto"
-                        faltantes == 1 -> "¡A solo 1 asistencia de ganar la medalla ${escalafonActivo.etiquetaCorta}!"
-                        else -> "Faltan $faltantes asistencias para medalla ${escalafonActivo.etiquetaCorta} (+${escalafonActivo.puntosPremio} pts)"
+                        faltantes == 1 -> "¡A solo 1 asistencia validada de ganar la medalla ${escalafonActivo.etiquetaCorta}!"
+                        else -> "Faltan $faltantes asistencias validadas para medalla ${escalafonActivo.etiquetaCorta} (+${escalafonActivo.puntosPremio} pts)"
                     },
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -830,17 +869,31 @@ private fun TarjetaCategoriaConMedalla(
                         )
                     }
                 } else {
-                    OutlinedButton(
-                        onClick = onSimularAsistencia,
+                    Surface(
+                        color = EtdaBg,
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, EtdaBlue),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = EtdaBlue),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp)
+                        border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.35f))
                     ) {
-                        Icon(Icons.Default.AddTask, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("+1 Asist.", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                tint = EtdaBlue,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Vía QR + GPS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = EtdaNavy,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
             }
@@ -889,7 +942,7 @@ private fun ModalMedallaDesbloqueada(logro: LogroDesbloqueadoModal, onDismiss: (
         text = {
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    "Has cumplido ${logro.metaAlcanzada} asistencias verificadas en la categoría de ${logro.categoria}.",
+                    "Has cumplido ${logro.metaAlcanzada} asistencias verificadas por QR y GPS en la categoría de ${logro.categoria}.",
                     fontSize = 13.sp,
                     color = EtdaSlate,
                     textAlign = TextAlign.Center,

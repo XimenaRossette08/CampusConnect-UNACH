@@ -16,6 +16,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <!-- Librería ExcelJS para generar archivos .xlsx con formato y gráficas incrustadas -->
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <!-- Librería QRCode.js para generación automática de códigos QR oficiales por evento -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <!-- Hoja de estilos institucional ETDA - UNACH -->
     <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -1220,10 +1222,11 @@
                     <thead>
                         <tr class="bg-[#F4F7FB] text-[#122652] border-b font-extrabold uppercase">
                             <th class="p-3">#</th>
+                            <th class="p-3">Asiento</th>
                             <th class="p-3">Nombre Completo</th>
                             <th class="p-3">Correo Institucional</th>
                             <th class="p-3">Carrera / Grupo</th>
-                            <th class="p-3">Registro</th>
+                            <th class="p-3">Validación QR / GPS</th>
                             <th class="p-3 text-center">Asistió</th>
                         </tr>
                     </thead>
@@ -1630,6 +1633,165 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- MODAL 12: CÓDIGO QR OFICIAL DEL EVENTO (VALIDACIÓN 1 DE 2 EN APP MÓVIL) -->
+    <div id="modal-qr-evento" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-center">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 text-left">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-xl bg-[#122652] text-[#F57C00] flex items-center justify-center text-base font-extrabold shadow-sm">
+                        <i class="fa-solid fa-qrcode"></i>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Validación Oficial 1 de 2 • UNACH</span>
+                        <h3 class="text-base font-extrabold text-[#122652] leading-tight">Código QR de Asistencia del Evento</h3>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModalQrEvento()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="bg-[#F4F7FB] p-4 rounded-2xl border border-slate-200 space-y-2 mb-4">
+                <span id="qr-modal-categoria" class="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#122652] text-white">ACADÉMICOS</span>
+                <h4 id="qr-modal-titulo" class="text-sm font-extrabold text-[#122652] leading-snug">Título del Evento</h4>
+                <p id="qr-modal-lugar" class="text-xs font-bold text-[#0093FF]"></p>
+                <p id="qr-modal-horario" class="text-[11px] text-[#5B6670] font-semibold"></p>
+            </div>
+
+            <div class="flex flex-col items-center justify-center p-5 bg-white rounded-2xl border-2 border-dashed border-[#122652]/25 shadow-inner mx-auto max-w-[260px]">
+                <div id="qr-evento-lienzo" class="flex items-center justify-center min-h-[210px] min-w-[210px]"></div>
+                <p id="qr-modal-codigo-texto" class="text-[10px] font-mono text-slate-400 mt-2 break-all"></p>
+            </div>
+
+            <div class="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-left text-[11px] text-emerald-900 space-y-1">
+                <p class="font-extrabold flex items-center gap-1.5 text-emerald-800">
+                    <i class="fa-solid fa-shield-check text-emerald-600"></i>
+                    <span>Sistema de Doble Validación Antifraude:</span>
+                </p>
+                <p><b>1/2 Escaneo QR:</b> El alumno escanea este código desde la App para ocupar su asiento y registrar su entrada.</p>
+                <p><b>2/2 Permanencia GPS:</b> La App verifica su permanencia en el recinto para acreditar <b>+1 asistencia</b> en su insignia.</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5 mt-5">
+                <button type="button" onclick="descargarQrEventoPNG()"
+                    class="bg-[#F57C00] hover:bg-amber-600 text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-download"></i>
+                    <span>Descargar PNG</span>
+                </button>
+                <button type="button" onclick="imprimirHojaQrEvento()"
+                    class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-print text-[#F57C00]"></i>
+                    <span>Imprimir Cartel QR</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 13: MAPA INTERACTIVO DE ASIENTOS TIPO CINE EN TIEMPO REAL (ALUMNOS + RESERVAS ADMIN) -->
+    <div id="modal-mapa-asientos" class="fixed inset-0 bg-slate-900/65 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-5xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 max-h-[94vh] flex flex-col">
+            <!-- Encabezado -->
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3.5 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-[#122652] text-[#F57C00] flex items-center justify-center text-lg font-extrabold shadow-sm">
+                        <i class="fa-solid fa-couch"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Mapa de Recinto en Tiempo Real • Sincronizado con App</span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> En vivo
+                            </span>
+                        </div>
+                        <h3 id="cine-modal-titulo" class="text-base sm:text-lg font-extrabold text-[#122652] leading-tight">Selección y Monitoreo de Asientos</h3>
+                        <p id="cine-modal-subtitulo" class="text-xs text-[#5B6670] font-semibold"></p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="refrescarMapaAsientosEnVivo(true)"
+                        class="text-xs font-bold text-[#122652] bg-[#F4F7FB] hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-rotate text-[#0093FF]"></i> Actualizar
+                    </button>
+                    <button type="button" onclick="cerrarModalMapaAsientos()" class="text-slate-400 hover:text-slate-600 text-xl px-1">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Leyenda de estados de asientos -->
+            <div class="flex flex-wrap items-center justify-between gap-2 bg-[#F4F7FB] px-4 py-2.5 rounded-2xl border border-slate-200 mb-4 text-xs font-bold text-[#122652]">
+                <div class="flex flex-wrap items-center gap-4">
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-4 h-4 rounded-md bg-white border-2 border-slate-300 inline-block"></span> Libre
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-4 h-4 rounded-md bg-[#0093FF] border-2 border-[#0077CC] inline-block"></span> Apartado por Alumno
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-4 h-4 rounded-md bg-[#10B981] border-2 border-emerald-700 inline-block"></span> Asistencia Validada (QR+GPS)
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-4 h-4 rounded-md bg-[#F57C00] border-2 border-amber-700 inline-block"></span> Reservado (Maestro / Invitado)
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-4 h-4 rounded-md bg-[#122652] border-2 border-[#F57C00] inline-block"></span> Tu Asiento / Selección
+                    </span>
+                </div>
+                <div id="cine-modal-resumen-kpi" class="text-xs font-extrabold text-[#122652]"></div>
+            </div>
+
+            <!-- Cuerpo en 2 columnas: Sala de Cine (Izquierda) + Inspector / Acciones de Asiento (Derecha) -->
+            <div class="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-3 gap-5 pr-1">
+                <!-- Columna Sala de Cine (2/3) -->
+                <div class="lg:col-span-2 bg-slate-900 rounded-3xl p-4 sm:p-6 text-white flex flex-col items-center shadow-inner overflow-x-auto">
+                    <!-- Escenario / Estrado Principal -->
+                    <div class="w-full max-w-lg mb-6 text-center">
+                        <div class="h-3 w-full rounded-t-full bg-gradient-to-r from-[#0093FF]/40 via-[#F57C00] to-[#0093FF]/40 shadow-[0_6px_20px_rgba(245,124,0,0.45)]"></div>
+                        <span class="inline-block mt-1.5 text-[10px] font-extrabold uppercase tracking-[0.2em] text-amber-300/90">
+                            ESTRADO / PANTALLA PRINCIPAL DEL AUDITORIO
+                        </span>
+                    </div>
+
+                    <!-- Matriz de butacas por filas -->
+                    <div id="cine-grid-contenedor" class="space-y-2 w-full flex flex-col items-center overflow-x-auto pb-2">
+                        <!-- Generado dinámicamente por js/eventos.js -->
+                    </div>
+                </div>
+
+                <!-- Columna Inspector de Asiento / Controles de Reserva (1/3) -->
+                <div class="bg-[#F4F7FB] rounded-3xl p-4 sm:p-5 border border-slate-200 flex flex-col justify-between space-y-4">
+                    <div id="cine-inspector-detalle" class="space-y-3">
+                        <!-- Al hacer clic en cualquier asiento se muestra quién lo apartó o las acciones para apartar/reservar -->
+                    </div>
+
+                    <!-- Controles rápidos exclusivos para Administradores (Reservar fila VIP / Maestros) -->
+                    <div id="cine-panel-admin-reservas" class="hidden pt-3 border-t border-slate-200/80 space-y-2.5">
+                        <span class="block text-[11px] font-extrabold uppercase tracking-wider text-[#122652]">
+                            <i class="fa-solid fa-user-tie text-[#F57C00] mr-1"></i>
+                            Reserva Rápida para Maestros / Invitados
+                        </span>
+                        <div>
+                            <label class="block text-[11px] font-bold text-[#5B6670] mb-1">Etiqueta del lugar reservado:</label>
+                            <input type="text" id="cine-admin-etiqueta-input" value="Reservado: Maestro / Invitado Especial"
+                                placeholder="Ej. Maestro / Invitado Especial / Ponente"
+                                class="w-full px-3 py-1.5 border border-slate-300 rounded-xl text-xs bg-white font-semibold text-[#122652]">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" onclick="reservarFilaPrimeraMaestros()"
+                                class="bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-extrabold py-2 px-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-crown"></i> Reservar 5 en Fila A
+                            </button>
+                            <button type="button" onclick="liberarTodosReservadosAdmin()"
+                                class="bg-white hover:bg-red-50 text-red-600 border border-red-200 text-[11px] font-bold py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-unlock"></i> Liberar Reservas VIP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

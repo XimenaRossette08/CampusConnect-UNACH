@@ -32,6 +32,13 @@ data class CarreraCatalogoDto(
     @SerializedName("grupos") val grupos: List<String>? = emptyList()
 )
 
+data class AuditorioCatalogoDto(
+    @SerializedName("id") val id: String? = null,
+    @SerializedName("nombre") val nombre: String = "",
+    @SerializedName("asientos") val asientos: Int = 100,
+    @SerializedName("ubicacion") val ubicacion: String? = null
+)
+
 data class DatosInstitucionalesDto(
     @SerializedName("escuela") val escuela: String? = null,
     @SerializedName("modalidadSede") val modalidadSede: String? = null,
@@ -60,6 +67,7 @@ data class CatalogoFacultadResponse(
     @SerializedName("facultades") val facultades: List<FacultadCatalogoDto>? = emptyList(),
     @SerializedName("carreras") val carreras: List<CarreraCatalogoDto>? = emptyList(),
     @SerializedName("grupos") val grupos: List<String>? = emptyList(),
+    @SerializedName("auditorios") val auditorios: List<AuditorioCatalogoDto>? = emptyList(),
     @SerializedName("datosInstitucionales") val datosInstitucionales: DatosInstitucionalesDto? = null,
     @SerializedName("configuracionRegistro") val configuracionRegistro: ConfiguracionRegistroDto? = null
 )
@@ -80,4 +88,35 @@ data class ExpedienteAlumnoResponse(
     @SerializedName("modalidad_sede") val modalidadSede: String? = null,
     @SerializedName("ciclo_escolar") val cicloEscolar: String? = null,
     @SerializedName("tiene_2fa_activo") val tiene2faActivo: Boolean? = true
+)
+
+data class EventoAcreditadoDto(
+    @SerializedName("eventoId") val eventoId: String = "",
+    @SerializedName("titulo") val titulo: String = "",
+    @SerializedName("categoria") val categoria: String = "Académicos"
+)
+
+data class MisRecompensasResponse(
+    @SerializedName("totalAsistenciasValidadas") val totalAsistenciasValidadas: Int = 0,
+    @SerializedName("asistenciasPorCategoria") val asistenciasPorCategoria: Map<String, Int>? = emptyMap(),
+    @SerializedName("eventosAcreditados") val eventosAcreditados: List<EventoAcreditadoDto>? = emptyList()
+)
+
+data class DetalleAsientoMapaDto(
+    @SerializedName("asiento") val asiento: String = "",
+    @SerializedName("estado") val estado: String = "ocupado_alumno", // "mio" | "ocupado_alumno" | "reservado_admin"
+    @SerializedName("etiqueta") val etiqueta: String? = null,
+    @SerializedName("nombre") val nombre: String? = null,
+    @SerializedName("esMio") val esMio: Boolean = false
+)
+
+data class MapaAsientosEventoResponse(
+    @SerializedName("eventoId") val eventoId: String = "",
+    @SerializedName("capacidadTotal") val capacidadTotal: Int = 100,
+    @SerializedName("asientosOcupados") val asientosOcupados: Int = 0,
+    @SerializedName("asientosDisponibles") val asientosDisponibles: Int = 100,
+    @SerializedName("miAsiento") val miAsiento: String? = null,
+    @SerializedName("asientosTomados") val asientosTomados: List<String>? = emptyList(),
+    @SerializedName("asientosReservadosAdmin") val asientosReservadosAdmin: List<String>? = emptyList(),
+    @SerializedName("detalleAsientos") val detalleAsientos: List<DetalleAsientoMapaDto>? = emptyList()
 )

@@ -527,11 +527,11 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             .background(LightBackground)
             .verticalScroll(scrollState)
     ) {
-        // Hero Institucional con acabado refinado
+        // Hero Institucional con altura adaptable para que el lema nunca quede tapado por la tarjeta
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(296.dp)
+                .wrapContentHeight()
                 .background(
                     brush = Brush.verticalGradient(listOf(NavyBlue, Color(0xFF183672), BrightBlue)),
                     shape = RoundedCornerShape(bottomStart = 42.dp, bottomEnd = 42.dp)
@@ -539,9 +539,10 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp)
-                    .padding(top = 42.dp, bottom = 50.dp),
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 18.dp, bottom = 58.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -550,43 +551,52 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     color = VibrantOrange,
                     shadowElevation = 10.dp,
                     border = BorderStroke(2.dp, Color.White.copy(alpha = 0.25f)),
-                    modifier = Modifier.size(64.dp)
+                    modifier = Modifier.size(62.dp)
                 ) {
                     Icon(
                         Icons.Default.AccountBalance,
                         contentDescription = "Logo UNACH",
                         tint = Color.White,
-                        modifier = Modifier.padding(15.dp).fillMaxSize()
+                        modifier = Modifier.padding(14.dp).fillMaxSize()
                     )
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Surface(
-                    color = Color.White.copy(alpha = 0.14f),
+                    color = Color.White.copy(alpha = 0.16f),
                     shape = RoundedCornerShape(50),
                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
                 ) {
                     Text(
                         text = "ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS",
                         color = Color.White,
-                        fontSize = 10.sp,
+                        fontSize = 9.5.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 0.7.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
+                        letterSpacing = 0.4.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = "Campus Connect UNACH",
                     color = Color.White,
-                    fontSize = 26.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.5).sp
+                    letterSpacing = (-0.4).sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    textAlign = TextAlign.Center
                 )
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "“Por la conciencia de la necesidad de servir”",
-                    color = Color.White.copy(alpha = 0.78f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                    color = Color.White.copy(alpha = 0.95f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -595,7 +605,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .offset(y = (-44).dp),
+                .offset(y = (-28).dp),
             shape = RoundedCornerShape(28.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -898,62 +908,74 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(11.dp))
                                         .clickable {
                                             esAlumnoEgresado = false
                                             mensajeErrorValidacion = null
                                         },
                                     color = bgActivo,
-                                    shape = RoundedCornerShape(10.dp)
+                                    shape = RoundedCornerShape(11.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(vertical = 10.dp),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 8.dp),
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.School,
                                             contentDescription = null,
-                                            tint = if (!esAlumnoEgresado) Color.White else NavyBlue.copy(alpha = 0.7f),
+                                            tint = if (!esAlumnoEgresado) Color.White else NavyBlue.copy(alpha = 0.75f),
                                             modifier = Modifier.size(15.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(5.dp))
                                         Text(
                                             text = "Estudiante Activo",
-                                            fontSize = 12.sp,
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = if (!esAlumnoEgresado) Color.White else NavyBlue
+                                            color = if (!esAlumnoEgresado) Color.White else NavyBlue,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(11.dp))
                                         .clickable {
                                             esAlumnoEgresado = true
                                             mensajeErrorValidacion = null
                                         },
                                     color = bgEgresado,
-                                    shape = RoundedCornerShape(10.dp)
+                                    shape = RoundedCornerShape(11.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(vertical = 10.dp),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 8.dp),
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.WorkspacePremium,
                                             contentDescription = null,
-                                            tint = if (esAlumnoEgresado) Color.White else NavyBlue.copy(alpha = 0.7f),
+                                            tint = if (esAlumnoEgresado) Color.White else NavyBlue.copy(alpha = 0.75f),
                                             modifier = Modifier.size(15.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(5.dp))
                                         Text(
-                                            text = "Egresado",
-                                            fontSize = 12.sp,
+                                            text = "Alumno Egresado",
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = if (esAlumnoEgresado) Color.White else NavyBlue
+                                            color = if (esAlumnoEgresado) Color.White else NavyBlue,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }

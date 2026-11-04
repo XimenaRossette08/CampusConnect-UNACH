@@ -26,7 +26,7 @@ class Evento(Base):
     fecha_fin = Column(DateTime(timezone=True), nullable=True)
     lugar = Column(String, nullable=False)
     organizador_email = Column(String, nullable=False)
-    imagen_url = Column(String, nullable=True)  # legado: eventos creados antes de la subida de archivos
+    imagen_url = Column(String, nullable=True)
     categoria = Column(String, nullable=True)
 
     # Segmentación: Facultad -> Carrera -> Grupo
@@ -34,6 +34,9 @@ class Evento(Base):
     id_facultad_destino = Column(String, nullable=True)
     id_carrera_destino = Column(String, nullable=True)
     grupos_destino = Column(ARRAY(String), nullable=True)
+
+    # Mapa JSON de asientos reservados por administración para maestros/invitados: {"A-01": {"etiqueta": "Maestro / Invitado", ...}}
+    asientos_reservados_json = Column(String, nullable=True, default="{}")
 
     # Control para el Job Scheduler (APScheduler): aparición, 30m antes del fin, finalizado y 24h antes
     recordatorio_enviado = Column(Boolean, default=False, nullable=False)
@@ -70,7 +73,14 @@ class EventoArchivo(Base):
 
 
 class EventoAsistencia(Base):
-    """Inscripción de un usuario a un evento; 'asistio' lo confirma el organizador."""
+    """
+    Apartado de asiento individual tipo cine (1 asiento por alumno) + Validación en 2 pasos (1/2 QR + 2/2 GPS).
+    - asiento_codigo: Código del asiento apartado por el alumno (ej. "A-05", "B-08").
+    - qr_validado: Se activa cuando el alumno escanea el QR oficial del evento al llegar (Validación 1/2).
+    - gps_validado: Se activa cuando el alumno cumple la permanencia GPS en el recinto (Validación 2/2).
+    - asistio: Se activa automáticamente al cumplir (qr_validado y gps_validado) o cuando el organizador lo valida,
+               acreditando +1 en la categoría del evento para las insignias de RewardsScreen.
+    """
 
     __tablename__ = "evento_asistencias"
     __table_args__ = (UniqueConstraint("evento_id", "usuario_id", name="uq_evento_usuario"),)
@@ -79,7 +89,12 @@ class EventoAsistencia(Base):
     evento_id = Column(UUID(as_uuid=True), ForeignKey("eventos.id", ondelete="CASCADE"),
                        nullable=False, index=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    asiento_codigo = Column(String, nullable=True)
     fecha_registro = Column(DateTime(timezone=True), default=_ahora, nullable=False)
+    qr_validado = Column(Boolean, default=False, nullable=False)
+    gps_validado = Column(Boolean, default=False, nullable=False)
+    pings_gps = Column(Integer, default=0, nullable=False)
+    ultimo_ping_gps = Column(DateTime(timezone=True), nullable=True)
     asistio = Column(Boolean, default=False, nullable=False)
 
     evento = relationship("Evento", back_populates="asistencias")

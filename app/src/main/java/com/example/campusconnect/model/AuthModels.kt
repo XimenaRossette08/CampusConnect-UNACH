@@ -32,11 +32,18 @@ data class CarreraCatalogoDto(
     @SerializedName("grupos") val grupos: List<String>? = emptyList()
 )
 
+data class VerticeMallaDto(
+    @SerializedName("lat") val lat: Double = 0.0,
+    @SerializedName("lon") val lon: Double = 0.0
+)
+
 data class AuditorioCatalogoDto(
     @SerializedName("id") val id: String? = null,
     @SerializedName("nombre") val nombre: String = "",
     @SerializedName("asientos") val asientos: Int = 100,
-    @SerializedName("ubicacion") val ubicacion: String? = null
+    @SerializedName("ubicacion") val ubicacion: String? = null,
+    @SerializedName("malla") val malla: List<VerticeMallaDto>? = emptyList(),
+    @SerializedName("toleranciaMetros") val toleranciaMetros: Float? = 12f
 )
 
 data class DatosInstitucionalesDto(

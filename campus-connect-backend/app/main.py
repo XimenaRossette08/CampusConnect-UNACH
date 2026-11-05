@@ -279,12 +279,54 @@ CATALOGO_INSTITUCIONAL_DEFECTO: Dict[str, Any] = {
     ],
     "grupos": ["1A", "1B", "2A", "3A", "3B", "4A", "5A", "5B", "6A", "7A", "7N", "7O", "8A", "9A"],
     "auditorios": [
-        {"id": "aud-etda", "nombre": "Auditorio Principal ETDA", "asientos": 180, "ubicacion": "Edificio Principal ETDA"},
-        {"id": "sala-av1", "nombre": "Sala Audiovisual 1", "asientos": 60, "ubicacion": "Planta Alta ETDA"},
-        {"id": "sala-av2", "nombre": "Sala Audiovisual 2", "asientos": 50, "ubicacion": "Planta Alta ETDA"},
-        {"id": "lab-comp-a", "nombre": "Laboratorio de Cómputo A", "asientos": 35, "ubicacion": "Centro de Cómputo"},
-        {"id": "aud-constituyentes", "nombre": "Auditorio Los Constituyentes", "asientos": 350, "ubicacion": "Campus I Central"},
-        {"id": "explanada-etda", "nombre": "Explanada Central ETDA", "asientos": 250, "ubicacion": "Área Abierta Campus I"},
+        {
+            "id": "aud-etda", "nombre": "Auditorio Principal ETDA", "asientos": 180, "ubicacion": "Edificio Principal ETDA",
+            "toleranciaMetros": 12,
+            "malla": [
+                {"lat": 16.754420, "lon": -93.154050}, {"lat": 16.754420, "lon": -93.153550},
+                {"lat": 16.753980, "lon": -93.153550}, {"lat": 16.753980, "lon": -93.154050},
+            ],
+        },
+        {
+            "id": "sala-av1", "nombre": "Sala Audiovisual 1", "asientos": 60, "ubicacion": "Planta Alta ETDA",
+            "toleranciaMetros": 12,
+            "malla": [
+                {"lat": 16.754360, "lon": -93.153960}, {"lat": 16.754360, "lon": -93.153680},
+                {"lat": 16.754100, "lon": -93.153680}, {"lat": 16.754100, "lon": -93.153960},
+            ],
+        },
+        {
+            "id": "sala-av2", "nombre": "Sala Audiovisual 2", "asientos": 50, "ubicacion": "Planta Alta ETDA",
+            "toleranciaMetros": 12,
+            "malla": [
+                {"lat": 16.754340, "lon": -93.153920}, {"lat": 16.754340, "lon": -93.153660},
+                {"lat": 16.754080, "lon": -93.153660}, {"lat": 16.754080, "lon": -93.153920},
+            ],
+        },
+        {
+            "id": "lab-comp-a", "nombre": "Laboratorio de Cómputo A", "asientos": 35, "ubicacion": "Centro de Cómputo",
+            "toleranciaMetros": 12,
+            "malla": [
+                {"lat": 16.754480, "lon": -93.154120}, {"lat": 16.754480, "lon": -93.153820},
+                {"lat": 16.754220, "lon": -93.153820}, {"lat": 16.754220, "lon": -93.154120},
+            ],
+        },
+        {
+            "id": "aud-constituyentes", "nombre": "Auditorio Los Constituyentes", "asientos": 350, "ubicacion": "Campus I Central",
+            "toleranciaMetros": 12,
+            "malla": [
+                {"lat": 16.753250, "lon": -93.152950}, {"lat": 16.753250, "lon": -93.152250},
+                {"lat": 16.752550, "lon": -93.152250}, {"lat": 16.752550, "lon": -93.152950},
+            ],
+        },
+        {
+            "id": "explanada-etda", "nombre": "Explanada Central ETDA", "asientos": 250, "ubicacion": "Área Abierta Campus I",
+            "toleranciaMetros": 12,
+            "malla": [
+                {"lat": 16.754600, "lon": -93.154200}, {"lat": 16.754600, "lon": -93.153400},
+                {"lat": 16.753850, "lon": -93.153400}, {"lat": 16.753850, "lon": -93.154200},
+            ],
+        },
     ],
     "categorias": ["Académicos", "Conferencias", "Talleres", "Tutorías", "Culturales", "Deporte"],
 }
@@ -306,11 +348,18 @@ class CarreraItemSchema(BaseModel):
     grupos: List[str] = Field(default_factory=list)
 
 
+class VerticeMallaSchema(BaseModel):
+    lat: float = Field(..., ge=-90.0, le=90.0)
+    lon: float = Field(..., ge=-180.0, le=180.0)
+
+
 class AuditorioItemSchema(BaseModel):
     id: Optional[str] = Field(default=None, max_length=60)
     nombre: str = Field(..., min_length=2, max_length=150)
     asientos: int = Field(..., ge=1, le=20000)
     ubicacion: Optional[str] = Field(default="Campus I UNACH", max_length=200)
+    toleranciaMetros: float = Field(default=12.0, ge=2.0, le=80.0)
+    malla: Optional[List[VerticeMallaSchema]] = None
 
 
 class DatosInstitucionalesSchema(BaseModel):

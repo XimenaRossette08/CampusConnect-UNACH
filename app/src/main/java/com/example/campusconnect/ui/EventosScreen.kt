@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.example.campusconnect.MyFirebaseMessagingService
+import com.example.campusconnect.TokenManager
 import com.example.campusconnect.model.ArchivoEvento
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
@@ -340,10 +341,12 @@ fun EventosScreen(
         scope.launch(Dispatchers.IO) {
             try {
                 val exp = RetrofitClient.obtenerApi(context).obtenerExpedienteAlumno()
-                if (exp.email.isNotBlank()) {
+                val emailLimpio = exp.email.orEmpty().trim().lowercase()
+                val nombreLimpio = exp.nombre.orEmpty().trim()
+                if (emailLimpio.isNotBlank()) {
                     prefsNotif.edit()
-                        .putString("usuario_email_actual", exp.email.trim().lowercase())
-                        .putString("usuario_nombre_actual", exp.nombre.trim())
+                        .putString("usuario_email_actual", emailLimpio)
+                        .putString("usuario_nombre_actual", nombreLimpio)
                         .apply()
                 }
             } catch (_: Exception) {}
@@ -468,18 +471,24 @@ fun EventosScreen(
         evento: Evento,
         asiento: String?,
         qrValidado: Boolean,
-        gpsValidado: Boolean
-    ) {
-        withContext(Dispatchers.IO) {
+        gpsValidado: Boolean,
+        timestampMs: Long = System.currentTimeMillis()
+    ): String? {
+        return withContext(Dispatchers.IO) {
             try {
                 val api = RetrofitClient.obtenerApi(context)
-                var emailUsr = prefsNotif.getString("usuario_email_actual", "") ?: ""
-                var nombreUsr = prefsNotif.getString("usuario_nombre_actual", "") ?: ""
+                var emailUsr = TokenManager.obtenerEmail(context).trim().lowercase()
                 if (emailUsr.isBlank()) {
+                    emailUsr = prefsNotif.getString("usuario_email_actual", "")?.trim()?.lowercase().orEmpty()
+                }
+                var nombreUsr = prefsNotif.getString("usuario_nombre_actual", "")?.trim().orEmpty()
+                if (emailUsr.isBlank() || nombreUsr.isBlank()) {
                     try {
                         val exp = api.obtenerExpedienteAlumno()
-                        emailUsr = exp.email.trim().lowercase()
-                        nombreUsr = exp.nombre.trim()
+                        val emExp = exp.email.orEmpty().trim().lowercase()
+                        val nomExp = exp.nombre.orEmpty().trim()
+                        if (emExp.isNotBlank()) emailUsr = emExp
+                        if (nomExp.isNotBlank()) nombreUsr = nomExp
                         prefsNotif.edit()
                             .putString("usuario_email_actual", emailUsr)
                             .putString("usuario_nombre_actual", nombreUsr)
@@ -487,22 +496,34 @@ fun EventosScreen(
                     } catch (_: Exception) {}
                 }
                 if (emailUsr.isNotBlank()) {
-                    val payloadMeta = evento.construirPayloadSincronizacionMeta(
+                    // Traer versión fresca del evento desde el servidor para no pisar reservas de otros alumnos
+                    val evBase = try {
+                        api.obtenerEventos().find { it.id == evento.id } ?: evento
+                    } catch (_: Exception) {
+                        evento
+                    }
+                    val (nuevaDesc, payloadMeta) = evBase.construirDescripcionYPayloadMeta(
                         emailUsuario = emailUsr,
-                        nombreUsuario = nombreUsr,
+                        nombreUsuario = nombreUsr.ifBlank { emailUsr },
                         asiento = asiento,
                         qrValidado = qrValidado,
                         gpsValidado = gpsValidado,
-                        asistio = gpsValidado
+                        asistio = gpsValidado,
+                        timestampMs = timestampMs
                     )
                     api.actualizarEvento(eventoId = evento.id, body = payloadMeta)
-                }
-            } catch (_: Exception) {}
+                    nuevaDesc
+                } else null
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
     fun aplicarCapacidadCatalogoAEventos(lista: List<Evento>): List<Evento> {
-        val emailUsr = prefsNotif.getString("usuario_email_actual", "")?.trim()?.lowercase().orEmpty()
+        val emailUsr = TokenManager.obtenerEmail(context).trim().lowercase().ifBlank {
+            prefsNotif.getString("usuario_email_actual", "")?.trim()?.lowercase().orEmpty()
+        }
         val setQr1 = prefsNotif.getStringSet("eventos_qr_1de2_set", emptySet()) ?: emptySet()
         val setGps2 = prefsNotif.getStringSet("eventos_gps_2de2_set", emptySet()) ?: emptySet()
 
@@ -516,7 +537,7 @@ fun EventosScreen(
             val tsApartadoLocal = prefsNotif.getLong("ts_apartado_${ev.id}", 0L)
             val tsLiberadoAdmin = ev.obtenerTimestampLiberacionAdmin(emailUsr, asientoGuardadoPrefs)
 
-            // Si el Administrador liberó el asiento desde la Web después de que el alumno lo apartó, liberar también en la App
+            // 1. Si el Administrador liberó el asiento desde la Web después de que el alumno lo apartó, liberar también en la App
             if (tsLiberadoAdmin > 0L && tsLiberadoAdmin > tsApartadoLocal) {
                 if (asientoGuardadoPrefs != null || eventosInscritosIds.contains(ev.id)) {
                     asientoGuardadoPrefs = null
@@ -536,30 +557,52 @@ fun EventosScreen(
             }
 
             val asientoEnMeta = ev.obtenerAsientoDeUsuarioEnMeta(emailUsr)
-            val miAsientoLocal = ev.miAsiento ?: asientoGuardadoPrefs ?: asientoEnMeta
+            val tsEnMeta = ev.obtenerTimestampAsientoEnMeta(emailUsr)
 
-            // Si el alumno ya eligió un asiento (ej. K-04) o ya escaneó el QR en la App y aún no figura en CCMETA del servidor, sincronizarlo automáticamente
+            // 2. Si el asiento en CCMETA fue modificado más recientemente desde la Web, adoptarlo en la App
+            if (!asientoEnMeta.isNullOrBlank() && tsEnMeta > tsApartadoLocal && asientoEnMeta != asientoGuardadoPrefs) {
+                asientoGuardadoPrefs = asientoEnMeta
+                prefsNotif.edit()
+                    .putString("mi_asiento_${ev.id}", asientoEnMeta)
+                    .putLong("ts_apartado_${ev.id}", tsEnMeta)
+                    .apply()
+            }
+
+            // 3. Prioridad estricta: 1° asiento elegido en la App (asientoGuardadoPrefs), 2° CCMETA (asientoEnMeta), 3° ev.miAsiento
+            val miAsientoLocal = asientoGuardadoPrefs ?: asientoEnMeta ?: ev.miAsiento?.takeIf { tsLiberadoAdmin == 0L }
+
+            // 4. Si el alumno eligió o cambió su asiento en la App y CCMETA en el servidor aún tiene otro asiento, sincronizarlo de inmediato
             val qrLocal = setQr1.contains(ev.id) || setGps2.contains(ev.id) || (ev.validacionQr == true)
             val gpsLocal = setGps2.contains(ev.id) || (ev.validacionGps == true)
             if (!miAsientoLocal.isNullOrBlank() && emailUsr.isNotBlank() && asientoEnMeta != miAsientoLocal) {
+                val tsSync = if (tsApartadoLocal > 0L) tsApartadoLocal else System.currentTimeMillis()
                 scope.launch {
                     sincronizarMetaAsientoEnServidor(
                         evento = ev.copy(capacidadTotal = capCat),
                         asiento = miAsientoLocal,
                         qrValidado = qrLocal,
-                        gpsValidado = gpsLocal
+                        gpsValidado = gpsLocal,
+                        timestampMs = tsSync
                     )
                 }
             }
 
-            val tomadosLocalSet = prefsNotif.getStringSet("asientos_tomados_${ev.id}", emptySet()) ?: emptySet()
-            val todosTomados = (ev.asientosTomadosEfectivos + tomadosLocalSet + listOfNotNull(miAsientoLocal)).distinct()
-            val minOcupLocal = prefsNotif.getInt("ocupados_min_${ev.id}", 0)
+            // 5. Filtrar el asiento anterior si el usuario cambió de lugar para que nunca queden 2 asientos ocupados por la misma persona
+            val tomadosBase = ev.asientosTomadosEfectivos.toMutableSet()
+            if (!asientoEnMeta.isNullOrBlank() && !miAsientoLocal.isNullOrBlank() && asientoEnMeta != miAsientoLocal) {
+                tomadosBase.remove(asientoEnMeta)
+            }
+            if (!ev.miAsiento.isNullOrBlank() && !miAsientoLocal.isNullOrBlank() && ev.miAsiento != miAsientoLocal) {
+                tomadosBase.remove(ev.miAsiento)
+            }
+            if (!miAsientoLocal.isNullOrBlank()) {
+                tomadosBase.add(miAsientoLocal)
+            }
+
+            val todosTomados = tomadosBase.sorted()
             val estaInsc = !miAsientoLocal.isNullOrBlank() || (ev.inscrito == true && tsLiberadoAdmin <= tsApartadoLocal) || eventosInscritosIds.contains(ev.id)
             val ocupadosCalc = maxOf(
-                ev.lugaresOcupados,
                 todosTomados.size,
-                minOcupLocal,
                 if (estaInsc) 1 else 0
             ).coerceIn(0, capCat)
 
@@ -1428,37 +1471,53 @@ fun EventosScreen(
                 onConfirmarAsiento = { codigoElegido ->
                     scope.launch {
                         try {
+                            val asientoAnterior = prefsNotif.getString("mi_asiento_${evCine.id}", null) ?: evCine.miAsiento
+                            val esCambioDeAsiento = !asientoAnterior.isNullOrBlank() && asientoAnterior != codigoElegido
+
                             val resp = withContext(Dispatchers.IO) {
-                                RetrofitClient.obtenerApi(context).registrarAsistenciaEvento(
+                                val api = RetrofitClient.obtenerApi(context)
+                                // Si está cambiando de asiento, liberar primero el registro previo en BD para que tome el nuevo código
+                                if (esCambioDeAsiento) {
+                                    try { api.cancelarAsistenciaEvento(evCine.id) } catch (_: Exception) {}
+                                }
+                                api.registrarAsistenciaEvento(
                                     eventoId = evCine.id,
                                     body = mapOf("asiento" to codigoElegido)
                                 )
                             }
                             if (resp.isSuccessful) {
+                                val ahoraMs = System.currentTimeMillis()
                                 val actualizados = eventosInscritosIds + evCine.id
                                 persistirInscritosActivos(actualizados)
-                                val prevTomados = (prefsNotif.getStringSet("asientos_tomados_${evCine.id}", emptySet()) ?: emptySet()).toMutableSet()
-                                prevTomados.add(codigoElegido)
-                                val nuevosTomadosGlobal = (evCine.asientosTomadosEfectivos + prevTomados + codigoElegido).distinct()
-                                val ocupadosNuevos = maxOf(evCine.lugaresOcupados + 1, nuevosTomadosGlobal.size)
+
+                                val nuevosTomadosGlobal = (evCine.asientosTomadosEfectivos.filterNot { it == asientoAnterior } + codigoElegido).distinct()
+                                val ocupadosNuevos = maxOf(
+                                    if (esCambioDeAsiento) evCine.lugaresOcupados else evCine.lugaresOcupados + 1,
+                                    nuevosTomadosGlobal.size
+                                ).coerceIn(1, evCine.cupoMaximo)
+
                                 val setQr1 = prefsNotif.getStringSet("eventos_qr_1de2_set", emptySet()) ?: emptySet()
                                 val setGps2 = prefsNotif.getStringSet("eventos_gps_2de2_set", emptySet()) ?: emptySet()
+
                                 prefsNotif.edit()
                                     .putString("mi_asiento_${evCine.id}", codigoElegido)
-                                    .putStringSet("asientos_tomados_${evCine.id}", nuevosTomadosGlobal.toSet())
+                                    .putStringSet("asientos_tomados_${evCine.id}", setOf(codigoElegido))
                                     .putInt("ocupados_min_${evCine.id}", ocupadosNuevos)
-                                    .putLong("ts_apartado_${evCine.id}", System.currentTimeMillis())
+                                    .putLong("ts_apartado_${evCine.id}", ahoraMs)
                                     .apply()
-                                sincronizarMetaAsientoEnServidor(
+
+                                val nuevaDescSrv = sincronizarMetaAsientoEnServidor(
                                     evento = evCine,
                                     asiento = codigoElegido,
                                     qrValidado = setQr1.contains(evCine.id) || setGps2.contains(evCine.id),
-                                    gpsValidado = setGps2.contains(evCine.id)
+                                    gpsValidado = setGps2.contains(evCine.id),
+                                    timestampMs = ahoraMs
                                 )
 
                                 eventosServidor = eventosServidor.map { item ->
                                     if (item.id == evCine.id) {
                                         item.copy(
+                                            descripcion = nuevaDescSrv ?: item.descripcion,
                                             inscrito = true,
                                             miAsiento = codigoElegido,
                                             asientosOcupados = ocupadosNuevos,
@@ -1471,7 +1530,10 @@ fun EventosScreen(
                                 verificarYDispararAviso30MinFin(context, evCine, actualizados)
                                 recargarEventosDesdeServidor(mostrarMensaje = false)
                                 snackbarHostState.showSnackbar(
-                                    "¡Asiento $codigoElegido apartado con éxito en ${evCine.titulo}!"
+                                    if (esCambioDeAsiento)
+                                        "¡Tu lugar se actualizó del asiento $asientoAnterior al $codigoElegido!"
+                                    else
+                                        "¡Asiento $codigoElegido apartado con éxito en ${evCine.titulo}!"
                                 )
                             } else if (resp.code() == 409) {
                                 snackbarHostState.showSnackbar(
@@ -2449,6 +2511,37 @@ private fun DetalleEventoSheet(
                                         color = if (qrValidado) Color(0xFF065F46) else EtdaNavy
                                     )
                                 }
+                                val prefsMalla = remember { context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE) }
+                                var estadoMallaVivo by remember(evento.id, qrValidado, gpsValidado) {
+                                    mutableStateOf(prefsMalla.getString("estado_malla_${evento.id}", null))
+                                }
+                                LaunchedEffect(evento.id, qrValidado, gpsValidado) {
+                                    if (qrValidado && !gpsValidado) {
+                                        // Asegurar que el servicio de verificación de malla poligonal esté activo en tiempo real
+                                        try {
+                                            val intentGps = Intent(context, ServicioUbicacionAsistencia::class.java).apply {
+                                                action = ServicioUbicacionAsistencia.ACCION_INICIAR_RASTREO_QR
+                                                putExtra("EVENTO_ID", evento.id)
+                                                putExtra("EVENTO_TITULO", evento.titulo)
+                                                putExtra("EVENTO_LUGAR", evento.lugar)
+                                                putExtra("EVENTO_CATEGORIA", evento.categoria ?: catInfo.nombre)
+                                            }
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                context.startForegroundService(intentGps)
+                                            } else {
+                                                context.startService(intentGps)
+                                            }
+                                        } catch (_: Exception) {}
+
+                                        while (true) {
+                                            estadoMallaVivo = prefsMalla.getString("estado_malla_${evento.id}", null)
+                                            delay(1_200L)
+                                        }
+                                    } else {
+                                        estadoMallaVivo = prefsMalla.getString("estado_malla_${evento.id}", null)
+                                    }
+                                }
+
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = if (gpsValidado) Icons.Default.CheckCircle else Icons.Default.ShareLocation,
@@ -2459,13 +2552,19 @@ private fun DetalleEventoSheet(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = when {
-                                            gpsValidado -> "2/2 Permanencia GPS: ¡Confirmada! (+1 en ${catInfo.nombre})"
-                                            qrValidado -> "2/2 Permanencia GPS: Verificando tu ubicación en la sala..."
-                                            else -> "2/2 Permanencia GPS: Se activará tras escanear el QR"
+                                            gpsValidado -> "2/2 Malla Poligonal GPS: ¡Confirmada! (+1 en ${catInfo.nombre})"
+                                            qrValidado -> estadoMallaVivo?.takeIf { it.isNotBlank() }
+                                                ?: "2/2 Malla Poligonal GPS: Verificando las 4 esquinas de '${evento.lugar}' (tolerancia 12 m)..."
+                                            else -> "2/2 Malla Poligonal GPS: Se activará tras escanear el QR (4 esquinas + 12 m)"
                                         },
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.2.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (gpsValidado) Color(0xFF065F46) else Color(0xFF475569)
+                                        color = when {
+                                            gpsValidado -> Color(0xFF065F46)
+                                            estadoMallaVivo?.startsWith("📍") == true || estadoMallaVivo?.startsWith("🚫") == true -> Color(0xFFB45309)
+                                            else -> Color(0xFF475569)
+                                        },
+                                        lineHeight = 15.sp
                                     )
                                 }
                             }
@@ -2588,22 +2687,19 @@ private fun ModalSelectorAsientosCine(
 
     var cargandoMapa by remember { mutableStateOf(true) }
     val prefsCine = remember { context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE) }
-    val miAsientoInicial = evento.miAsiento ?: prefsCine.getString("mi_asiento_${evento.id}", null)
+    val emailUsrCine = remember {
+        TokenManager.obtenerEmail(context).trim().lowercase().ifBlank {
+            prefsCine.getString("usuario_email_actual", "")?.trim()?.lowercase().orEmpty()
+        }
+    }
+    val miAsientoInicial = prefsCine.getString("mi_asiento_${evento.id}", null)
+        ?: evento.obtenerAsientoDeUsuarioEnMeta(emailUsrCine)
+        ?: evento.miAsiento
     val reservadosInicial = evento.asientosReservadosAdminEfectivos.toSet()
     val tomadosInicial = remember(evento, miAsientoInicial) {
-        val base = (evento.asientosTomadosEfectivos + (prefsCine.getStringSet("asientos_tomados_${evento.id}", emptySet()) ?: emptySet())).toMutableSet()
+        val base = evento.asientosTomadosEfectivos.toMutableSet()
+        if (!miAsientoInicial.isNullOrBlank()) base.add(miAsientoInicial)
         base.removeAll(reservadosInicial)
-        val faltantes = (evento.lugaresOcupados - (base.size + reservadosInicial.size)).coerceAtLeast(0)
-        var idx = 0
-        var agregados = 0
-        while (agregados < faltantes && idx < evento.cupoMaximo) {
-            val cod = generarCodigoAsientoCineApp(idx, 10)
-            if (!base.contains(cod) && !reservadosInicial.contains(cod) && cod != miAsientoInicial) {
-                base.add(cod)
-                agregados++
-            }
-            idx++
-        }
         base.toSet()
     }
     var capacidadRecinto by remember { mutableIntStateOf(evento.cupoMaximo) }
@@ -2615,20 +2711,26 @@ private fun ModalSelectorAsientosCine(
     LaunchedEffect(evento.id) {
         cargandoMapa = true
         try {
-            val remoto = withContext(Dispatchers.IO) {
-                RetrofitClient.obtenerApi(context).obtenerMapaAsientosEvento(evento.id)
+            val evFresco = withContext(Dispatchers.IO) {
+                try {
+                    RetrofitClient.obtenerApi(context).obtenerEventos().find { it.id == evento.id }
+                } catch (_: Exception) { null }
             }
-            if (remoto.capacidadTotal > 0) {
-                capacidadRecinto = maxOf(evento.cupoMaximo, remoto.capacidadTotal)
+            if (evFresco != null) {
+                val asientoMetaFresco = evFresco.obtenerAsientoDeUsuarioEnMeta(emailUsrCine)
+                val asientoLocalPref = prefsCine.getString("mi_asiento_${evento.id}", null)
+                val asientoRealMio = asientoLocalPref ?: asientoMetaFresco ?: evFresco.miAsiento
+                miAsientoActual = asientoRealMio
+                asientoElegido = asientoRealMio
+                val resFresco = evFresco.asientosReservadosAdminEfectivos.toSet()
+                val tomFresco = evFresco.asientosTomadosEfectivos.toMutableSet()
+                if (!asientoMetaFresco.isNullOrBlank() && !asientoRealMio.isNullOrBlank() && asientoMetaFresco != asientoRealMio) {
+                    tomFresco.remove(asientoMetaFresco)
+                }
+                if (!asientoRealMio.isNullOrBlank()) tomFresco.add(asientoRealMio)
+                asientosReservadosMaestros = resFresco
+                asientosOcupadosAlumnos = tomFresco - resFresco
             }
-            if (!remoto.miAsiento.isNullOrBlank()) {
-                miAsientoActual = remoto.miAsiento
-                asientoElegido = remoto.miAsiento
-            }
-            val resAdmin = remoto.asientosReservadosAdmin.orEmpty().toSet()
-            val tomados = remoto.asientosTomados.orEmpty().toSet()
-            asientosReservadosMaestros = resAdmin
-            asientosOcupadosAlumnos = tomados - resAdmin
         } catch (_: Exception) {
         } finally {
             cargandoMapa = false

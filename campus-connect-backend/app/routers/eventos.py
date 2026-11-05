@@ -186,19 +186,40 @@ def _resolver_capacidad_lugar(lugar: Optional[str], mapa_auditorios: Dict[str, i
     return 100
 
 
+def _extraer_meta_descripcion_evento(evento: Evento) -> Dict[str, Any]:
+    desc = getattr(evento, "descripcion", "") or ""
+    m = re.search(r"<!--CCMETA:([\s\S]*?)-->", desc)
+    if not m:
+        return {}
+    try:
+        parsed = json.loads(m.group(1).strip())
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
 def _asegurar_asientos_asignados_en_evento(
     db: Session,
     evento: Evento,
     capacidad: int,
 ) -> Tuple[List[EventoAsistencia], Dict[str, Dict[str, Any]]]:
     """
-    Garantiza que toda inscripción existente tenga un `asiento_codigo` único asignado
-    y devuelve (filas_asistencia, mapa_reservados_admin).
+    Garantiza que toda inscripción existente tenga su `asiento_codigo` sincronizado
+    (respetando `CCMETA.seats` y `asiento_codigo` elegido) y devuelve (filas_asistencia, mapa_reservados_admin).
     """
     reservados_admin = _leer_asientos_reservados_admin(evento)
+    meta = _extraer_meta_descripcion_evento(evento)
+    if isinstance(meta.get("res"), dict):
+        for k_res, v_res in meta["res"].items():
+            cod_r = _normalizar_codigo_asiento(k_res)
+            if cod_r and cod_r not in reservados_admin:
+                reservados_admin[cod_r] = v_res if isinstance(v_res, dict) else {"etiqueta": str(v_res)}
+
+    seats_meta = meta.get("seats") if isinstance(meta.get("seats"), dict) else {}
     todos_codigos = _catalogo_codigos_asiento_validos(capacidad)
-    filas = (
-        db.query(EventoAsistencia)
+    filas_con_usr = (
+        db.query(EventoAsistencia, Usuario)
+        .join(Usuario, Usuario.id == EventoAsistencia.usuario_id)
         .filter(EventoAsistencia.evento_id == evento.id)
         .order_by(EventoAsistencia.fecha_registro.asc(), EventoAsistencia.id.asc())
         .all()
@@ -207,14 +228,28 @@ def _asegurar_asientos_asignados_en_evento(
     usados: Set[str] = set(reservados_admin.keys())
     hubo_cambio = False
 
-    for f in filas:
-        cod = _normalizar_codigo_asiento(getattr(f, "asiento_codigo", None))
-        if cod and cod not in usados:
-            if getattr(f, "asiento_codigo", None) != cod:
-                f.asiento_codigo = cod
+    # 1. Asignar primero asientos explícitos de CCMETA o de asiento_codigo
+    for f, u in filas_con_usr:
+        em = (u.email or "").strip().lower()
+        info_m = seats_meta.get(em)
+        cod_meta = None
+        if isinstance(info_m, dict) and not info_m.get("autoAsignado"):
+            cod_meta = _normalizar_codigo_asiento(info_m.get("asiento"))
+        elif isinstance(info_m, str):
+            cod_meta = _normalizar_codigo_asiento(info_m)
+
+        cod_actual = _normalizar_codigo_asiento(getattr(f, "asiento_codigo", None))
+        cod_preferido = cod_meta or cod_actual
+        if cod_preferido and cod_preferido not in usados:
+            if getattr(f, "asiento_codigo", None) != cod_preferido:
+                f.asiento_codigo = cod_preferido
                 hubo_cambio = True
-            usados.add(cod)
-        else:
+            usados.add(cod_preferido)
+
+    # 2. Completar cualquier fila que aún no tenga código válido
+    for f, _ in filas_con_usr:
+        cod = _normalizar_codigo_asiento(getattr(f, "asiento_codigo", None))
+        if not cod or cod not in usados:
             libre = next((c for c in todos_codigos if c not in usados), None)
             if libre:
                 f.asiento_codigo = libre
@@ -227,7 +262,7 @@ def _asegurar_asientos_asignados_en_evento(
         except Exception:
             db.rollback()
 
-    return filas, reservados_admin
+    return [f for f, _ in filas_con_usr], reservados_admin
 
 
 class EventoCreateConVigencia(EventoCreate):
@@ -922,30 +957,151 @@ def eliminar_archivo(
 
 
 
-SEDES_UNACH_COORDS = [
-    (16.7542, -93.1538),  # ETDA / Edificio Principal Campus I
-    (16.7529, -93.1526),  # Auditorio Los Constituyentes / Biblioteca Central Campus I
-    (16.7551, -93.1549),  # Zona Norte Campus I UNACH
-]
-RADIO_PERMITIDO_METROS = 280.0
+MALLAS_AUDITORIOS_DEFECTO: Dict[str, List[Tuple[float, float]]] = {
+    "auditorio principal etda": [
+        (16.754420, -93.154050), (16.754420, -93.153550),
+        (16.753980, -93.153550), (16.753980, -93.154050),
+    ],
+    "sala audiovisual 1": [
+        (16.754360, -93.153960), (16.754360, -93.153680),
+        (16.754100, -93.153680), (16.754100, -93.153960),
+    ],
+    "sala audiovisual 2": [
+        (16.754340, -93.153920), (16.754340, -93.153660),
+        (16.754080, -93.153660), (16.754080, -93.153920),
+    ],
+    "laboratorio de cómputo a": [
+        (16.754480, -93.154120), (16.754480, -93.153820),
+        (16.754220, -93.153820), (16.754220, -93.154120),
+    ],
+    "auditorio los constituyentes": [
+        (16.753250, -93.152950), (16.753250, -93.152250),
+        (16.752550, -93.152250), (16.752550, -93.152950),
+    ],
+    "explanada central etda": [
+        (16.754600, -93.154200), (16.754600, -93.153400),
+        (16.753850, -93.153400), (16.753850, -93.154200),
+    ],
+}
+TOLERANCIA_PARED_DEFECTO_METROS = 12.0
 
 
-def _distancia_haversine_metros(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    r = 6371000.0
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
-    return 2.0 * r * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+def _obtener_malla_auditorio_evento(db: Session, evento: Optional[Evento]) -> Tuple[List[Tuple[float, float]], float]:
+    lugar_norm = (getattr(evento, "lugar", "") or "").strip().lower()
+    tolerancia = TOLERANCIA_PARED_DEFECTO_METROS
+
+    # 1. Revisar primero si el evento trae malla sincronizada en tiempo real en CCMETA
+    if evento is not None:
+        meta = _extraer_meta_descripcion_evento(evento)
+        if isinstance(meta.get("tol"), (int, float)):
+            tolerancia = max(2.0, min(80.0, float(meta["tol"])))
+        malla_meta = meta.get("malla")
+        if isinstance(malla_meta, list) and len(malla_meta) >= 3:
+            pts: List[Tuple[float, float]] = []
+            for item in malla_meta:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    pts.append((float(item[0]), float(item[1])))
+                elif isinstance(item, dict) and "lat" in item and "lon" in item:
+                    pts.append((float(item["lat"]), float(item["lon"])))
+            if len(pts) >= 3:
+                return pts, tolerancia
+
+    # 2. Consultar el catálogo de auditorios guardado en catalogos_institucionales
+    try:
+        row = db.execute(text("SELECT payload_json FROM catalogos_institucionales WHERE id = 1")).fetchone()
+        if row and row[0]:
+            payload = json.loads(row[0])
+            if isinstance(payload, dict) and isinstance(payload.get("auditorios"), list):
+                for aud in payload["auditorios"]:
+                    if not isinstance(aud, dict) or not aud.get("nombre"):
+                        continue
+                    nom_aud = str(aud["nombre"]).strip().lower()
+                    if nom_aud == lugar_norm or nom_aud in lugar_norm or lugar_norm in nom_aud:
+                        if isinstance(aud.get("toleranciaMetros"), (int, float)):
+                            tolerancia = max(2.0, min(80.0, float(aud["toleranciaMetros"])))
+                        malla_cat = aud.get("malla")
+                        if isinstance(malla_cat, list) and len(malla_cat) >= 3:
+                            pts_cat: List[Tuple[float, float]] = []
+                            for v in malla_cat:
+                                if isinstance(v, dict) and "lat" in v and "lon" in v:
+                                    pts_cat.append((float(v["lat"]), float(v["lon"])))
+                                elif isinstance(v, (list, tuple)) and len(v) >= 2:
+                                    pts_cat.append((float(v[0]), float(v[1])))
+                            if len(pts_cat) >= 3:
+                                return pts_cat, tolerancia
+    except Exception:
+        pass
+
+    # 3. Respaldo con la malla oficial de 4 esquinas de UNACH Campus I / ETDA
+    for clave, vertices in MALLAS_AUDITORIOS_DEFECTO.items():
+        if clave in lugar_norm or lugar_norm in clave:
+            return vertices, tolerancia
+    return MALLAS_AUDITORIOS_DEFECTO["auditorio principal etda"], tolerancia
 
 
-def _esta_dentro_del_recinto_unach(lat: Optional[float], lon: Optional[float]) -> Tuple[bool, float]:
+def _verificar_punto_en_malla_poligonal(
+    lat: Optional[float],
+    lon: Optional[float],
+    vertices: List[Tuple[float, float]],
+    tolerancia_metros: float = TOLERANCIA_PARED_DEFECTO_METROS,
+) -> Tuple[bool, float]:
+    if lat is None or lon is None or len(vertices) < 3:
+        return False, 999999.0
+
+    # 1. Ray-Casting (Jordan Curve Theorem)
+    dentro_exacto = False
+    j = len(vertices) - 1
+    for i in range(len(vertices)):
+        yi, xi = vertices[i]
+        yj, xj = vertices[j]
+        denom = (yj - yi) if abs(yj - yi) > 1e-12 else 1e-12
+        intersecta = ((yi > lat) != (yj > lat)) and (lon < (xj - xi) * (lat - yi) / denom + xi)
+        if intersecta:
+            dentro_exacto = not dentro_exacto
+        j = i
+
+    if dentro_exacto:
+        return True, 0.0
+
+    # 2. Distancia mínima en metros a los segmentos del polígono (margen de pared de 12 m)
+    m_lat = 111320.0
+    m_lon = max(1.0, 111320.0 * math.cos(math.radians(lat)))
+    min_dist = 999999.0
+    n = len(vertices)
+    for i in range(n):
+        lat_a, lon_a = vertices[i]
+        lat_b, lon_b = vertices[(i + 1) % n]
+        ax = (lon_a - lon) * m_lon
+        ay = (lat_a - lat) * m_lat
+        bx = (lon_b - lon) * m_lon
+        by = (lat_b - lat) * m_lat
+        dx = bx - ax
+        dy = by - ay
+        len_sq = dx * dx + dy * dy
+        t = max(0.0, min(1.0, -(ax * dx + ay * dy) / len_sq)) if len_sq > 1e-9 else 0.0
+        px = ax + t * dx
+        py = ay + t * dy
+        dist = math.hypot(px, py)
+        if dist < min_dist:
+            min_dist = dist
+
+    return (min_dist <= tolerancia_metros), min_dist
+
+
+def _esta_dentro_del_recinto_unach(
+    lat: Optional[float],
+    lon: Optional[float],
+    db: Optional[Session] = None,
+    evento: Optional[Evento] = None,
+) -> Tuple[bool, float]:
     if lat is None or lon is None:
         return False, 999999.0
-    distancias = [_distancia_haversine_metros(lat, lon, slat, slon) for slat, slon in SEDES_UNACH_COORDS]
-    menor = min(distancias) if distancias else 999999.0
-    return (menor <= RADIO_PERMITIDO_METROS), menor
+    if db is not None and evento is not None:
+        vertices, tol = _obtener_malla_auditorio_evento(db, evento)
+        return _verificar_punto_en_malla_poligonal(lat, lon, vertices, tol)
+    return _verificar_punto_en_malla_poligonal(
+        lat, lon, MALLAS_AUDITORIOS_DEFECTO["auditorio principal etda"], TOLERANCIA_PARED_DEFECTO_METROS
+    )
 
 
 class ApartarAsientoRequest(BaseModel):
@@ -1010,7 +1166,7 @@ def apartar_asiento_e_inscribir(
             ya.qr_validado = True
             hubo_mod = True
         if datos and datos.asistio is True and datos.latitud is not None and datos.longitud is not None:
-            dentro, _ = _esta_dentro_del_recinto_unach(datos.latitud, datos.longitud)
+            dentro, _ = _esta_dentro_del_recinto_unach(datos.latitud, datos.longitud, db=db, evento=evento)
             if dentro:
                 ya.qr_validado = True
                 ya.gps_validado = True
@@ -1199,7 +1355,7 @@ def registrar_ping_gps_permanencia(
             detail="Primero debes apartar tu asiento y escanear el código QR oficial del evento.",
         )
 
-    dentro_recinto, distancia_m = _esta_dentro_del_recinto_unach(datos.latitud, datos.longitud)
+    dentro_recinto, distancia_m = _esta_dentro_del_recinto_unach(datos.latitud, datos.longitud, db=db, evento=evento)
     cat_norm = _normalizar_nombre_categoria(evento.categoria, evento.titulo, evento.descripcion)
 
     if not dentro_recinto:

@@ -85,12 +85,84 @@ const CATALOGO_POR_DEFECTO = {
     ],
     grupos: ["1A", "1B", "2A", "3A", "3B", "4A", "5A", "5B", "6A", "7A", "7N", "7O", "8A", "9A"],
     auditorios: [
-        { id: "aud-etda", nombre: "Auditorio Principal ETDA", asientos: 180, ubicacion: "Edificio Principal ETDA" },
-        { id: "sala-av1", nombre: "Sala Audiovisual 1", asientos: 60, ubicacion: "Planta Alta ETDA" },
-        { id: "sala-av2", nombre: "Sala Audiovisual 2", asientos: 50, ubicacion: "Planta Alta ETDA" },
-        { id: "lab-comp-a", nombre: "Laboratorio de Cómputo A", asientos: 35, ubicacion: "Centro de Cómputo" },
-        { id: "aud-constituyentes", nombre: "Auditorio Los Constituyentes", asientos: 350, ubicacion: "Campus I Central" },
-        { id: "explanada-etda", nombre: "Explanada Central ETDA", asientos: 250, ubicacion: "Área Abierta Campus I" }
+        {
+            id: "aud-etda",
+            nombre: "Auditorio Principal ETDA",
+            asientos: 180,
+            ubicacion: "Edificio Principal ETDA",
+            toleranciaMetros: 12,
+            malla: [
+                { lat: 16.754420, lon: -93.154020 },
+                { lat: 16.754420, lon: -93.153580 },
+                { lat: 16.754020, lon: -93.153580 },
+                { lat: 16.754020, lon: -93.154020 }
+            ]
+        },
+        {
+            id: "sala-av1",
+            nombre: "Sala Audiovisual 1",
+            asientos: 60,
+            ubicacion: "Planta Alta ETDA",
+            toleranciaMetros: 12,
+            malla: [
+                { lat: 16.754360, lon: -93.153950 },
+                { lat: 16.754360, lon: -93.153680 },
+                { lat: 16.754120, lon: -93.153680 },
+                { lat: 16.754120, lon: -93.153950 }
+            ]
+        },
+        {
+            id: "sala-av2",
+            nombre: "Sala Audiovisual 2",
+            asientos: 50,
+            ubicacion: "Planta Alta ETDA",
+            toleranciaMetros: 12,
+            malla: [
+                { lat: 16.754320, lon: -93.153920 },
+                { lat: 16.754320, lon: -93.153650 },
+                { lat: 16.754080, lon: -93.153650 },
+                { lat: 16.754080, lon: -93.153920 }
+            ]
+        },
+        {
+            id: "lab-comp-a",
+            nombre: "Laboratorio de Cómputo A",
+            asientos: 35,
+            ubicacion: "Centro de Cómputo",
+            toleranciaMetros: 12,
+            malla: [
+                { lat: 16.754500, lon: -93.154100 },
+                { lat: 16.754500, lon: -93.153800 },
+                { lat: 16.754250, lon: -93.153800 },
+                { lat: 16.754250, lon: -93.154100 }
+            ]
+        },
+        {
+            id: "aud-constituyentes",
+            nombre: "Auditorio Los Constituyentes",
+            asientos: 350,
+            ubicacion: "Campus I Central",
+            toleranciaMetros: 12,
+            malla: [
+                { lat: 16.753250, lon: -93.152950 },
+                { lat: 16.753250, lon: -93.152250 },
+                { lat: 16.752550, lon: -93.152250 },
+                { lat: 16.752550, lon: -93.152950 }
+            ]
+        },
+        {
+            id: "explanada-etda",
+            nombre: "Explanada Central ETDA",
+            asientos: 250,
+            ubicacion: "Área Abierta Campus I",
+            toleranciaMetros: 12,
+            malla: [
+                { lat: 16.754650, lon: -93.154200 },
+                { lat: 16.754650, lon: -93.153450 },
+                { lat: 16.753950, lon: -93.153450 },
+                { lat: 16.753950, lon: -93.154200 }
+            ]
+        }
     ],
     categorias: ["Académicos", "Conferencias", "Talleres", "Tutorías", "Culturales", "Deporte"]
 };
@@ -178,6 +250,60 @@ function sincronizarGruposGlobalesDesdeCarreras(catalogoObj) {
     catalogoObj.grupos = Array.from(setGrupos).sort();
 }
 
+
+function normalizarMallaAuditorio(mallaRaw, nombreAuditorio = "") {
+    if (Array.isArray(mallaRaw) && mallaRaw.length >= 3) {
+        const limpios = mallaRaw.map(v => {
+            if (Array.isArray(v) && v.length >= 2) {
+                return { lat: Number(v[0]), lon: Number(v[1]) };
+            }
+            return { lat: Number(v?.lat), lon: Number(v?.lon) };
+        }).filter(v => !Number.isNaN(v.lat) && !Number.isNaN(v.lon) && Math.abs(v.lat) <= 90 && Math.abs(v.lon) <= 180);
+        if (limpios.length >= 3) return limpios.slice(0, 8);
+    }
+    const def = CATALOGO_POR_DEFECTO.auditorios.find(
+        d => d.nombre.toLowerCase() === String(nombreAuditorio || "").trim().toLowerCase()
+    );
+    if (def && Array.isArray(def.malla)) {
+        return JSON.parse(JSON.stringify(def.malla));
+    }
+    return [
+        { lat: 16.754420, lon: -93.154020 },
+        { lat: 16.754420, lon: -93.153580 },
+        { lat: 16.754020, lon: -93.153580 },
+        { lat: 16.754020, lon: -93.154020 }
+    ];
+}
+
+function normalizarAuditoriosConMalla(auditoriosRaw) {
+    const base = Array.isArray(auditoriosRaw) && auditoriosRaw.length
+        ? auditoriosRaw
+        : JSON.parse(JSON.stringify(CATALOGO_POR_DEFECTO.auditorios));
+    const localGuardados = (() => {
+        try {
+            const raw = JSON.parse(localStorage.getItem(STORAGE_CATALOGOS_KEY) || "{}");
+            return Array.isArray(raw.auditorios) ? raw.auditorios : [];
+        } catch (_) { return []; }
+    })();
+
+    return base.map(a => {
+        const nomLimpio = String(a?.nombre || "").trim();
+        const prevLocal = localGuardados.find(x => String(x?.nombre || "").trim().toLowerCase() === nomLimpio.toLowerCase());
+        const mallaElegida = (Array.isArray(a?.malla) && a.malla.length >= 3)
+            ? a.malla
+            : (Array.isArray(prevLocal?.malla) && prevLocal.malla.length >= 3 ? prevLocal.malla : null);
+        const tol = Number(a?.toleranciaMetros ?? prevLocal?.toleranciaMetros ?? 12);
+        return {
+            id: a?.id || prevLocal?.id || ("aud-" + nomLimpio.toLowerCase().replace(/[^a-z0-9]+/g, "-")),
+            nombre: nomLimpio,
+            asientos: Math.max(1, parseInt(a?.asientos, 10) || 100),
+            ubicacion: String(a?.ubicacion || prevLocal?.ubicacion || "Campus I UNACH").trim(),
+            toleranciaMetros: Number.isNaN(tol) ? 12 : Math.max(0, Math.min(100, tol)),
+            malla: normalizarMallaAuditorio(mallaElegida, nomLimpio)
+        };
+    }).filter(a => Boolean(a.nombre));
+}
+
 let estadoCatalogos = cargarCatalogosLocal();
 
 function cargarCatalogosLocal() {
@@ -192,7 +318,7 @@ function cargarCatalogosLocal() {
             facultades: Array.isArray(parsed.facultades) && parsed.facultades.length ? parsed.facultades : [...CATALOGO_POR_DEFECTO.facultades],
             carreras: carrerasNorm,
             grupos: gruposBase,
-            auditorios: Array.isArray(parsed.auditorios) && parsed.auditorios.length ? parsed.auditorios : [...CATALOGO_POR_DEFECTO.auditorios],
+            auditorios: normalizarAuditoriosConMalla(parsed.auditorios),
             categorias: Array.isArray(parsed.categorias) && parsed.categorias.length ? parsed.categorias : [...CATALOGO_POR_DEFECTO.categorias],
             datosInstitucionales: {
                 ...DATOS_INSTITUCIONALES_POR_DEFECTO,
@@ -218,7 +344,7 @@ async function sincronizarCatalogosDesdeServidor() {
                 facultades: remoto.facultades?.length ? remoto.facultades : estadoCatalogos.facultades,
                 carreras: normalizarCarrerasConGrupos(remoto.carreras?.length ? remoto.carreras : estadoCatalogos.carreras, gruposRemotos),
                 grupos: gruposRemotos,
-                auditorios: remoto.auditorios?.length ? remoto.auditorios : estadoCatalogos.auditorios,
+                auditorios: normalizarAuditoriosConMalla(remoto.auditorios?.length ? remoto.auditorios : estadoCatalogos.auditorios),
                 categorias: remoto.categorias?.length ? remoto.categorias : estadoCatalogos.categorias,
                 datosInstitucionales: {
                     ...DATOS_INSTITUCIONALES_POR_DEFECTO,
@@ -451,8 +577,13 @@ async function iniciarCatalogosFacultad() {
 }
 
 function generarHtmlListaAuditorios() {
-    return (estadoCatalogos.auditorios || []).map((a, idx) => `
-        <div class="flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-200 bg-[#F4F7FB] hover:bg-white transition">
+    return (estadoCatalogos.auditorios || []).map((a, idx) => {
+        const mallaPts = normalizarMallaAuditorio(a.malla, a.nombre);
+        const tolM = Number(a.toleranciaMetros ?? 12);
+        const centroLat = (mallaPts.reduce((s, p) => s + p.lat, 0) / mallaPts.length).toFixed(5);
+        const centroLon = (mallaPts.reduce((s, p) => s + p.lon, 0) / mallaPts.length).toFixed(5);
+        return `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-200 bg-[#F4F7FB] hover:bg-white transition">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-[#122652] text-[#F57C00] flex items-center justify-center font-extrabold text-sm shrink-0">
                     <i class="fa-solid fa-chair"></i>
@@ -463,13 +594,22 @@ function generarHtmlListaAuditorios() {
                         <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold">
                             <i class="fa-solid fa-users mr-1"></i>${Number(a.asientos)} asientos
                         </span>
+                        <span class="px-2 py-0.5 rounded-full bg-sky-100 text-[#122652] border border-sky-200 text-[10px] font-extrabold" title="Centro: ${centroLat}, ${centroLon}">
+                            <i class="fa-solid fa-draw-polygon text-[#0093FF] mr-1"></i>Malla ${mallaPts.length} esquinas · Tol. ${tolM}m
+                        </span>
                     </div>
                     <p class="text-xs text-[#5B6670] mt-0.5">
                         <i class="fa-solid fa-location-dot text-[#0093FF] mr-1"></i>${esc(a.ubicacion || "Campus I UNACH")}
+                        <span class="text-[10px] font-mono text-slate-400 ml-1">(${centroLat}, ${centroLon})</span>
                     </p>
                 </div>
             </div>
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button type="button" onclick="abrirModalMallaAuditorio(${idx})"
+                    class="text-xs font-extrabold text-white bg-[#122652] hover:bg-[#193773] px-2.5 py-1.5 rounded-xl shadow-sm transition flex items-center gap-1"
+                    title="Delimitar las 4 esquinas de coordenadas GPS del recinto en tiempo real">
+                    <i class="fa-solid fa-draw-polygon text-[#F57C00]"></i>Malla GPS
+                </button>
                 <button type="button" onclick="editarAsientosAuditorio(${idx})"
                     class="text-xs font-bold text-[#122652] bg-white hover:bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl transition"
                     title="Cambiar número de asientos">
@@ -482,7 +622,7 @@ function generarHtmlListaAuditorios() {
                 </button>
             </div>
         </div>
-    `).join("") || `<p class="text-xs text-slate-400 text-center py-4">No hay auditorios registrados.</p>`;
+    `}).join("") || `<p class="text-xs text-slate-400 text-center py-4">No hay auditorios registrados.</p>`;
 }
 
 function renderizarVistaCatalogos() {
@@ -1212,3 +1352,328 @@ document.addEventListener("DOMContentLoaded", () => {
     poblarSelectoresRegistroUsuario();
     sincronizarCatalogosDesdeServidor();
 });
+
+// ============================================================================
+// DELIMITADOR DE MALLA POLIGONAL GPS POR AUDITORIO (4 ESQUINAS EN TIEMPO REAL)
+// ============================================================================
+let _estadoModalMalla = {
+    auditorioIdx: null,
+    mapaLeaflet: null,
+    poligonoLeaflet: null,
+    marcadoresVertices: [],
+    marcadorMiPosicion: null,
+    miPosicionActual: null
+};
+
+function _crearMallaRectangularAlrededorDe(latCentro, lonCentro, semianchoMetros = 18) {
+    // 1 grado latitud ~ 111,320 m; 1 grado longitud en Chiapas (~16.75°) ~ 106,590 m
+    const dLat = semianchoMetros / 111320;
+    const dLon = semianchoMetros / 106590;
+    return [
+        { lat: Number((latCentro + dLat).toFixed(6)), lon: Number((lonCentro - dLon).toFixed(6)) }, // Noroeste
+        { lat: Number((latCentro + dLat).toFixed(6)), lon: Number((lonCentro + dLon).toFixed(6)) }, // Noreste
+        { lat: Number((latCentro - dLat).toFixed(6)), lon: Number((lonCentro + dLon).toFixed(6)) }, // Sureste
+        { lat: Number((latCentro - dLat).toFixed(6)), lon: Number((lonCentro - dLon).toFixed(6)) }  // Suroeste
+    ];
+}
+
+function _leerVerticesDesdeInputsMalla() {
+    const pts = [];
+    for (let i = 0; i < 4; i++) {
+        const lat = parseFloat(document.getElementById(`malla-v${i}-lat`)?.value || "");
+        const lon = parseFloat(document.getElementById(`malla-v${i}-lon`)?.value || "");
+        if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+            pts.push({ lat: Number(lat.toFixed(6)), lon: Number(lon.toFixed(6)) });
+        }
+    }
+    return pts;
+}
+
+function _escribirVerticesEnInputsMalla(vertices) {
+    const pts = normalizarMallaAuditorio(vertices);
+    for (let i = 0; i < 4; i++) {
+        const p = pts[i] || pts[0];
+        const elLat = document.getElementById(`malla-v${i}-lat`);
+        const elLon = document.getElementById(`malla-v${i}-lon`);
+        if (elLat) elLat.value = Number(p.lat).toFixed(6);
+        if (elLon) elLon.value = Number(p.lon).toFixed(6);
+    }
+}
+
+function verificarPuntoEnMallaPoligonalWeb(lat, lon, vertices, toleranciaMetros = 12) {
+    if (!Array.isArray(vertices) || vertices.length < 3) return { dentro: false, distanciaBorde: 999999 };
+    // 1. Ray-Casting (Punto dentro del polígono)
+    let dentroPoligono = false;
+    for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+        const yi = vertices[i].lat, xi = vertices[i].lon;
+        const yj = vertices[j].lat, xj = vertices[j].lon;
+        const intersecta = ((yi > lat) !== (yj > lat)) &&
+            (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi);
+        if (intersecta) dentroPoligono = !dentroPoligono;
+    }
+    if (dentroPoligono) return { dentro: true, distanciaBorde: 0 };
+
+    // 2. Distancia mínima en metros a las paredes/aristas del polígono
+    const latRefRad = (lat * Math.PI) / 180;
+    const mPorGradoLat = 111320;
+    const mPorGradoLon = 111320 * Math.cos(latRefRad);
+    let minDist = Infinity;
+
+    for (let i = 0; i < vertices.length; i++) {
+        const a = vertices[i];
+        const b = vertices[(i + 1) % vertices.length];
+        const ax = (a.lon - lon) * mPorGradoLon;
+        const ay = (a.lat - lat) * mPorGradoLat;
+        const bx = (b.lon - lon) * mPorGradoLon;
+        const by = (b.lat - lat) * mPorGradoLat;
+        const dx = bx - ax;
+        const dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        let t = 0;
+        if (lenSq > 0) {
+            t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lenSq));
+        }
+        const projX = ax + t * dx;
+        const projY = ay + t * dy;
+        const dist = Math.sqrt(projX * projX + projY * projY);
+        if (dist < minDist) minDist = dist;
+    }
+
+    return {
+        dentro: minDist <= toleranciaMetros,
+        distanciaBorde: Math.round(minDist)
+    };
+}
+
+function actualizarEstadoVisualMalla() {
+    const elEstado = document.getElementById("malla-estado-mi-posicion");
+    if (!elEstado) return;
+    const pos = _estadoModalMalla.miPosicionActual;
+    if (!pos) {
+        elEstado.innerHTML = `<span class="text-slate-400">Haz clic en "Delimitar en mi ubicación" para comprobar tu posición GPS</span>`;
+        return;
+    }
+    const pts = _leerVerticesDesdeInputsMalla();
+    const tol = Number(document.getElementById("malla-input-tolerancia")?.value || 12);
+    const res = verificarPuntoEnMallaPoligonalWeb(pos.lat, pos.lon, pts, tol);
+    if (res.dentro) {
+        elEstado.innerHTML = `<span class="text-emerald-600"><i class="fa-solid fa-circle-check mr-1"></i>Tu ubicación actual está DENTRO del área delimitada (Validará 2/2)</span>`;
+    } else {
+        elEstado.innerHTML = `<span class="text-red-600"><i class="fa-solid fa-circle-xmark mr-1"></i>Tu ubicación actual está AFUERA (${res.distanciaBorde} m del borde · Rechazará 2/2)</span>`;
+    }
+}
+
+function _renderizarPoligonoEnMapaLeaflet(centrar = false) {
+    const pts = _leerVerticesDesdeInputsMalla();
+    if (pts.length < 4) return;
+    actualizarEstadoVisualMalla();
+
+    if (typeof L === "undefined") return;
+    const contenedor = document.getElementById("malla-leaflet-map");
+    if (!contenedor) return;
+
+    if (!_estadoModalMalla.mapaLeaflet) {
+        _estadoModalMalla.mapaLeaflet = L.map("malla-leaflet-map").setView([pts[0].lat, pts[0].lon], 18);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 21,
+            attribution: "© OpenStreetMap • UNACH ETDA"
+        }).addTo(_estadoModalMalla.mapaLeaflet);
+
+        _estadoModalMalla.mapaLeaflet.on("click", (evClick) => {
+            const nuevas = _crearMallaRectangularAlrededorDe(evClick.latlng.lat, evClick.latlng.lng, 18);
+            _escribirVerticesEnInputsMalla(nuevas);
+            _renderizarPoligonoEnMapaLeaflet(false);
+        });
+    }
+
+    const latLngs = pts.map(p => [p.lat, p.lon]);
+    if (_estadoModalMalla.poligonoLeaflet) {
+        _estadoModalMalla.poligonoLeaflet.setLatLngs(latLngs);
+    } else {
+        _estadoModalMalla.poligonoLeaflet = L.polygon(latLngs, {
+            color: "#122652",
+            weight: 3,
+            fillColor: "#0093FF",
+            fillOpacity: 0.28
+        }).addTo(_estadoModalMalla.mapaLeaflet);
+    }
+
+    // Actualizar o crear los 4 marcadores arrastrables de las esquinas
+    if (_estadoModalMalla.marcadoresVertices.length === 4) {
+        pts.forEach((p, idx) => {
+            _estadoModalMalla.marcadoresVertices[idx].setLatLng([p.lat, p.lon]);
+        });
+    } else {
+        _estadoModalMalla.marcadoresVertices.forEach(m => m.remove());
+        _estadoModalMalla.marcadoresVertices = pts.map((p, idx) => {
+            const marker = L.marker([p.lat, p.lon], {
+                draggable: true,
+                title: `Esquina ${idx + 1}`
+            }).addTo(_estadoModalMalla.mapaLeaflet);
+            marker.bindTooltip(`E${idx + 1}`, { permanent: true, direction: "top", className: "font-bold text-xs" });
+            marker.on("drag", (evDrag) => {
+                const pos = evDrag.target.getLatLng();
+                const elLat = document.getElementById(`malla-v${idx}-lat`);
+                const elLon = document.getElementById(`malla-v${idx}-lon`);
+                if (elLat) elLat.value = pos.lat.toFixed(6);
+                if (elLon) elLon.value = pos.lng.toFixed(6);
+                const actualizados = _leerVerticesDesdeInputsMalla();
+                if (_estadoModalMalla.poligonoLeaflet && actualizados.length === 4) {
+                    _estadoModalMalla.poligonoLeaflet.setLatLngs(actualizados.map(x => [x.lat, x.lon]));
+                }
+                actualizarEstadoVisualMalla();
+            });
+            return marker;
+        });
+    }
+
+    if (centrar) {
+        setTimeout(() => {
+            try {
+                _estadoModalMalla.mapaLeaflet.invalidateSize();
+                _estadoModalMalla.mapaLeaflet.fitBounds(_estadoModalMalla.poligonoLeaflet.getBounds().pad(0.45));
+            } catch (_) {}
+        }, 120);
+    }
+}
+
+function abrirModalMallaAuditorio(idx) {
+    const aud = estadoCatalogos.auditorios[idx];
+    if (!aud) return;
+    _estadoModalMalla.auditorioIdx = idx;
+
+    const titEl = document.getElementById("malla-modal-titulo");
+    if (titEl) titEl.innerText = `Malla Poligonal GPS: ${aud.nombre}`;
+    const subEl = document.getElementById("malla-modal-subtitulo");
+    if (subEl) subEl.innerText = `📍 ${aud.ubicacion || "Campus I UNACH"} · Capacidad: ${aud.asientos} asientos · Delimitación exacta de 4 esquinas`;
+
+    const inpTol = document.getElementById("malla-input-tolerancia");
+    if (inpTol) inpTol.value = Number(aud.toleranciaMetros ?? 12);
+
+    const mallaInicial = normalizarMallaAuditorio(aud.malla, aud.nombre);
+    _escribirVerticesEnInputsMalla(mallaInicial);
+
+    document.getElementById("modal-malla-auditorio")?.classList.remove("hidden");
+    _renderizarPoligonoEnMapaLeaflet(true);
+
+    // Obtener en segundo plano la ubicación actual del navegador para mostrar en tiempo real si está DENTRO o AFUERA
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                _estadoModalMalla.miPosicionActual = {
+                    lat: pos.coords.latitude,
+                    lon: pos.coords.longitude
+                };
+                if (_estadoModalMalla.mapaLeaflet && typeof L !== "undefined") {
+                    if (_estadoModalMalla.marcadorMiPosicion) {
+                        _estadoModalMalla.marcadorMiPosicion.setLatLng([pos.coords.latitude, pos.coords.longitude]);
+                    } else {
+                        _estadoModalMalla.marcadorMiPosicion = L.circleMarker([pos.coords.latitude, pos.coords.longitude], {
+                            radius: 7,
+                            color: "#FFFFFF",
+                            weight: 2,
+                            fillColor: "#10B981",
+                            fillOpacity: 1
+                        }).addTo(_estadoModalMalla.mapaLeaflet).bindTooltip("Tu ubicación actual", { direction: "bottom" });
+                    }
+                }
+                actualizarEstadoVisualMalla();
+            },
+            () => { actualizarEstadoVisualMalla(); },
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
+    }
+}
+
+function cerrarModalMallaAuditorio() {
+    document.getElementById("modal-malla-auditorio")?.classList.add("hidden");
+}
+
+function sincronizarMapaDesdeInputsMalla() {
+    _renderizarPoligonoEnMapaLeaflet(false);
+}
+
+function aplicarCentroPegadoMalla() {
+    const raw = (document.getElementById("malla-pegar-centro")?.value || "").trim();
+    const partes = raw.split(/[\s,;]+/).map(Number).filter(n => !Number.isNaN(n));
+    if (partes.length < 2 || Math.abs(partes[0]) > 90 || Math.abs(partes[1]) > 180) {
+        toast("Pega una coordenada válida en formato: Latitud, Longitud (ej. 16.75420, -93.15380).", "alerta");
+        return;
+    }
+    const nuevas = _crearMallaRectangularAlrededorDe(partes[0], partes[1], 18);
+    _escribirVerticesEnInputsMalla(nuevas);
+    _renderizarPoligonoEnMapaLeaflet(true);
+    toast("Malla de 4 esquinas centrada en la coordenada indicada.", "info");
+}
+
+function delimitarMallaEnMiUbicacionActual() {
+    if (!navigator.geolocation) {
+        toast("Tu navegador no soporta geolocalización. Usa el campo de pegar coordenada central.", "alerta");
+        return;
+    }
+    toast("Obteniendo tu ubicación GPS precisa...", "info");
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+            _estadoModalMalla.miPosicionActual = { lat, lon };
+            const nuevas = _crearMallaRectangularAlrededorDe(lat, lon, 20);
+            _escribirVerticesEnInputsMalla(nuevas);
+            _renderizarPoligonoEnMapaLeaflet(true);
+            toast("¡Malla delimitada alrededor de tu ubicación actual! Haz clic en Guardar y Sincronizar en Vivo.", "exito");
+        },
+        (err) => {
+            toast("No se pudo leer tu ubicación del navegador (" + err.message + "). Pega tus coordenadas manualmente.", "alerta");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+}
+
+function moverMallaLejosParaPruebaRechazo() {
+    const baseLat = _estadoModalMalla.miPosicionActual?.lat || 16.75420;
+    const baseLon = _estadoModalMalla.miPosicionActual?.lon || -93.15380;
+    // Desplazar ~260 metros al noreste para garantizar que el dispositivo quede AFUERA de la malla
+    const lejosLat = baseLat + 0.0021;
+    const lejosLon = baseLon + 0.0021;
+    const nuevas = _crearMallaRectangularAlrededorDe(lejosLat, lejosLon, 16);
+    _escribirVerticesEnInputsMalla(nuevas);
+    _renderizarPoligonoEnMapaLeaflet(true);
+    toast("Malla desplazada a ~260 m de distancia (quedarás AFUERA). Haz clic en Guardar y Sincronizar en Vivo.", "alerta");
+}
+
+function restaurarMallaOficialAuditorioActual() {
+    const idx = _estadoModalMalla.auditorioIdx;
+    const aud = estadoCatalogos.auditorios[idx];
+    if (!aud) return;
+    const oficial = normalizarMallaAuditorio(null, aud.nombre);
+    _escribirVerticesEnInputsMalla(oficial);
+    const inpTol = document.getElementById("malla-input-tolerancia");
+    if (inpTol) inpTol.value = 12;
+    _renderizarPoligonoEnMapaLeaflet(true);
+    toast(`Malla oficial de "${aud.nombre}" en Campus I UNACH restaurada.`, "info");
+}
+
+async function guardarMallaAuditorioModal() {
+    const idx = _estadoModalMalla.auditorioIdx;
+    const aud = estadoCatalogos.auditorios[idx];
+    if (!aud) return;
+
+    const pts = _leerVerticesDesdeInputsMalla();
+    if (pts.length < 4) {
+        toast("Verifica que las 4 esquinas tengan coordenadas numéricas válidas.", "alerta");
+        return;
+    }
+    const tol = Math.max(0, Math.min(100, Number(document.getElementById("malla-input-tolerancia")?.value || 12)));
+
+    aud.malla = pts;
+    aud.toleranciaMetros = tol;
+
+    await persistirCatalogos(`Malla GPS de "${aud.nombre}" (${pts.length} esquinas, tolerancia ${tol} m) actualizada en vivo.`);
+
+    // Propagar en tiempo real la nueva malla a todos los eventos activos que se celebren en este auditorio
+    if (typeof sincronizarMallaDeAuditorioEnEventosActivos === "function") {
+        await sincronizarMallaDeAuditorioEnEventosActivos(aud);
+    }
+
+    cerrarModalMallaAuditorio();
+}

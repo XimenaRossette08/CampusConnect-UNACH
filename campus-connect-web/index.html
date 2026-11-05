@@ -18,6 +18,9 @@
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <!-- Librería QRCode.js para generación automática de códigos QR oficiales por evento -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Librería Leaflet para Mapa Interactivo de Geocerca Poligonal (4 Esquinas por Auditorio) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <!-- Hoja de estilos institucional ETDA - UNACH -->
     <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -1675,16 +1678,21 @@
                 <p><b>2/2 Permanencia GPS:</b> La App verifica su permanencia en el recinto para acreditar <b>+1 asistencia</b> en su insignia.</p>
             </div>
 
-            <div class="grid grid-cols-2 gap-2.5 mt-5">
+            <div class="grid grid-cols-3 gap-2 mt-5">
                 <button type="button" onclick="descargarQrEventoPNG()"
-                    class="bg-[#F57C00] hover:bg-amber-600 text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                    class="bg-[#F57C00] hover:bg-amber-600 text-white text-xs font-extrabold py-2.5 px-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-download"></i>
-                    <span>Descargar PNG</span>
+                    <span>Descargar</span>
+                </button>
+                <button type="button" onclick="compartirQrEvento()"
+                    class="bg-[#0093FF] hover:bg-sky-600 text-white text-xs font-extrabold py-2.5 px-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-share-nodes"></i>
+                    <span>Compartir</span>
                 </button>
                 <button type="button" onclick="imprimirHojaQrEvento()"
-                    class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                    class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold py-2.5 px-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-print text-[#F57C00]"></i>
-                    <span>Imprimir Cartel QR</span>
+                    <span>Imprimir</span>
                 </button>
             </div>
         </div>
@@ -1795,6 +1803,149 @@
         </div>
     </div>
 
+    <!-- MODAL 14: DELIMITADOR DE MALLA POLIGONAL GPS POR AUDITORIO (4 ESQUINAS EN TIEMPO REAL) -->
+    <div id="modal-malla-auditorio" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 hidden z-50">
+        <div class="bg-white rounded-3xl max-w-5xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 max-h-[95vh] flex flex-col">
+            <!-- Encabezado -->
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3.5 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-[#122652] text-[#F57C00] flex items-center justify-center text-lg font-extrabold shadow-sm">
+                        <i class="fa-solid fa-draw-polygon"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-[#F57C00]">Geocerca Poligonal de Seguridad • Sincronización Instantánea con App</span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Tiempo Real
+                            </span>
+                        </div>
+                        <h3 id="malla-modal-titulo" class="text-base sm:text-lg font-extrabold text-[#122652] leading-tight">Delimitación de Malla GPS del Auditorio</h3>
+                        <p id="malla-modal-subtitulo" class="text-xs text-[#5B6670] font-semibold">Arrastra las 4 esquinas en el mapa o edita las coordenadas para delimitar el área exacta donde se validará la asistencia.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModalMallaAuditorio()" class="text-slate-400 hover:text-slate-600 text-xl px-1">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Botones de Prueba Rápida en Tiempo Real -->
+            <div class="flex flex-wrap items-center justify-between gap-2 bg-[#F4F7FB] p-3 rounded-2xl border border-slate-200 mb-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" onclick="delimitarMallaEnMiUbicacionActual()"
+                        class="bg-[#10B981] hover:bg-emerald-600 text-white text-xs font-extrabold px-3 py-2 rounded-xl shadow-sm transition flex items-center gap-1.5"
+                        title="Crea un polígono de 4 esquinas alrededor de tu ubicación GPS actual para quedar DENTRO del área">
+                        <i class="fa-solid fa-location-crosshairs"></i>
+                        <span>Delimitar en mi ubicación actual (Quedar DENTRO)</span>
+                    </button>
+                    <button type="button" onclick="moverMallaLejosParaPruebaRechazo()"
+                        class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold px-3 py-2 rounded-xl shadow-sm transition flex items-center gap-1.5"
+                        title="Desplaza las 4 esquinas a 250 metros de distancia para quedar AFUERA del área y probar el bloqueo en vivo">
+                        <i class="fa-solid fa-ban"></i>
+                        <span>Mover área a 250 m (Quedar AFUERA)</span>
+                    </button>
+                    <button type="button" onclick="restaurarMallaOficialAuditorioActual()"
+                        class="bg-white hover:bg-slate-100 text-[#122652] border border-slate-300 text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-building-columns text-[#0093FF]"></i>
+                        <span>Malla Oficial Campus I UNACH</span>
+                    </button>
+                </div>
+                <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                    <label for="malla-input-tolerancia" class="text-[11px] font-extrabold text-[#122652]">
+                        <i class="fa-solid fa-shield-halved text-[#F57C00] mr-1"></i>Tolerancia paredes (m):
+                    </label>
+                    <input type="number" id="malla-input-tolerancia" min="0" max="100" step="1" value="12"
+                        onchange="actualizarEstadoVisualMalla()"
+                        class="w-16 px-2 py-1 border border-slate-300 rounded-lg text-xs font-extrabold text-center text-[#122652]">
+                </div>
+            </div>
+
+            <!-- Cuerpo en 2 columnas: Mapa Interactivo (Izquierda) + Coordenadas de las 4 Esquinas y Simulador (Derecha) -->
+            <div class="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-5 gap-4 pr-1">
+                <!-- Columna Mapa Interactivo Leaflet (3/5) -->
+                <div class="lg:col-span-3 flex flex-col space-y-2">
+                    <div id="malla-leaflet-map" class="w-full h-[320px] sm:h-[380px] rounded-2xl border-2 border-[#122652]/20 shadow-inner bg-slate-100 z-10"></div>
+                    <p class="text-[11px] text-[#5B6670] flex items-center justify-between">
+                        <span><i class="fa-solid fa-hand-pointer text-[#F57C00] mr-1"></i><b>Tip:</b> Arrastra cualquiera de los 4 marcadores en el mapa o haz clic en el mapa para reubicar el centro del auditorio.</span>
+                        <span id="malla-estado-mi-posicion" class="font-extrabold text-[#122652]"></span>
+                    </p>
+                </div>
+
+                <!-- Columna Coordenadas de las 4 Esquinas (2/5) -->
+                <div class="lg:col-span-2 bg-[#F4F7FB] rounded-2xl p-4 border border-slate-200 flex flex-col justify-between space-y-3">
+                    <div class="space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold uppercase tracking-wider text-[#122652]">
+                                <i class="fa-solid fa-vector-square text-[#0093FF] mr-1"></i>4 Esquinas de la Malla (Lat, Lon)
+                            </span>
+                            <span class="text-[10px] font-bold text-slate-500">Formato decimal</span>
+                        </div>
+
+                        <!-- Vértice 1: Noroeste -->
+                        <div class="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                            <span class="text-[10px] font-extrabold text-[#122652] block">Esquina 1 (Noroeste — Superior Izq.)</span>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <input type="number" step="0.000001" id="malla-v0-lat" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Latitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                                <input type="number" step="0.000001" id="malla-v0-lon" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Longitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                            </div>
+                        </div>
+
+                        <!-- Vértice 2: Noreste -->
+                        <div class="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                            <span class="text-[10px] font-extrabold text-[#122652] block">Esquina 2 (Noreste — Superior Der.)</span>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <input type="number" step="0.000001" id="malla-v1-lat" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Latitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                                <input type="number" step="0.000001" id="malla-v1-lon" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Longitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                            </div>
+                        </div>
+
+                        <!-- Vértice 3: Sureste -->
+                        <div class="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                            <span class="text-[10px] font-extrabold text-[#122652] block">Esquina 3 (Sureste — Inferior Der.)</span>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <input type="number" step="0.000001" id="malla-v2-lat" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Latitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                                <input type="number" step="0.000001" id="malla-v2-lon" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Longitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                            </div>
+                        </div>
+
+                        <!-- Vértice 4: Suroeste -->
+                        <div class="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                            <span class="text-[10px] font-extrabold text-[#122652] block">Esquina 4 (Suroeste — Inferior Izq.)</span>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <input type="number" step="0.000001" id="malla-v3-lat" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Latitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                                <input type="number" step="0.000001" id="malla-v3-lon" oninput="sincronizarMapaDesdeInputsMalla()" placeholder="Longitud" class="px-2 py-1 border rounded-lg text-xs font-mono">
+                            </div>
+                        </div>
+
+                        <!-- Pegado rápido de coordenada central -->
+                        <div class="bg-sky-50/80 p-2.5 rounded-xl border border-sky-200 space-y-1.5">
+                            <label class="text-[10px] font-extrabold text-[#122652] block">
+                                <i class="fa-solid fa-paste text-[#0093FF] mr-1"></i>Pegar coordenada central (ej. de Google Maps):
+                            </label>
+                            <div class="flex gap-1.5">
+                                <input type="text" id="malla-pegar-centro" placeholder="Ej. 16.75420, -93.15380" class="flex-1 px-2.5 py-1 border border-slate-300 rounded-lg text-xs font-mono bg-white">
+                                <button type="button" onclick="aplicarCentroPegadoMalla()" class="bg-[#0093FF] hover:bg-sky-600 text-white text-[11px] font-extrabold px-2.5 py-1 rounded-lg transition">
+                                    Centrar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
+                        <button type="button" onclick="cerrarModalMallaAuditorio()"
+                            class="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100">
+                            Cancelar
+                        </button>
+                        <button type="button" onclick="guardarMallaAuditorioModal()"
+                            class="bg-[#122652] hover:bg-[#193773] text-white text-xs font-extrabold px-4 py-2.5 rounded-xl shadow-md transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-satellite-dish text-[#F57C00]"></i>
+                            <span>Guardar y Sincronizar en Vivo</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ======================================================================
          MÓDULOS JAVASCRIPT SEPARADOS POR RESPONSABILIDAD
          ====================================================================== -->
@@ -1802,8 +1953,8 @@
     <script src="js/utils.js"></script>
     <script src="js/permissions.js"></script>
     <script src="js/auth.js"></script>
-    <script src="js/catalogos.js?v=20261102"></script>
-    <script src="js/eventos.js?v=20261102"></script>
+    <script src="js/catalogos.js?v=20261104"></script>
+    <script src="js/eventos.js?v=20261104"></script>
     <script src="js/pasados.js"></script>
     <script src="js/social.js"></script>
     <script src="js/estadisticas.js"></script>

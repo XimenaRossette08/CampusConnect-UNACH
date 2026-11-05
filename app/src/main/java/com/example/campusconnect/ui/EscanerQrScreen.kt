@@ -173,6 +173,7 @@ fun EscanerQrScreen(
                                             action = ServicioUbicacionAsistencia.ACCION_INICIAR_RASTREO_QR
                                             putExtra("EVENTO_ID", idFinal)
                                             putExtra("EVENTO_TITULO", eventoObjetivo?.titulo ?: "Evento Académico UNACH")
+                                            putExtra("EVENTO_LUGAR", eventoObjetivo?.lugar ?: "Auditorio Principal ETDA")
                                             putExtra("EVENTO_CATEGORIA", eventoObjetivo?.categoria ?: "Académicos")
                                         }
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

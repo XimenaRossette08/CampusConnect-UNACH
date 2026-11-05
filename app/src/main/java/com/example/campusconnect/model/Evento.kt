@@ -1,7 +1,6 @@
 package com.example.campusconnect.model
 
 import com.google.gson.annotations.SerializedName
-import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
@@ -83,6 +82,38 @@ data class Evento(
         get() = fechaFin?.takeIf { it.isNotBlank() }
             ?: metaJsonObj?.optString("fin", "")?.takeIf { it.isNotBlank() }
 
+    /**
+     * Extrae la malla poligonal de 4 esquinas `(lat, lon)` sincronizada en tiempo real
+     * en el bloque `<!--CCMETA:{...}-->` cuando el administrador delimita el auditorio en la web.
+     */
+    val mallaPoligonoEfectiva: List<Pair<Double, Double>>
+        get() {
+            val arr = metaJsonObj?.optJSONArray("malla") ?: return emptyList()
+            val puntos = mutableListOf<Pair<Double, Double>>()
+            for (i in 0 until arr.length()) {
+                val item = arr.opt(i)
+                when (item) {
+                    is org.json.JSONArray -> {
+                        if (item.length() >= 2) {
+                            val lat = item.optDouble(0, Double.NaN)
+                            val lon = item.optDouble(1, Double.NaN)
+                            if (!lat.isNaN() && !lon.isNaN()) puntos.add(lat to lon)
+                        }
+                    }
+                    is JSONObject -> {
+                        val lat = item.optDouble("lat", Double.NaN)
+                        val lon = item.optDouble("lon", Double.NaN)
+                        if (!lat.isNaN() && !lon.isNaN()) puntos.add(lat to lon)
+                    }
+                }
+            }
+            return if (puntos.size >= 3) puntos else emptyList()
+        }
+
+    /** Margen de tolerancia en paredes del edificio en metros (por defecto 12 m). */
+    val toleranciaMallaEfectiva: Float
+        get() = metaJsonObj?.optDouble("tol", 12.0)?.toFloat()?.coerceIn(2f, 80f) ?: 12f
+
     /** Devuelve el asiento exacto registrado para `emailUsuario` dentro de CCMETA (ej. "K-04"). */
     fun obtenerAsientoDeUsuarioEnMeta(emailUsuario: String?): String? {
         if (emailUsuario.isNullOrBlank()) return null
@@ -94,6 +125,14 @@ data class Evento(
             is String -> item.trim().uppercase().takeIf { it.isNotBlank() }
             else -> null
         }
+    }
+
+    /** Devuelve el timestamp (ms) en que se actualizó por última vez el asiento de `emailUsuario` en CCMETA. */
+    fun obtenerTimestampAsientoEnMeta(emailUsuario: String?): Long {
+        if (emailUsuario.isNullOrBlank()) return 0L
+        val seatsObj = metaJsonObj?.optJSONObject("seats") ?: return 0L
+        val item = seatsObj.optJSONObject(emailUsuario.trim().lowercase()) ?: return 0L
+        return item.optLong("ts", 0L)
     }
 
     /** Verifica si el administrador liberó explícitamente el asiento del usuario desde el Panel Web. */
@@ -130,9 +169,10 @@ data class Evento(
 
     val asientosTomadosEfectivos: List<String>
         get() {
-            val base = asientosTomados.orEmpty().toMutableSet()
+            val base = mutableSetOf<String>()
             base.addAll(asientosReservadosAdminEfectivos)
-            metaJsonObj?.optJSONObject("seats")?.let { seatsObj ->
+            val seatsObj = metaJsonObj?.optJSONObject("seats")
+            if (seatsObj != null && seatsObj.length() > 0) {
                 val keys = seatsObj.keys()
                 while (keys.hasNext()) {
                     val emailKey = keys.next()
@@ -144,6 +184,8 @@ data class Evento(
                     }.trim().uppercase()
                     if (cod.isNotBlank()) base.add(cod)
                 }
+            } else {
+                base.addAll(asientosTomados.orEmpty())
             }
             if (!miAsiento.isNullOrBlank()) {
                 base.add(miAsiento.trim().uppercase())
@@ -164,10 +206,8 @@ data class Evento(
         get() {
             val minimoPorInscripcionPropia = if (inscrito == true || !miAsiento.isNullOrBlank()) 1 else 0
             val ocupadosMeta = metaOcupados
-            // Si CCMETA tiene el mapa actualizado de asientos y reservas, respetarlo con exactitud
             if (metaJsonObj != null && (metaJsonObj?.has("seats") == true || metaJsonObj?.has("res") == true || ocupadosMeta != null)) {
                 return maxOf(
-                    asientosOcupados ?: 0,
                     ocupadosMeta ?: 0,
                     asientosTomadosEfectivos.size,
                     minimoPorInscripcionPropia
@@ -185,33 +225,51 @@ data class Evento(
     val cupoAgotado: Boolean get() = lugaresDisponibles == 0
 
     /**
-     * Construye el cuerpo JSON para `PUT /eventos/{id}` actualizando `<!--CCMETA:{...}-->`
-     * con el asiento exacto elegido en la App (ej. `K-04`) y el estado de validación QR/GPS.
+     * Construye la nueva cadena `descripcion` con el bloque `<!--CCMETA:{...}-->` actualizado
+     * y el mapa para `PUT /eventos/{id}`.
      */
-    fun construirPayloadSincronizacionMeta(
+    fun construirDescripcionYPayloadMeta(
         emailUsuario: String,
         nombreUsuario: String,
         asiento: String?,
         qrValidado: Boolean,
         gpsValidado: Boolean,
-        asistio: Boolean
-    ): Map<String, Any?> {
+        asistio: Boolean,
+        timestampMs: Long = System.currentTimeMillis()
+    ): Pair<String, Map<String, Any?>> {
         val actualMeta = metaJsonObj ?: JSONObject()
         val resObj = actualMeta.optJSONObject("res") ?: JSONObject()
         val seatsObj = actualMeta.optJSONObject("seats") ?: JSONObject()
         val liberadosObj = actualMeta.optJSONObject("liberados") ?: JSONObject()
 
         val emailKey = emailUsuario.trim().lowercase()
+        val prevEntry = seatsObj.optJSONObject(emailKey)
+        val prevCod = prevEntry?.optString("asiento", "")?.trim()?.uppercase().orEmpty()
+
         if (asiento.isNullOrBlank()) {
-            val prev = seatsObj.optJSONObject(emailKey)
-            val prevCod = prev?.optString("asiento", "") ?: ""
             seatsObj.remove(emailKey)
-            liberadosObj.put(emailKey, System.currentTimeMillis())
-            if (prevCod.isNotBlank()) liberadosObj.put(prevCod, System.currentTimeMillis())
+            liberadosObj.put(emailKey, timestampMs)
+            if (prevCod.isNotBlank()) liberadosObj.put(prevCod, timestampMs)
         } else {
             val codLimpio = asiento.trim().uppercase()
             liberadosObj.remove(emailKey)
             liberadosObj.remove(codLimpio)
+            if (prevCod.isNotBlank() && prevCod != codLimpio) {
+                liberadosObj.put(prevCod, timestampMs)
+            }
+            // Si algún registro fantasma tenía ese mismo código de asiento bajo otro alias del mismo usuario, limpiarlo
+            val kIter = seatsObj.keys().asSequence().toList()
+            for (k in kIter) {
+                val v = seatsObj.opt(k)
+                val c = when (v) {
+                    is JSONObject -> v.optString("asiento", "")
+                    is String -> v
+                    else -> ""
+                }.trim().uppercase()
+                if (c == codLimpio && k != emailKey) {
+                    seatsObj.remove(k)
+                }
+            }
             val itemSeat = JSONObject().apply {
                 put("asiento", codLimpio)
                 put("nombre", nombreUsuario.ifBlank { "Alumno UNACH" })
@@ -219,7 +277,8 @@ data class Evento(
                 put("qrValidado", qrValidado || asistio)
                 put("gpsValidado", gpsValidado || asistio)
                 put("asistio", asistio)
-                put("fechaApartado", Instant.now().toString())
+                put("fechaApartado", Instant.ofEpochMilli(timestampMs).toString())
+                put("ts", timestampMs)
             }
             seatsObj.put(emailKey, itemSeat)
         }
@@ -247,23 +306,48 @@ data class Evento(
             put("res", resObj)
             put("seats", seatsObj)
             put("liberados", liberadosObj)
+            actualMeta.optJSONArray("malla")?.let { put("malla", it) }
+            if (actualMeta.has("tol")) {
+                put("tol", actualMeta.optDouble("tol", 12.0))
+            }
         }
 
-        val nuevaDescripcion = "${descripcionLimpia}\n<!--CCMETA:${nuevoMeta}-->"
+        val baseLimpia = descripcionLimpia.ifBlank { titulo }
+        val nuevaDescripcion = "$baseLimpia\n<!--CCMETA:$nuevoMeta-->"
 
-        return mapOf(
+        val payload = mutableMapOf<String, Any?>(
             "titulo" to titulo,
             "descripcion" to nuevaDescripcion,
             "fechaHora" to fechaHora,
-            "fechaFin" to fechaFinEfectiva,
-            "disponibleDesde" to disponibleDesdeEfectivo,
             "lugar" to lugar,
-            "categoria" to categoria,
-            "esGeneral" to (esGeneral ?: true),
-            "idFacultadDestino" to idFacultadDestino,
-            "idCarreraDestino" to idCarreraDestino,
-            "gruposDestino" to gruposDestino
+            "esGeneral" to (esGeneral ?: true)
         )
+        fechaFinEfectiva?.let { payload["fechaFin"] = it }
+        disponibleDesdeEfectivo?.let { payload["disponibleDesde"] = it }
+        categoria?.takeIf { it.isNotBlank() }?.let { payload["categoria"] = it }
+        idFacultadDestino?.takeIf { it.isNotBlank() }?.let { payload["idFacultadDestino"] = it }
+        idCarreraDestino?.takeIf { it.isNotBlank() }?.let { payload["idCarreraDestino"] = it }
+        gruposDestino?.takeIf { it.isNotEmpty() }?.let { payload["gruposDestino"] = it }
+
+        return nuevaDescripcion to payload
+    }
+
+    fun construirPayloadSincronizacionMeta(
+        emailUsuario: String,
+        nombreUsuario: String,
+        asiento: String?,
+        qrValidado: Boolean,
+        gpsValidado: Boolean,
+        asistio: Boolean
+    ): Map<String, Any?> {
+        return construirDescripcionYPayloadMeta(
+            emailUsuario = emailUsuario,
+            nombreUsuario = nombreUsuario,
+            asiento = asiento,
+            qrValidado = qrValidado,
+            gpsValidado = gpsValidado,
+            asistio = asistio
+        ).second
     }
 
     fun estaVigenteEnTiempoReal(ahoraMillis: Long = System.currentTimeMillis()): Boolean {

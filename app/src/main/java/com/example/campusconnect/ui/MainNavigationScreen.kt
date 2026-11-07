@@ -31,6 +31,9 @@ import com.example.campusconnect.TokenManager
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
 import com.example.campusconnect.service.ServicioUbicacionAsistencia
+import com.example.campusconnect.update.AppUpdateChecker
+import com.example.campusconnect.update.DialogoActualizacionFlexible
+import com.example.campusconnect.update.InfoActualizacion
 import kotlinx.coroutines.delay
 import retrofit2.HttpException
 
@@ -62,8 +65,19 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
     var cargandoEventos by remember { mutableStateOf(true) }
     var errorEventos by remember { mutableStateOf<String?>(null) }
 
+    // Estado para el sistema de actualización automática desde GitHub Releases
+    var infoActualizacion by remember { mutableStateOf<InfoActualizacion?>(null) }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        // Verificar si hay una nueva versión publicada en GitHub Releases al abrir la app
+        val info = AppUpdateChecker.verificarActualizacion()
+        if (info != null && info.hayNuevaVersion) {
+            infoActualizacion = info
+        }
+    }
 
     LaunchedEffect(Unit) {
         // Iniciar monitor automático en segundo plano para notificaciones de 30m, fin de evento y cartelera
@@ -100,6 +114,14 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
             }
             delay(8_000L)
         }
+    }
+
+    // Renderizar el diálogo flexible si hay actualización disponible
+    infoActualizacion?.let { info ->
+        DialogoActualizacionFlexible(
+            info = info,
+            onDescartar = { infoActualizacion = null }
+        )
     }
 
     val (tituloBarra, subtituloBarra) = when (pestañaSeleccionada) {

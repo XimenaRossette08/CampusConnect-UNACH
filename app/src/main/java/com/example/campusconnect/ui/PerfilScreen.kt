@@ -2,6 +2,7 @@ package com.example.campusconnect.ui
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,10 +37,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.campusconnect.BuildConfig
 import com.example.campusconnect.ComposeLoginActivity
 import com.example.campusconnect.TokenManager
 import com.example.campusconnect.formatearEtiquetaGrupo
 import com.example.campusconnect.network.RetrofitClient
+import com.example.campusconnect.update.AppUpdateChecker
+import com.example.campusconnect.update.DialogoActualizacionFlexible
+import com.example.campusconnect.update.InfoActualizacion
 import kotlinx.coroutines.launch
 
 // Paleta Oficial ETDA - UNACH Intacta
@@ -173,6 +178,10 @@ fun PerfilScreen(puntos: Int) {
     val coroutineScope = rememberCoroutineScope()
     var datosAlumno by remember { mutableStateOf(obtenerDatosSesionAlumno(context)) }
     var sincronizandoExpediente by remember { mutableStateOf(false) }
+
+    // Estados para verificación manual de actualización
+    var buscandoActualizacion by remember { mutableStateOf(false) }
+    var infoActManual by remember { mutableStateOf<InfoActualizacion?>(null) }
 
     suspend fun sincronizarExpedienteDesdeServidor() {
         sincronizandoExpediente = true
@@ -622,7 +631,101 @@ fun PerfilScreen(puntos: Int) {
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Tarjeta de Versión y Búsqueda Manual de Actualizaciones (GitHub Releases)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .clickable(enabled = !buscandoActualizacion) {
+                    coroutineScope.launch {
+                        buscandoActualizacion = true
+                        val info = AppUpdateChecker.verificarActualizacion()
+                        buscandoActualizacion = false
+                        if (info != null && info.hayNuevaVersion) {
+                            infoActManual = info
+                        } else if (info != null) {
+                            Toast.makeText(
+                                context,
+                                "Ya tienes la versión más reciente instalada (v${BuildConfig.VERSION_NAME}).",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "No se encontraron actualizaciones pendientes en GitHub Releases.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                },
+            shape = RoundedCornerShape(18.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, EtdaNavy.copy(alpha = 0.08f))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(11.dp),
+                        color = EtdaBlue.copy(alpha = 0.12f),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = "Buscar actualización",
+                            tint = EtdaBlue,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Versión de la aplicación",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = EtdaNavy
+                        )
+                        Text(
+                            text = "Versión instalada: v${BuildConfig.VERSION_NAME} (Código ${BuildConfig.VERSION_CODE})",
+                            fontSize = 11.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+
+                if (buscandoActualizacion) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = EtdaOrange
+                    )
+                } else {
+                    Surface(
+                        color = EtdaOrange.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = "Buscar actualización",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = EtdaOrange,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         Button(
             onClick = {
@@ -646,6 +749,13 @@ fun PerfilScreen(puntos: Int) {
             Spacer(modifier = Modifier.width(8.dp))
             Text("Cerrar sesión segura", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, maxLines = 1, softWrap = false)
         }
+    }
+
+    infoActManual?.let { info ->
+        DialogoActualizacionFlexible(
+            info = info,
+            onDescartar = { infoActManual = null }
+        )
     }
 
     if (mostrarQrDialog) {

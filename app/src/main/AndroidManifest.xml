@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Permiso obligatorio en Android 13+ para mostrar notificaciones -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Permiso para lanzar el instalador de actualizaciones APK (Android 8.0+) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -23,6 +25,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.CampusConnect"
         android:usesCleartextTraffic="false">
+
+        <!-- FileProvider para compartir el APK descargado con el instalador del sistema Android -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- EL DIRECTOR DE TRÁFICO AHORA ES LA PANTALLA PRINCIPAL -->
         <activity

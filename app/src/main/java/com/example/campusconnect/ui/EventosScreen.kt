@@ -7,11 +7,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.CalendarContract
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,15 +36,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -53,6 +60,8 @@ import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
 import com.example.campusconnect.service.ServicioUbicacionAsistencia
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -68,6 +77,8 @@ import java.time.ZonedDateTime
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
+import kotlin.math.max
 
 // Paleta Oficial ETDA - UNACH Intacta
 private val EtdaNavy = Color(0xFF122652)
@@ -78,6 +89,7 @@ private val EtdaSuccess = Color(0xFF10B981)
 
 private val zonaHorariaMx: TimeZone = TimeZone.getTimeZone("America/Mexico_City")
 private val localeMx = Locale("es", "MX")
+private const val PREF_CACHE_OFFLINE_EVENTOS = "cache_offline_eventos_json_v1"
 
 private fun obtenerCalendarioLocalMx(): Calendar {
     return Calendar.getInstance(zonaHorariaMx, localeMx)
@@ -209,6 +221,70 @@ private fun generarCodigoAsientoCineApp(indiceBase0: Int, cols: Int = 10): Strin
     return String.format(Locale.US, "%s-%02d", letraFila, colNum)
 }
 
+/**
+ * Guarda la lista de eventos en caché local (SharedPreferences) para que la cartelera
+ * y los boletos de "Mis Inscritos" estén siempre disponibles incluso sin internet.
+ */
+private fun guardarEventosEnCacheOffline(context: Context, lista: List<Evento>) {
+    try {
+        val prefs = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
+        val json = Gson().toJson(lista)
+        prefs.edit().putString(PREF_CACHE_OFFLINE_EVENTOS, json).apply()
+    } catch (_: Exception) {}
+}
+
+private fun cargarEventosDesdeCacheOffline(context: Context): List<Evento> {
+    return try {
+        val prefs = context.getSharedPreferences("cc_notificaciones_prefs", Context.MODE_PRIVATE)
+        val json = prefs.getString(PREF_CACHE_OFFLINE_EVENTOS, null) ?: return emptyList()
+        val tipo = object : TypeToken<List<Evento>>() {}.type
+        Gson().fromJson<List<Evento>>(json, tipo) ?: emptyList()
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/**
+ * Abre Google Calendar (o la app de calendario del dispositivo) con todos los datos
+ * del evento y el asiento apartado por el alumno precargados.
+ */
+private fun agendarEventoEnGoogleCalendar(context: Context, evento: Evento, miAsiento: String?) {
+    val inicioMillis = parsearInstanteEventoMx(evento.fechaHora)?.toEpochMilli()
+        ?: System.currentTimeMillis()
+    val finMillis = parsearInstanteEventoMx(evento.fechaFinEfectiva)?.toEpochMilli()
+        ?: (inicioMillis + 2L * 60L * 60L * 1000L)
+
+    val asientoTexto = if (!miAsiento.isNullOrBlank()) "Asiento apartado: $miAsiento" else "Inscripción confirmada"
+    val descripcionCalendario = buildString {
+        append("🎓 Campus Connect UNACH • ETDA\n")
+        append("🪑 $asientoTexto\n")
+        append("📍 Recinto: ${evento.lugar} (Campus I, Tuxtla Gutiérrez)\n")
+        append("🏷️ Categoría: ${evento.categoria ?: "Académicos"}\n\n")
+        append("Recuerda abrir tu Boleto Digital al llegar al auditorio para escanear el código QR oficial (Validación 1/2) y mantener tu ubicación activa (Validación 2/2).\n\n")
+        append(evento.descripcionLimpia)
+    }
+
+    val intent = Intent(Intent.ACTION_INSERT).apply {
+        data = CalendarContract.Events.CONTENT_URI
+        putExtra(CalendarContract.Events.TITLE, "🎓 ${evento.titulo} (UNACH)")
+        putExtra(CalendarContract.Events.EVENT_LOCATION, "UNACH Campus I • ${evento.lugar}")
+        putExtra(CalendarContract.Events.DESCRIPTION, descripcionCalendario)
+        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, inicioMillis)
+        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, finMillis)
+        putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
+    }
+
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(
+            context,
+            "No se encontró una aplicación de Calendario instalada en este dispositivo.",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+}
+
 private fun verificarYDispararAviso30MinFin(context: Context, ev: Evento, inscritosIds: Set<String>) {
     ServicioUbicacionAsistencia.verificarAviso30MinUnico(
         context = context,
@@ -254,6 +330,7 @@ fun EventosScreen(
     var mostrarEscaner by remember { mutableStateOf(false) }
     var eventoParaEscanear by remember { mutableStateOf<Evento?>(null) }
     var eventoParaElegirAsiento by remember { mutableStateOf<Evento?>(null) }
+    var eventoParaVerBoleto by remember { mutableStateOf<Evento?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var filtroSeleccionado by remember { mutableStateOf("Todos") }
     var eventoSeleccionadoId by remember { mutableStateOf<String?>(null) }
@@ -281,7 +358,6 @@ fun EventosScreen(
     }
 
     // Memoria persistente de eventos activos vistos para detectar en qué momento exacto finalizan
-    // incluso si el usuario cambia de pestaña o cierra y vuelve a abrir la app
     val cacheEventosVistos = remember {
         val mapa = mutableStateMapOf<String, Evento>()
         val guardados = prefsNotif.getStringSet("eventos_activos_vistos_v2", emptySet()) ?: emptySet()
@@ -323,7 +399,7 @@ fun EventosScreen(
         eventosInscritosIds = nuevosIds
         prefsNotif.edit()
             .putStringSet("eventos_inscritos_ids_v2", nuevosIds)
-            .remove("eventos_inscritos_set") // Purgar clave legada que duplicaba IDs + títulos
+            .remove("eventos_inscritos_set")
             .apply()
         prefsLocalPiloto.edit().remove("inscritos").apply()
     }
@@ -364,9 +440,11 @@ fun EventosScreen(
         } catch (_: Exception) {}
     }
 
-    var eventosServidor by remember { mutableStateOf<List<Evento>>(emptyList()) }
+    // Inicializamos desde la caché offline para que los boletos y eventos carguen de inmediato sin internet
+    var eventosServidor by remember { mutableStateOf(cargarEventosDesdeCacheOffline(context)) }
     var yaSincronizoConServidor by remember { mutableStateOf(false) }
     var sincronizandoServidor by remember { mutableStateOf(false) }
+    var modoOfflineActivo by remember { mutableStateOf(false) }
     var errorServidor by remember { mutableStateOf<String?>(null) }
     var pulsoReloj by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -375,7 +453,6 @@ fun EventosScreen(
         val vigentes = remotos.filter { it.estaVigenteEnTiempoReal() }
         val idsVigentesActuales = vigentes.map { it.id }.toSet()
 
-        // 1. Sincronizar inscripciones reales de eventos vigentes y PURGAR inmediatamente cualquier evento finalizado
         val nuevosInscritosVigentes = mutableSetOf<String>()
         for (ev in vigentes) {
             if (ev.inscrito == true || eventosInscritosIds.contains(ev.id)) {
@@ -386,14 +463,12 @@ fun EventosScreen(
             persistirInscritosActivos(nuevosInscritosVigentes)
         }
 
-        // 2. Revisar si algún evento que estaba activo en cacheEventosVistos acaba de finalizar
         var cambioCacheVistos = false
         for ((idPrevio, evPrevio) in cacheEventosVistos.entries.toList()) {
             val finInstant = parsearInstanteEventoMx(evPrevio.fechaFinEfectiva)
                 ?: parsearInstanteEventoMx(evPrevio.fechaHora)?.plus(Duration.ofHours(4))
             val segundosParaFin = if (finInstant != null) Duration.between(ahora, finInstant).seconds else 0L
             val yaAlcanzoHoraFin = finInstant != null && !ahora.isBefore(finInstant)
-            // Si el servidor ya lo retiró del feed activo y su hora de término ya llegó (con margen de 90s por desfase de reloj)
             val salioDelFeedPorFin = !idsVigentesActuales.contains(idPrevio) && segundosParaFin <= 90L
 
             if (yaAlcanzoHoraFin || salioDelFeedPorFin) {
@@ -496,7 +571,6 @@ fun EventosScreen(
                     } catch (_: Exception) {}
                 }
                 if (emailUsr.isNotBlank()) {
-                    // Traer versión fresca del evento desde el servidor para no pisar reservas de otros alumnos
                     val evBase = try {
                         api.obtenerEventos().find { it.id == evento.id } ?: evento
                     } catch (_: Exception) {
@@ -537,7 +611,6 @@ fun EventosScreen(
             val tsApartadoLocal = prefsNotif.getLong("ts_apartado_${ev.id}", 0L)
             val tsLiberadoAdmin = ev.obtenerTimestampLiberacionAdmin(emailUsr, asientoGuardadoPrefs)
 
-            // 1. Si el Administrador liberó el asiento desde la Web después de que el alumno lo apartó, liberar también en la App
             if (tsLiberadoAdmin > 0L && tsLiberadoAdmin > tsApartadoLocal) {
                 if (asientoGuardadoPrefs != null || eventosInscritosIds.contains(ev.id)) {
                     asientoGuardadoPrefs = null
@@ -559,7 +632,6 @@ fun EventosScreen(
             val asientoEnMeta = ev.obtenerAsientoDeUsuarioEnMeta(emailUsr)
             val tsEnMeta = ev.obtenerTimestampAsientoEnMeta(emailUsr)
 
-            // 2. Si el asiento en CCMETA fue modificado más recientemente desde la Web, adoptarlo en la App
             if (!asientoEnMeta.isNullOrBlank() && tsEnMeta > tsApartadoLocal && asientoEnMeta != asientoGuardadoPrefs) {
                 asientoGuardadoPrefs = asientoEnMeta
                 prefsNotif.edit()
@@ -568,10 +640,8 @@ fun EventosScreen(
                     .apply()
             }
 
-            // 3. Prioridad estricta: 1° asiento elegido en la App (asientoGuardadoPrefs), 2° CCMETA (asientoEnMeta), 3° ev.miAsiento
             val miAsientoLocal = asientoGuardadoPrefs ?: asientoEnMeta ?: ev.miAsiento?.takeIf { tsLiberadoAdmin == 0L }
 
-            // 4. Si el alumno eligió o cambió su asiento en la App y CCMETA en el servidor aún tiene otro asiento, sincronizarlo de inmediato
             val qrLocal = setQr1.contains(ev.id) || setGps2.contains(ev.id) || (ev.validacionQr == true)
             val gpsLocal = setGps2.contains(ev.id) || (ev.validacionGps == true)
             if (!miAsientoLocal.isNullOrBlank() && emailUsr.isNotBlank() && asientoEnMeta != miAsientoLocal) {
@@ -587,7 +657,6 @@ fun EventosScreen(
                 }
             }
 
-            // 5. Filtrar el asiento anterior si el usuario cambió de lugar para que nunca queden 2 asientos ocupados por la misma persona
             val tomadosBase = ev.asientosTomadosEfectivos.toMutableSet()
             if (!asientoEnMeta.isNullOrBlank() && !miAsientoLocal.isNullOrBlank() && asientoEnMeta != miAsientoLocal) {
                 tomadosBase.remove(asientoEnMeta)
@@ -640,7 +709,9 @@ fun EventosScreen(
                 val remotos = aplicarCapacidadCatalogoAEventos(remotosCrudos)
                 evaluarNotificacionesYSincronizarInscritos(remotos)
                 eventosServidor = remotos
+                guardarEventosEnCacheOffline(context, remotos)
                 yaSincronizoConServidor = true
+                modoOfflineActivo = false
                 errorServidor = null
                 if (mostrarMensaje) {
                     val vigentesCount = remotos.count { it.estaVigenteEnTiempoReal() }
@@ -648,8 +719,13 @@ fun EventosScreen(
                 }
             } catch (e: Exception) {
                 errorServidor = e.localizedMessage
+                modoOfflineActivo = true
+                val cache = cargarEventosDesdeCacheOffline(context)
+                if (cache.isNotEmpty() && eventosServidor.isEmpty()) {
+                    eventosServidor = aplicarCapacidadCatalogoAEventos(cache)
+                }
                 if (mostrarMensaje) {
-                    snackbarHostState.showSnackbar("No se pudo actualizar desde el servidor")
+                    snackbarHostState.showSnackbar("Modo sin conexión: mostrando tus eventos y boletos guardados")
                 }
             } finally {
                 sincronizandoServidor = false
@@ -657,15 +733,12 @@ fun EventosScreen(
         }
     }
 
-    // Reloj local de alta precisión (cada 1 segundo) que actualiza pulsoReloj incondicionalmente,
-    // retira eventos finalizados al instante y dispara las notificaciones de 30m y fin sin tocar la pantalla
     LaunchedEffect(Unit) {
         ServicioUbicacionAsistencia.iniciarMonitorEnSegundoPlano(context)
         while (true) {
             val ahora = Instant.now()
             var huboExpiradoLocal = false
 
-            // 1. Revisar todos los eventos en memoria y en caché
             val todosParaRevisar = (cacheEventosVistos.values + eventosServidor + eventos).associateBy { it.id }
             for ((idEv, evObj) in todosParaRevisar) {
                 val finInstant = parsearInstanteEventoMx(evObj.fechaFinEfectiva)
@@ -698,7 +771,6 @@ fun EventosScreen(
         }
     }
 
-    // Sincronización automática en segundo plano cada 6 segundos sin necesidad de refrescar manualmente
     LaunchedEffect(Unit) {
         while (true) {
             try {
@@ -720,22 +792,33 @@ fun EventosScreen(
                 ServicioUbicacionAsistencia.procesarEventosYNotificacionesAutomaticas(context, remotos)
                 evaluarNotificacionesYSincronizarInscritos(remotos)
                 eventosServidor = remotos
+                guardarEventosEnCacheOffline(context, remotos)
                 yaSincronizoConServidor = true
+                modoOfflineActivo = false
                 errorServidor = null
             } catch (_: Exception) {
+                modoOfflineActivo = true
+                if (eventosServidor.isEmpty()) {
+                    val cache = cargarEventosDesdeCacheOffline(context)
+                    if (cache.isNotEmpty()) {
+                        eventosServidor = aplicarCapacidadCatalogoAEventos(cache)
+                    }
+                }
             }
             pulsoReloj = System.currentTimeMillis()
             delay(6_000L)
         }
     }
 
-    // Lista de eventos vigentes en tiempo real evaluada cada segundo con pulsoReloj
     val listaEventosActiva = remember(eventosServidor, eventos, yaSincronizoConServidor, pulsoReloj) {
-        val base = if (yaSincronizoConServidor) eventosServidor else aplicarCapacidadCatalogoAEventos(eventos)
+        val base = when {
+            eventosServidor.isNotEmpty() -> aplicarCapacidadCatalogoAEventos(eventosServidor)
+            eventos.isNotEmpty() -> aplicarCapacidadCatalogoAEventos(eventos)
+            else -> aplicarCapacidadCatalogoAEventos(cargarEventosDesdeCacheOffline(context))
+        }
         base.filter { it.estaVigenteEnTiempoReal(pulsoReloj) }
     }
 
-    // Limpieza inmediata de eventosInscritosIds cada vez que cambia listaEventosActiva (ej. al vencer la hora de fin)
     LaunchedEffect(listaEventosActiva, yaSincronizoConServidor) {
         if (yaSincronizoConServidor || listaEventosActiva.isNotEmpty()) {
             val idsActivos = listaEventosActiva.map { it.id }.toSet()
@@ -743,14 +826,12 @@ fun EventosScreen(
             if (depurados.size != eventosInscritosIds.size) {
                 persistirInscritosActivos(depurados)
             }
-            // Si el modal abierto corresponde a un evento que acaba de finalizar, cerrarlo
             if (eventoSeleccionadoId != null && eventoSeleccionadoId !in idsActivos) {
                 eventoSeleccionadoId = null
             }
         }
     }
 
-    // Contador exacto de eventos vigentes en los que el alumno está inscrito (0 si ya terminaron)
     val totalInscritosVigentes = remember(listaEventosActiva, eventosInscritosIds) {
         listaEventosActiva.count { ev ->
             ev.inscrito == true || eventosInscritosIds.contains(ev.id)
@@ -888,19 +969,38 @@ fun EventosScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Surface(
-                                    color = EtdaOrange.copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(50),
-                                    border = BorderStroke(1.dp, EtdaOrange)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Text(
-                                        text = "ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS",
-                                        color = Color(0xFFFFB74D),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        letterSpacing = 0.6.sp,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                                    )
+                                    Surface(
+                                        color = EtdaOrange.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(50),
+                                        border = BorderStroke(1.dp, EtdaOrange)
+                                    ) {
+                                        Text(
+                                            text = "ESCUELA DE TECNOLOGÍAS DIGITALES APLICADAS",
+                                            color = Color(0xFFFFB74D),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            letterSpacing = 0.6.sp,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    if (modoOfflineActivo) {
+                                        Surface(
+                                            color = Color.White.copy(alpha = 0.16f),
+                                            shape = RoundedCornerShape(50)
+                                        ) {
+                                            Text(
+                                                text = "OFFLINE",
+                                                color = Color.White,
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
@@ -911,7 +1011,7 @@ fun EventosScreen(
                                     letterSpacing = (-0.4).sp
                                 )
                                 Text(
-                                    text = "Participa, consulta materiales y suma asistencias",
+                                    text = "Participa, consulta tu boleto offline y suma asistencias",
                                     color = Color.White.copy(alpha = 0.82f),
                                     fontSize = 12.sp
                                 )
@@ -1218,7 +1318,7 @@ fun EventosScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.HowToReg,
+                                        imageVector = Icons.Default.ConfirmationNumber,
                                         contentDescription = null,
                                         tint = if (tab1Activa) EtdaOrange else EtdaBlue,
                                         modifier = Modifier.size(16.dp)
@@ -1259,11 +1359,11 @@ fun EventosScreen(
                     ) {
                         Text(
                             text = when {
-                                tabVistaEventos == 1 -> "Eventos activos en los que participas"
+                                tabVistaEventos == 1 -> "Mis boletos y eventos activos (Offline Ready)"
                                 filtroSeleccionado == "Todos" -> "Cartelera general disponible"
                                 else -> "Categoría: $filtroSeleccionado"
                             },
-                            fontSize = 15.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = EtdaNavy
                         )
@@ -1284,7 +1384,7 @@ fun EventosScreen(
             }
 
             when {
-                cargando && !yaSincronizoConServidor -> item {
+                cargando && !yaSincronizoConServidor && listaEventosActiva.isEmpty() -> item {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1294,7 +1394,7 @@ fun EventosScreen(
                         CircularProgressIndicator(color = EtdaOrange, strokeWidth = 3.dp)
                     }
                 }
-                error != null && !yaSincronizoConServidor -> item {
+                error != null && !yaSincronizoConServidor && listaEventosActiva.isEmpty() -> item {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1354,7 +1454,7 @@ fun EventosScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = if (tabVistaEventos == 1)
-                                    "Explora la pestaña 'Próximos Eventos', inscríbete y aquí aparecerá tu agenda personal mientras el evento esté vigente."
+                                    "Explora la pestaña 'Próximos Eventos', aparta tu asiento y aquí tendrás disponible tu Boleto de Entrada incluso sin conexión a internet."
                                 else
                                     "Prueba cambiando el filtro de categoría o buscando otro término.",
                                 color = Color.Gray,
@@ -1410,6 +1510,12 @@ fun EventosScreen(
                 onAbrirSelectorAsientos = {
                     eventoParaElegirAsiento = evento
                 },
+                onAbrirBoletoEntrada = {
+                    eventoParaVerBoleto = evento.copy(miAsiento = asientoGuardado)
+                },
+                onAgendarEnCalendario = {
+                    agendarEventoEnGoogleCalendar(context, evento, asientoGuardado)
+                },
                 onAbrirEscaner = {
                     eventoParaEscanear = evento
                     eventoSeleccionadoId = null
@@ -1440,7 +1546,7 @@ fun EventosScreen(
                                     gpsValidado = false
                                 )
 
-                                eventosServidor = eventosServidor.map { item ->
+                                val nuevaLista = eventosServidor.map { item ->
                                     if (item.id == evento.id) {
                                         item.copy(
                                             inscrito = false,
@@ -1450,6 +1556,8 @@ fun EventosScreen(
                                         )
                                     } else item
                                 }
+                                eventosServidor = nuevaLista
+                                guardarEventosEnCacheOffline(context, nuevaLista)
 
                                 recargarEventosDesdeServidor(mostrarMensaje = false)
                                 snackbarHostState.showSnackbar(
@@ -1460,6 +1568,32 @@ fun EventosScreen(
                             snackbarHostState.showSnackbar("No se pudo cancelar la inscripción en este momento")
                         }
                     }
+                }
+            )
+        }
+
+        // MODAL DE BOLETO / PASE DE ENTRADA DIGITAL (OFFLINE READY)
+        eventoParaVerBoleto?.let { evBoleto ->
+            val setQr1 = prefsNotif.getStringSet("eventos_qr_1de2_set", emptySet()) ?: emptySet()
+            val setGps2 = prefsNotif.getStringSet("eventos_gps_2de2_set", emptySet()) ?: emptySet()
+            val qrVal = (evBoleto.validacionQr == true) || setQr1.contains(evBoleto.id) || setGps2.contains(evBoleto.id)
+            val gpsVal = (evBoleto.validacionGps == true) || setGps2.contains(evBoleto.id)
+            val asientoActual = evBoleto.miAsiento ?: prefsNotif.getString("mi_asiento_${evBoleto.id}", null) ?: "A-01"
+
+            ModalBoletoEntradaDigital(
+                evento = evBoleto,
+                asiento = asientoActual,
+                qrValidado = qrVal,
+                gpsValidado = gpsVal,
+                onDismiss = { eventoParaVerBoleto = null },
+                onAgendarCalendario = {
+                    agendarEventoEnGoogleCalendar(context, evBoleto, asientoActual)
+                },
+                onAbrirEscanerQr = {
+                    eventoParaVerBoleto = null
+                    eventoSeleccionadoId = null
+                    eventoParaEscanear = evBoleto
+                    mostrarEscaner = true
                 }
             )
         }
@@ -1476,7 +1610,6 @@ fun EventosScreen(
 
                             val resp = withContext(Dispatchers.IO) {
                                 val api = RetrofitClient.obtenerApi(context)
-                                // Si está cambiando de asiento, liberar primero el registro previo en BD para que tome el nuevo código
                                 if (esCambioDeAsiento) {
                                     try { api.cancelarAsistenciaEvento(evCine.id) } catch (_: Exception) {}
                                 }
@@ -1514,7 +1647,7 @@ fun EventosScreen(
                                     timestampMs = ahoraMs
                                 )
 
-                                eventosServidor = eventosServidor.map { item ->
+                                val nuevaLista = eventosServidor.map { item ->
                                     if (item.id == evCine.id) {
                                         item.copy(
                                             descripcion = nuevaDescSrv ?: item.descripcion,
@@ -1525,6 +1658,8 @@ fun EventosScreen(
                                         )
                                     } else item
                                 }
+                                eventosServidor = nuevaLista
+                                guardarEventosEnCacheOffline(context, nuevaLista)
 
                                 eventoParaElegirAsiento = null
                                 verificarYDispararAviso30MinFin(context, evCine, actualizados)
@@ -1955,14 +2090,14 @@ private fun TarjetaEventoAnimada(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.EventSeat,
+                                    imageVector = Icons.Default.ConfirmationNumber,
                                     contentDescription = null,
                                     tint = EtdaSuccess,
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (!miAsiento.isNullOrBlank()) "Asiento $miAsiento" else "Inscrito",
+                                    text = if (!miAsiento.isNullOrBlank()) "Boleto • $miAsiento" else "Boleto Activo",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color(0xFF065F46)
@@ -2000,6 +2135,8 @@ private fun DetalleEventoSheet(
     gpsValidado: Boolean,
     onDismiss: () -> Unit,
     onAbrirSelectorAsientos: () -> Unit,
+    onAbrirBoletoEntrada: () -> Unit,
+    onAgendarEnCalendario: () -> Unit,
     onAbrirEscaner: () -> Unit,
     onCancelarInscripcion: () -> Unit
 ) {
@@ -2133,7 +2270,7 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // TARJETA DE HORARIO DE INICIO Y FINALIZACIÓN CLARAMENTE LEGIBLE
+            // TARJETA DE HORARIO DE INICIO Y FINALIZACIÓN + BOTÓN DE GOOGLE CALENDAR
             Surface(
                 color = EtdaBg,
                 shape = RoundedCornerShape(16.dp),
@@ -2141,21 +2278,56 @@ private fun DetalleEventoSheet(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = EtdaBlue,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "HORARIO OFICIAL DEL EVENTO",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = EtdaNavy,
-                            letterSpacing = 0.5.sp
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = EtdaBlue,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "HORARIO OFICIAL DEL EVENTO",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = EtdaNavy,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+
+                        // Botón directo para Agendar en Google Calendar dentro de la tarjeta del evento
+                        Surface(
+                            onClick = onAgendarEnCalendario,
+                            color = EtdaBlue.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(1.dp, EtdaBlue.copy(alpha = 0.35f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Event,
+                                    contentDescription = "Agendar en mi Calendario",
+                                    tint = EtdaBlue,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Agendar en Calendario",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = EtdaNavy,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
@@ -2310,7 +2482,7 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // BARRA DE OCUPACIÓN DEL RECINTO REDISEÑADA (SIN TEXTO CORTADO NI ENCIMADO)
+            // BARRA DE OCUPACIÓN DEL RECINTO
             Surface(
                 color = EtdaBg,
                 shape = RoundedCornerShape(16.dp),
@@ -2432,7 +2604,7 @@ private fun DetalleEventoSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Estado de Asiento Apartado y Doble Validación (1/2 QR + 2/2 GPS)
+            // Estado de Asiento Apartado, Boleto de Entrada y Doble Validación (1/2 QR + 2/2 GPS)
             if (estaInscrito) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)),
@@ -2460,7 +2632,7 @@ private fun DetalleEventoSheet(
                                         fontSize = 15.sp
                                     )
                                     Text(
-                                        text = "Tu lugar está respetado en el mapa del recinto",
+                                        text = "Tu boleto está guardado y disponible sin internet",
                                         color = Color(0xFF047857),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium
@@ -2517,7 +2689,6 @@ private fun DetalleEventoSheet(
                                 }
                                 LaunchedEffect(evento.id, qrValidado, gpsValidado) {
                                     if (qrValidado && !gpsValidado) {
-                                        // Asegurar que el servicio de verificación de malla poligonal esté activo en tiempo real
                                         try {
                                             val intentGps = Intent(context, ServicioUbicacionAsistencia::class.java).apply {
                                                 action = ServicioUbicacionAsistencia.ACCION_INICIAR_RASTREO_QR
@@ -2572,26 +2743,68 @@ private fun DetalleEventoSheet(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        Button(
-                            onClick = onAbrirEscaner,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF059669),
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier.fillMaxWidth().height(46.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp)
+                        // Botones de Boleto de Entrada y Escáner QR
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (qrValidado) "QR 1/2 Validado • Volver a Escanear" else "Escanear QR Oficial (Validación 1/2)",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 11.5.sp,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Button(
+                                onClick = onAbrirBoletoEntrada,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = EtdaNavy,
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ConfirmationNumber,
+                                    contentDescription = null,
+                                    tint = EtdaOrange,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Ver Boleto de Entrada",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 11.2.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            Button(
+                                onClick = onAbrirEscaner,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF059669),
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.QrCodeScanner,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (qrValidado) "Reescanear QR (1/2)" else "Escanear QR (1/2)",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 11.2.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -2655,7 +2868,7 @@ private fun DetalleEventoSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = when {
-                            estaInscrito -> if (!evento.miAsiento.isNullOrBlank()) "Ver Sala (Asiento ${evento.miAsiento})" else "Ver Mapa de Asientos"
+                            estaInscrito -> if (!evento.miAsiento.isNullOrBlank()) "Cambiar Lugar (${evento.miAsiento})" else "Ver Mapa de Asientos"
                             estaLleno -> "CUPO AGOTADO"
                             else -> "Inscribirme • Elegir Asiento"
                         },
@@ -2669,6 +2882,304 @@ private fun DetalleEventoSheet(
             }
         }
     }
+}
+
+/**
+ * Modal de Boleto / Pase de Entrada Digital tipo cine/conferencia (100% funcional sin internet).
+ * Muestra el asiento en grande, el código QR de acceso y el estado de las validaciones 1/2 y 2/2.
+ */
+@Composable
+private fun ModalBoletoEntradaDigital(
+    evento: Evento,
+    asiento: String,
+    qrValidado: Boolean,
+    gpsValidado: Boolean,
+    onDismiss: () -> Unit,
+    onAgendarCalendario: () -> Unit,
+    onAbrirEscanerQr: () -> Unit
+) {
+    val context = LocalContext.current
+    val correoAlumno = remember { TokenManager.obtenerEmail(context).trim().lowercase().ifBlank { "alumno@unach.mx" } }
+    val prefsExp = remember { context.getSharedPreferences("cc_expediente_alumno", Context.MODE_PRIVATE) }
+    val nombreAlumno = remember(correoAlumno) {
+        prefsExp.getString("nombre_$correoAlumno", null)?.takeIf { it.isNotBlank() } ?: "Estudiante UNACH"
+    }
+    val matriculaAlumno = remember(correoAlumno) {
+        prefsExp.getString("matricula_$correoAlumno", null)?.takeIf { it.isNotBlank() } ?: "UNACH-ETDA"
+    }
+    val (horarioIni, horarioFin) = remember(evento.fechaHora, evento.fechaFinEfectiva) {
+        extraerHorarioInicioYFin(evento.fechaHora, evento.fechaFinEfectiva)
+    }
+
+    val payloadQrBoleto = remember(evento.id, asiento, correoAlumno, matriculaAlumno) {
+        "CCUNACH|BOLETO|${evento.id}|$asiento|$matriculaAlumno|$correoAlumno"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        containerColor = Color.White,
+        title = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(color = EtdaNavy, shape = RoundedCornerShape(50)) {
+                        Text(
+                            text = "BOLETO DE ENTRADA • ETDA",
+                            color = Color.White,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                    Surface(
+                        color = EtdaSuccess.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, EtdaSuccess.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "OFFLINE READY",
+                            color = Color(0xFF065F46),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = evento.titulo,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = EtdaNavy,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "📍 ${evento.lugar} • ${evento.categoria ?: "Académicos"}",
+                    fontSize = 11.5.sp,
+                    color = EtdaBlue,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Franja destacada con el Número de Asiento en Grande y Horario
+                Surface(
+                    color = EtdaNavy,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "TITULAR DEL PASE",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFFFB74D)
+                            )
+                            Text(
+                                text = nombreAlumno,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "$matriculaAlumno • $correoAlumno",
+                                fontSize = 10.sp,
+                                color = Color.White.copy(alpha = 0.8f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "🕒 $horarioIni",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Surface(
+                            color = EtdaOrange,
+                            shape = RoundedCornerShape(16.dp),
+                            shadowElevation = 6.dp
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "ASIENTO",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White.copy(alpha = 0.9f)
+                                )
+                                Text(
+                                    text = asiento,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Código QR de Acceso del Boleto
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.White,
+                    border = BorderStroke(2.dp, EtdaBlue.copy(alpha = 0.35f)),
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.size(190.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp)
+                    ) {
+                        CodigoQrBoletoCanvas(
+                            contenido = payloadQrBoleto,
+                            tamano = 164.dp,
+                            colorOscuro = EtdaNavy
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Estado de Validación 1/2 QR y 2/2 GPS en el Boleto
+                Surface(
+                    color = EtdaBg,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "ESTADO DE ACREDITACIÓN:",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = EtdaNavy
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("1/2 Entrada con QR:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy)
+                            Surface(
+                                color = if (qrValidado) EtdaSuccess.copy(alpha = 0.16f) else EtdaOrange.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text(
+                                    text = if (qrValidado) "✓ VALIDADO" else "PENDIENTE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (qrValidado) Color(0xFF065F46) else EtdaOrange,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("2/2 Permanencia GPS:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EtdaNavy)
+                            Surface(
+                                color = if (gpsValidado) EtdaSuccess.copy(alpha = 0.16f) else EtdaBlue.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text(
+                                    text = if (gpsValidado) "✓ ACREDITADA (+1)" else "EN ESPERA",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (gpsValidado) Color(0xFF065F46) else EtdaBlue,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Botones de acción rápida dentro del Boleto
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onAgendarCalendario,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, EtdaBlue),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Event, contentDescription = null, tint = EtdaBlue, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Calendario", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = EtdaNavy)
+                    }
+
+                    Button(
+                        onClick = onAbrirEscanerQr,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Escanear 1/2", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = EtdaOrange),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+            ) {
+                Text("Cerrar Boleto", fontWeight = FontWeight.ExtraBold, color = Color.White)
+            }
+        }
+    )
 }
 
 /**
@@ -2754,7 +3265,6 @@ private fun ModalSelectorAsientosCine(
                 .padding(horizontal = 18.dp)
                 .padding(bottom = 28.dp)
         ) {
-            // Encabezado del Selector de Asientos
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2797,7 +3307,6 @@ private fun ModalSelectorAsientosCine(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Leyenda de Colores
             Surface(
                 color = EtdaBg,
                 shape = RoundedCornerShape(14.dp),
@@ -2820,7 +3329,6 @@ private fun ModalSelectorAsientosCine(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Contenedor oscuro estilo Sala de Cine
             Surface(
                 color = Color(0xFF0F172A),
                 shape = RoundedCornerShape(22.dp),
@@ -2834,7 +3342,6 @@ private fun ModalSelectorAsientosCine(
                         .padding(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Pantalla / Estrado Principal
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(0.82f)
@@ -2959,7 +3466,6 @@ private fun ModalSelectorAsientosCine(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Botón de confirmación o cambio del asiento elegido
             if (!miAsientoActual.isNullOrBlank() && (asientoElegido == null || asientoElegido == miAsientoActual)) {
                 Surface(
                     color = Color(0xFFECFDF5),
@@ -3108,5 +3614,283 @@ private fun ArchivosDelEvento(archivos: List<ArchivoEvento>) {
             )
             Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = EtdaBlue)
         }
+    }
+}
+
+// ============================================================================
+// GENERADOR NATIVO DE CÓDIGO QR ESTÁNDAR ISO/IEC 18004 PARA EL BOLETO OFFLINE
+// ============================================================================
+@Composable
+private fun CodigoQrBoletoCanvas(
+    contenido: String,
+    tamano: Dp = 164.dp,
+    colorOscuro: Color = EtdaNavy
+) {
+    val matriz = remember(contenido) { QrBoletoIsoGenerator.generarMatriz(contenido) }
+    Canvas(modifier = Modifier.size(tamano)) {
+        val n = matriz.size
+        if (n == 0) return@Canvas
+        val margenModulos = 2
+        val totalModulos = n + margenModulos * 2
+        val celdaPx = size.width / totalModulos.toFloat()
+
+        drawRect(color = Color.White, size = size)
+
+        for (r in 0 until n) {
+            for (c in 0 until n) {
+                if (matriz[r][c]) {
+                    drawRect(
+                        color = colorOscuro,
+                        topLeft = Offset((c + margenModulos) * celdaPx, (r + margenModulos) * celdaPx),
+                        size = Size(celdaPx * 1.02f, celdaPx * 1.02f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private object QrBoletoIsoGenerator {
+    private val EXP_TABLE = IntArray(256)
+    private val LOG_TABLE = IntArray(256)
+
+    init {
+        var v = 1
+        for (i in 0 until 255) {
+            EXP_TABLE[i] = v
+            LOG_TABLE[v] = i
+            v = v shl 1
+            if ((v and 0x100) != 0) {
+                v = v xor 0x11D
+            }
+        }
+        EXP_TABLE[255] = EXP_TABLE[0]
+    }
+
+    private fun gfMul(x: Int, y: Int): Int {
+        if (x == 0 || y == 0) return 0
+        return EXP_TABLE[(LOG_TABLE[x] + LOG_TABLE[y]) % 255]
+    }
+
+    private fun rsGeneratorPoly(degree: Int): IntArray {
+        var poly = intArrayOf(1)
+        for (i in 0 until degree) {
+            val next = IntArray(poly.size + 1)
+            val root = EXP_TABLE[i]
+            for (j in poly.indices) {
+                next[j] = next[j] xor poly[j]
+                next[j + 1] = next[j + 1] xor gfMul(poly[j], root)
+            }
+            poly = next
+        }
+        return poly
+    }
+
+    private fun rsEncode(data: IntArray, ecLen: Int): IntArray {
+        val gen = rsGeneratorPoly(ecLen)
+        val res = IntArray(data.size + ecLen)
+        System.arraycopy(data, 0, res, 0, data.size)
+        for (i in data.indices) {
+            val coef = res[i]
+            if (coef != 0) {
+                for (j in 1 until gen.size) {
+                    res[i + j] = res[i + j] xor gfMul(gen[j], coef)
+                }
+            }
+        }
+        return res.copyOfRange(data.size, res.size)
+    }
+
+    private class VersionSpec(
+        val version: Int,
+        val dataBytesPerBlock: Int,
+        val ecBytesPerBlock: Int,
+        val numBlocks: Int,
+        val alignCenters: IntArray
+    )
+
+    private val SPECS_LEVEL_L = listOf(
+        VersionSpec(1, 19, 7, 1, intArrayOf()),
+        VersionSpec(2, 34, 10, 1, intArrayOf(6, 18)),
+        VersionSpec(3, 55, 15, 1, intArrayOf(6, 22)),
+        VersionSpec(4, 80, 20, 1, intArrayOf(6, 26)),
+        VersionSpec(5, 108, 26, 1, intArrayOf(6, 30)),
+        VersionSpec(6, 68, 18, 2, intArrayOf(6, 34)),
+        VersionSpec(7, 78, 20, 2, intArrayOf(6, 22, 38)),
+        VersionSpec(8, 97, 24, 2, intArrayOf(6, 24, 42))
+    )
+
+    fun generarMatriz(texto: String): Array<BooleanArray> {
+        val rawBytes = texto.toByteArray(Charsets.UTF_8)
+        val spec = SPECS_LEVEL_L.firstOrNull {
+            rawBytes.size + 2 <= it.dataBytesPerBlock * it.numBlocks
+        } ?: SPECS_LEVEL_L.last()
+
+        val maxLen = spec.dataBytesPerBlock * spec.numBlocks - 2
+        val payload = if (rawBytes.size > maxLen) rawBytes.copyOfRange(0, maxLen) else rawBytes
+        val totalDataBytes = spec.dataBytesPerBlock * spec.numBlocks
+
+        val bits = ArrayList<Int>(totalDataBytes * 8)
+        fun appendBits(value: Int, length: Int) {
+            for (i in length - 1 downTo 0) {
+                bits.add((value ushr i) and 1)
+            }
+        }
+
+        appendBits(0b0100, 4)
+        appendBits(payload.size, 8)
+        for (b in payload) {
+            appendBits(b.toInt() and 0xFF, 8)
+        }
+        val remBits = totalDataBytes * 8 - bits.size
+        appendBits(0, minOf(4, remBits.coerceAtLeast(0)))
+        while (bits.size % 8 != 0) {
+            bits.add(0)
+        }
+
+        val dataBytes = IntArray(totalDataBytes)
+        val actuales = bits.size / 8
+        for (i in 0 until actuales) {
+            var v = 0
+            for (j in 0 until 8) {
+                v = (v shl 1) or bits[i * 8 + j]
+            }
+            dataBytes[i] = v
+        }
+        val pads = intArrayOf(0xEC, 0x11)
+        for (i in actuales until totalDataBytes) {
+            dataBytes[i] = pads[(i - actuales) % 2]
+        }
+
+        val dataBlocks = Array(spec.numBlocks) { b ->
+            val start = b * spec.dataBytesPerBlock
+            dataBytes.copyOfRange(start, start + spec.dataBytesPerBlock)
+        }
+        val ecBlocks = Array(spec.numBlocks) { b ->
+            rsEncode(dataBlocks[b], spec.ecBytesPerBlock)
+        }
+
+        val finalBytes = ArrayList<Int>(totalDataBytes + spec.ecBytesPerBlock * spec.numBlocks)
+        for (i in 0 until spec.dataBytesPerBlock) {
+            for (b in 0 until spec.numBlocks) {
+                finalBytes.add(dataBlocks[b][i])
+            }
+        }
+        for (i in 0 until spec.ecBytesPerBlock) {
+            for (b in 0 until spec.numBlocks) {
+                finalBytes.add(ecBlocks[b][i])
+            }
+        }
+
+        val size = 17 + 4 * spec.version
+        val modules = Array(size) { BooleanArray(size) }
+        val isFunc = Array(size) { BooleanArray(size) }
+
+        fun setFunc(r: Int, c: Int, dark: Boolean) {
+            if (r in 0 until size && c in 0 until size) {
+                modules[r][c] = dark
+                isFunc[r][c] = true
+            }
+        }
+
+        fun drawFinder(r: Int, c: Int) {
+            for (dy in -1..7) {
+                for (dx in -1..7) {
+                    val rr = r + dy
+                    val cc = c + dx
+                    if (rr in 0 until size && cc in 0 until size) {
+                        val inOuter = (dy in 0..6 && (dx == 0 || dx == 6)) || (dx in 0..6 && (dy == 0 || dy == 6))
+                        val inInner = (dy in 2..4 && dx in 2..4)
+                        setFunc(rr, cc, inOuter || inInner)
+                    }
+                }
+            }
+        }
+
+        drawFinder(0, 0)
+        drawFinder(0, size - 7)
+        drawFinder(size - 7, 0)
+
+        for (i in 8 until size - 8) {
+            setFunc(6, i, i % 2 == 0)
+            setFunc(i, 6, i % 2 == 0)
+        }
+
+        for (ay in spec.alignCenters) {
+            for (ax in spec.alignCenters) {
+                if ((ay == 6 && ax == 6) || (ay == 6 && ax == size - 7) || (ay == size - 7 && ax == 6)) {
+                    continue
+                }
+                for (dy in -2..2) {
+                    for (dx in -2..2) {
+                        setFunc(ay + dy, ax + dx, max(abs(dx), abs(dy)) != 1)
+                    }
+                }
+            }
+        }
+
+        for (i in 0..8) {
+            if (!isFunc[8][i]) setFunc(8, i, false)
+            if (!isFunc[i][8]) setFunc(i, 8, false)
+        }
+        for (i in 0..7) {
+            if (!isFunc[8][size - 1 - i]) setFunc(8, size - 1 - i, false)
+            if (!isFunc[size - 1 - i][8]) setFunc(size - 1 - i, 8, false)
+        }
+        setFunc(size - 8, 8, true)
+
+        if (spec.version >= 7) {
+            val vInfo = if (spec.version == 7) 0x07C94 else 0x085BC
+            for (i in 0 until 18) {
+                val bit = ((vInfo ushr i) and 1) == 1
+                val a = size - 11 + (i % 3)
+                val b = i / 3
+                setFunc(a, b, bit)
+                setFunc(b, a, bit)
+            }
+        }
+
+        val allBits = BooleanArray(finalBytes.size * 8)
+        for (i in finalBytes.indices) {
+            val b = finalBytes[i]
+            for (j in 0 until 8) {
+                allBits[i * 8 + j] = ((b ushr (7 - j)) and 1) == 1
+            }
+        }
+
+        var bitIdx = 0
+        var up = true
+        var col = size - 1
+        while (col > 0) {
+            if (col == 6) col -= 1
+            for (i in 0 until size) {
+                val row = if (up) (size - 1 - i) else i
+                for (dcOff in 0..1) {
+                    val c = col - dcOff
+                    if (!isFunc[row][c]) {
+                        var dark = if (bitIdx < allBits.size) allBits[bitIdx] else false
+                        bitIdx++
+                        if ((row + c) % 2 == 0) {
+                            dark = !dark
+                        }
+                        modules[row][c] = dark
+                    }
+                }
+            }
+            up = !up
+            col -= 2
+        }
+
+        val fmt = 0x77C4
+        for (i in 0..5) setFunc(8, i, ((fmt ushr (14 - i)) and 1) == 1)
+        setFunc(8, 7, ((fmt ushr 8) and 1) == 1)
+        setFunc(8, 8, ((fmt ushr 7) and 1) == 1)
+        setFunc(7, 8, ((fmt ushr 6) and 1) == 1)
+        for (i in 9..14) setFunc(14 - i, 8, ((fmt ushr (14 - i)) and 1) == 1)
+
+        for (i in 0..7) setFunc(8, size - 1 - i, ((fmt ushr i) and 1) == 1)
+        for (i in 8..14) setFunc(size - 15 + i, 8, ((fmt ushr i) and 1) == 1)
+
+        return modules
     }
 }

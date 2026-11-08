@@ -9,6 +9,7 @@ import androidx.core.content.FileProvider
 import com.example.campusconnect.BuildConfig
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -41,9 +42,14 @@ data class InfoActualizacion(
 
 object AppUpdateChecker {
 
-    // ⚠️ IMPORTANTE: Reemplaza con tu usuario y nombre de repositorio en GitHub
-    // Ejemplo: "juanperez/CampusConnect-UNACH"
-    const val GITHUB_REPO = "TU_USUARIO/TU_REPOSITORIO"
+    // Configurado directamente con el repositorio oficial donde GitHub Actions publica los Releases
+    const val GITHUB_REPO = "XimenaRossette08/CampusConnect-UNACH"
+
+    // Repositorios a consultar en orden de prioridad
+    private val REPOSITORIOS_OFICIALES = listOf(
+        "XimenaRossette08/CampusConnect-UNACH",
+        "YasirEst/campusconnect-web"
+    )
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -56,51 +62,98 @@ object AppUpdateChecker {
      * Consulta la API pública de GitHub Releases para verificar si existe un Release con versión mayor.
      */
     suspend fun verificarActualizacion(repoPath: String = GITHUB_REPO): InfoActualizacion? {
-        if (repoPath.isBlank() || repoPath.contains("TU_USUARIO")) {
-            return null
-        }
         return withContext(Dispatchers.IO) {
-            try {
-                val url = "https://api.github.com/repos/$repoPath/releases/latest"
-                val request = Request.Builder()
-                    .url(url)
-                    .addHeader("Accept", "application/vnd.github.v3+json")
-                    .addHeader("User-Agent", "CampusConnect-Android-Updater")
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@withContext null
-
-                    val bodyString = response.body?.string() ?: return@withContext null
-                    val release = Gson().fromJson(bodyString, GitHubRelease::class.java) ?: return@withContext null
-
-                    val versionRemotaLimpia = release.tagName.trim().removePrefix("v").removePrefix("V")
-                    val versionActualLimpia = BuildConfig.VERSION_NAME.trim().removePrefix("v").removePrefix("V")
-
-                    val assetApk = release.assets.orEmpty().firstOrNull {
-                        it.name.endsWith(".apk", ignoreCase = true)
-                    } ?: return@withContext null
-
-                    val esSuperior = esVersionMayor(versionRemotaLimpia, versionActualLimpia)
-
-                    InfoActualizacion(
-                        hayNuevaVersion = esSuperior,
-                        versionRemota = if (release.tagName.startsWith("v", ignoreCase = true)) release.tagName else "v${release.tagName}",
-                        versionActual = "v$versionActualLimpia",
-                        notasVersion = release.body?.takeIf { it.isNotBlank() }
-                            ?: "Mejoras de estabilidad, rendimiento y nuevas funciones académicas.",
-                        urlDescargaApk = assetApk.downloadUrl,
-                        pesoBytes = assetApk.size
-                    )
-                }
-            } catch (_: Exception) {
-                null
+            val candidatos = if (repoPath.isNotBlank() && !repoPath.contains("TU_USUARIO")) {
+                (listOf(repoPath) + REPOSITORIOS_OFICIALES).distinct()
+            } else {
+                REPOSITORIOS_OFICIALES
             }
+
+            var mejorResultado: InfoActualizacion? = null
+
+            for (repo in candidatos) {
+                val release = obtenerUltimoReleaseConApk(repo) ?: continue
+                val versionRemotaLimpia = release.tagName.trim().removePrefix("v").removePrefix("V")
+                val versionActualLimpia = BuildConfig.VERSION_NAME.trim().removePrefix("v").removePrefix("V")
+
+                val assetApk = release.assets.orEmpty().firstOrNull {
+                    it.name.endsWith(".apk", ignoreCase = true)
+                } ?: continue
+
+                val esSuperior = esVersionMayor(versionRemotaLimpia, versionActualLimpia)
+                val info = InfoActualizacion(
+                    hayNuevaVersion = esSuperior,
+                    versionRemota = if (release.tagName.startsWith("v", ignoreCase = true)) release.tagName else "v${release.tagName}",
+                    versionActual = "v$versionActualLimpia",
+                    notasVersion = release.body?.takeIf { it.isNotBlank() }
+                        ?: "Mejoras de estabilidad, rendimiento y nuevas funciones académicas.",
+                    urlDescargaApk = assetApk.downloadUrl,
+                    pesoBytes = assetApk.size
+                )
+
+                if (esSuperior) {
+                    return@withContext info
+                }
+                if (mejorResultado == null) {
+                    mejorResultado = info
+                }
+            }
+
+            mejorResultado
         }
     }
 
+    private fun obtenerUltimoReleaseConApk(repoPath: String): GitHubRelease? {
+        val gson = Gson()
+
+        // 1. Intentar primero con /releases/latest
+        try {
+            val reqLatest = Request.Builder()
+                .url("https://api.github.com/repos/$repoPath/releases/latest")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .addHeader("User-Agent", "CampusConnect-Android-Updater")
+                .build()
+
+            client.newCall(reqLatest).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string()
+                    if (!bodyStr.isNullOrBlank()) {
+                        val rel = gson.fromJson(bodyStr, GitHubRelease::class.java)
+                        if (rel?.assets?.any { it.name.endsWith(".apk", ignoreCase = true) } == true) {
+                            return rel
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Respaldo: consultar la lista /releases (incluye pre-releases o releases recientes)
+        try {
+            val reqList = Request.Builder()
+                .url("https://api.github.com/repos/$repoPath/releases?per_page=5")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .addHeader("User-Agent", "CampusConnect-Android-Updater")
+                .build()
+
+            client.newCall(reqList).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string()
+                    if (!bodyStr.isNullOrBlank()) {
+                        val tipoLista = object : TypeToken<List<GitHubRelease>>() {}.type
+                        val lista: List<GitHubRelease> = gson.fromJson(bodyStr, tipoLista) ?: emptyList()
+                        return lista.firstOrNull { rel ->
+                            rel.assets?.any { it.name.endsWith(".apk", ignoreCase = true) } == true
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
     /**
-     * Compara versiones semánticas (ej. "1.2.0" > "1.1.0").
+     * Compara versiones semánticas (ej. "2.0.4" > "2.0.3").
      */
     private fun esVersionMayor(versionRemota: String, versionActual: String): Boolean {
         try {

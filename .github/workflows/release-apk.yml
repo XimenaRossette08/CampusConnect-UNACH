@@ -1,60 +1,147 @@
 name: Compilar y Publicar APK en GitHub Releases
 
+
+
 on:
+
   push:
+
+    branches:
+
+      - master
+
+      - main
+
     tags:
-      - 'v*' # Se ejecuta automáticamente al subir una etiqueta como v1.2.0
-  workflow_dispatch: # Permite ejecutarlo manualmente desde la pestaña "Actions" de GitHub
+
+      - 'v*'
+
+  workflow_dispatch:
+
+
 
 permissions:
+
   contents: write
 
+
+
 jobs:
+
   build:
+
     name: Compilar APK Android
+
     runs-on: ubuntu-latest
 
+
+
     steps:
+
       - name: Clonar repositorio
+
         uses: actions/checkout@v4
 
-      - name: Configurar Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
 
-      - name: Dar permisos de ejecución a gradlew
+
+      - name: Configurar Java 21
+
+        uses: actions/setup-java@v4
+
+        with:
+
+          distribution: 'temurin'
+
+          java-version: '21'
+
+
+
+      - name: Dar permisos de ejecucion a gradlew
+
         run: chmod +x gradlew
 
-      # Si google-services.json está en .gitignore, lo restaura desde los Secretos de GitHub
-      - name: Restaurar google-services.json
+
+
+      - name: Crear google-services.json desde Secreto
+
         env:
+
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+
         run: |
+
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+
             echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+
+          else
+
+            echo "ERROR: Falta configurar el secreto GOOGLE_SERVICES_JSON en Settings > Secrets and variables > Actions"
+
+            exit 1
+
           fi
 
-      # Restaurar el debug.keystore de tu PC para que el APK compilado en GitHub Actions
-      # tenga exactamente la misma firma que el APK que ya instalaste desde Android Studio
-      - name: Restaurar debug.keystore (Firma idéntica a tu PC)
+
+
+      - name: Usar la misma firma de Android Studio (debug.keystore)
+
         env:
+
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+
         run: |
+
           if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+
             mkdir -p ~/.android
+
             echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ~/.android/debug.keystore
+
           fi
+
+
+
+      - name: Incrementar version automaticamente segun el numero de envio
+
+        run: |
+
+          NEW_CODE=$((100 + ${{ github.run_number }}))
+
+          NEW_NAME="2.0.${{ github.run_number }}"
+
+          sed -i "s/versionCode = [0-9]*/versionCode = $NEW_CODE/g" app/build.gradle.kts
+
+          sed -i "s/versionName = \".*\"/versionName = \"$NEW_NAME\"/g" app/build.gradle.kts
+
+          echo "TAG_VERSION=v$NEW_NAME" >> $GITHUB_ENV
+
+
 
       - name: Compilar APK Debug
+
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Publicar Release con APK en GitHub
+
+
+      - name: Publicar Release Automatico con APK
+
         uses: softprops/action-gh-release@v2
+
         with:
-          name: ${{ github.ref_name }}
+
+          tag_name: ${{ env.TAG_VERSION }}
+
+          name: "CampusConnect ${{ env.TAG_VERSION }}"
+
+          body: "Actualizacion automatica generada del commit: ${{ github.event.head_commit.message }}"
+
           files: app/build/outputs/apk/debug/app-debug.apk
-          generate_release_notes: true
+
+          prerelease: false
+
+          make_latest: true
+
         env:
+
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

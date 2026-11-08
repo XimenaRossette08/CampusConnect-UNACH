@@ -1,5 +1,6 @@
 package com.example.campusconnect.ui
 
+import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Spring
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.campusconnect.ComposeLoginActivity
+import com.example.campusconnect.RenovarSesionActivity
 import com.example.campusconnect.TokenManager
 import com.example.campusconnect.model.Evento
 import com.example.campusconnect.network.RetrofitClient
@@ -34,7 +36,9 @@ import com.example.campusconnect.service.ServicioUbicacionAsistencia
 import com.example.campusconnect.update.AppUpdateChecker
 import com.example.campusconnect.update.DialogoActualizacionFlexible
 import com.example.campusconnect.update.InfoActualizacion
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 
 // Paleta Oficial ETDA - UNACH Intacta (pública para todas las pantallas)
@@ -46,13 +50,43 @@ object ColorUnach {
     val TextoSecundario = Color(0xFF5B6670)
 }
 
+private val CATEGORIAS_RECOMPENSAS_OFICIALES = listOf(
+    "Tutorías", "Conferencias", "Talleres", "Académicos", "Culturales", "Deporte"
+)
+
+private fun calcularPuntosDesdePrefs(context: Context): Int {
+    val prefs = context.getSharedPreferences("cc_recompensas_validadas", Context.MODE_PRIVATE)
+    var total = 0
+    for (cat in CATEGORIAS_RECOMPENSAS_OFICIALES) {
+        val nivelReclamado = prefs.getInt("nivel_reclamado_$cat", 0)
+        val asistencias = prefs.getInt("asistencias_cat_$cat", 0)
+        // Suma los puntos de las medallas reclamadas o desbloqueadas (Bronce=100, Plata=+150, Oro=+250)
+        val nivelEfectivo = maxOf(
+            nivelReclamado,
+            when {
+                asistencias >= 12 -> 3
+                asistencias >= 8 -> 2
+                asistencias >= 5 -> 1
+                else -> 0
+            }
+        )
+        total += when (nivelEfectivo) {
+            1 -> 100
+            2 -> 250
+            3 -> 500
+            else -> 0
+        }
+    }
+    return total
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainNavigationScreen(validarSesion: Boolean = true) {
     val context = LocalContext.current
     var pestañaSeleccionada by remember { mutableIntStateOf(0) }
 
-    var puntosUsuario by remember { mutableIntStateOf(0) }
+    var puntosUsuario by remember { mutableIntStateOf(calcularPuntosDesdePrefs(context)) }
 
     val puntosAnimados by animateIntAsState(
         targetValue = puntosUsuario,
@@ -79,6 +113,33 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
         }
     }
 
+    // Sincronizar asistencias por categoría y puntos reales desde el inicio sin esperar a abrir Insignias
+    LaunchedEffect(Unit) {
+        val prefsRecompensas = context.getSharedPreferences("cc_recompensas_validadas", Context.MODE_PRIVATE)
+        while (true) {
+            try {
+                val remotas = withContext(Dispatchers.IO) {
+                    RetrofitClient.obtenerApi(context).obtenerMisRecompensas()
+                }
+                val mapaServidor = remotas.asistenciasPorCategoria.orEmpty()
+                val editor = prefsRecompensas.edit()
+                for (cat in CATEGORIAS_RECOMPENSAS_OFICIALES) {
+                    val conteoRemoto = mapaServidor[cat] ?: 0
+                    val conteoLocal = prefsRecompensas.getInt("asistencias_cat_$cat", 0)
+                    val sincronizado = maxOf(conteoRemoto, conteoLocal).coerceAtMost(12)
+                    editor.putInt("asistencias_cat_$cat", sincronizado)
+                }
+                editor.apply()
+            } catch (_: Exception) {}
+
+            val calculados = calcularPuntosDesdePrefs(context)
+            if (calculados > puntosUsuario) {
+                puntosUsuario = calculados
+            }
+            delay(6_000L)
+        }
+    }
+
     LaunchedEffect(Unit) {
         // Iniciar monitor automático en segundo plano para notificaciones de 30m, fin de evento y cartelera
         ServicioUbicacionAsistencia.iniciarMonitorEnSegundoPlano(context)
@@ -93,8 +154,14 @@ fun MainNavigationScreen(validarSesion: Boolean = true) {
                 errorEventos = null
             } catch (e: HttpException) {
                 if (e.code() == 401 || e.code() == 403) {
-                    TokenManager.cerrarSesion(context)
-                    val intent = Intent(context, ComposeLoginActivity::class.java).apply {
+                    val emailGuardado = TokenManager.obtenerEmail(context)
+                    TokenManager.guardarToken(context, "")
+                    val destino = if (emailGuardado.isNotBlank()) {
+                        RenovarSesionActivity::class.java
+                    } else {
+                        ComposeLoginActivity::class.java
+                    }
+                    val intent = Intent(context, destino).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                     }
                     context.startActivity(intent)

@@ -12,6 +12,7 @@ import com.example.campusconnect.model.RegistroRequest
 import com.example.campusconnect.model.TokenResponse
 import com.example.campusconnect.model.Verificar2FARequest
 import okhttp3.ResponseBody
+import retrofit2.Call
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -36,6 +37,16 @@ interface CampusConnectApi {
     @POST("auth/verificar-2fa")
     suspend fun verificar2FA(
         @Body request: Verificar2FARequest
+    ): Response<TokenResponse>
+
+    @POST("auth/refresh")
+    fun refrescarTokenSync(
+        @Body body: Map<String, String>
+    ): Call<TokenResponse>
+
+    @POST("auth/refresh")
+    suspend fun refrescarToken(
+        @Body body: Map<String, String>
     ): Response<TokenResponse>
 
     @POST("auth/logout")

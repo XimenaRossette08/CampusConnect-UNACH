@@ -2,13 +2,13 @@ package com.example.campusconnect.network
 
 import android.content.Context
 import android.content.Intent
+import com.example.campusconnect.BuildConfig
 import com.example.campusconnect.ComposeLoginActivity
 import com.example.campusconnect.RenovarSesionActivity
 import com.example.campusconnect.TokenManager
 import okhttp3.Authenticator
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
 import okhttp3.logging.HttpLoggingInterceptor
@@ -129,8 +129,17 @@ object RetrofitClient {
             }
         }
 
+        // Remediación Auditoría A-4: Nunca registrar cuerpos (contraseñas, OTPs, tokens) en Logcat;
+        // en Release se desactiva por completo (NONE) y en Debug solo nivel BASIC ocultando cabeceras sensibles.
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BASIC
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
+            redactHeader("Authorization")
+            redactHeader("Cookie")
+            redactHeader("Set-Cookie")
         }
 
         val cliente = OkHttpClient.Builder()

@@ -146,7 +146,7 @@ private fun mostrarPromptHuella(
     context: Context,
     titulo: String,
     subtitulo: String,
-    alAutenticarConExito: () -> Unit,
+    alAutenticarConExito: (javax.crypto.Cipher?) -> Unit,
     alFallar: (String) -> Unit = {}
 ) {
     val activity = context.findFragmentActivity()
@@ -158,7 +158,7 @@ private fun mostrarPromptHuella(
     val callback = object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             super.onAuthenticationSucceeded(result)
-            alAutenticarConExito()
+            alAutenticarConExito(result.cryptoObject?.cipher)
         }
 
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -177,7 +177,17 @@ private fun mostrarPromptHuella(
         .setNegativeButtonText("Usar contraseña")
         .build()
 
-    BiometricPrompt(activity, executor, callback).authenticate(promptInfo)
+    val biometricPrompt = BiometricPrompt(activity, executor, callback)
+    val cipherKeystore = TokenManager.obtenerCipherDescifradoBiometrico(context)
+    if (cipherKeystore != null) {
+        try {
+            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipherKeystore))
+            return
+        } catch (_: Exception) {
+            // Fallback en lectores Clase 2 que no admiten CryptoObject directo
+        }
+    }
+    biometricPrompt.authenticate(promptInfo)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -211,6 +221,8 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
     var regTelefonoPrincipal by remember { mutableStateOf("") }
     var regTelefonoSecundario by remember { mutableStateOf("") }
     var regPassword by remember { mutableStateOf("") }
+    var aceptoAvisoPrivacidad by remember { mutableStateOf(false) }
+    var mostrarModalAvisoPrivacidad by remember { mutableStateOf(false) }
     var mensajeErrorValidacion by remember { mutableStateOf<String?>(null) }
 
     // Catálogo dinámico de Facultades, Carreras, Grupos y Políticas de Registro sincronizado con Administración
@@ -308,11 +320,11 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         }
     }
 
-    fun finalizarAccesoOVincularHuella(emailAutenticado: String, passAutenticada: String) {
+    fun finalizarAccesoOVincularHuella(emailAutenticado: String, refreshTokenNuevo: String) {
         val credsGuardadas = TokenManager.obtenerCredencialesBiometricas(context)
         val yaVinculadoMismoUsuario = credsGuardadas?.first?.equals(emailAutenticado, ignoreCase = true) == true
 
-        if (!yaVinculadoMismoUsuario && passAutenticada.isNotBlank() && dispositivoSoportaHuella(context)) {
+        if (!yaVinculadoMismoUsuario && refreshTokenNuevo.isNotBlank() && dispositivoSoportaHuella(context)) {
             mostrarModalOfrecerHuella = true
         } else {
             onNavigateToAlumno()
@@ -336,7 +348,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     actualizarMarca2FA = true
                 )
                 showOtpDialog = false
-                finalizarAccesoOVincularHuella(estado.correo.trim().lowercase(), estado.pass)
+                finalizarAccesoOVincularHuella(estado.correo.trim().lowercase(), estado.refreshToken)
                 viewModel.resetState()
             }
             is LoginState.RegisterSuccess -> {
@@ -381,21 +393,31 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
     }
 
     fun iniciarConHuellaDactilar() {
-        val creds = TokenManager.obtenerCredencialesBiometricas(context)
-        if (creds == null) {
+        if (!TokenManager.tieneBiometriaHabilitada(context)) {
             Toast.makeText(context, "Primero inicia sesión para vincular tu huella.", Toast.LENGTH_SHORT).show()
             return
         }
+        val correoVinculado = TokenManager.obtenerEmail(context)
 
         mostrarPromptHuella(
             context = context,
             titulo = "Iniciar sesión con Huella Dactilar",
-            subtitulo = "Coloca tu huella para ingresar con ${creds.first}",
-            alAutenticarConExito = {
+            subtitulo = "Coloca tu huella para ingresar con $correoVinculado",
+            alAutenticarConExito = { cipherAutenticado ->
+                val creds = TokenManager.obtenerCredencialesBiometricas(context, cipherAutenticado)
+                if (creds == null) {
+                    Toast.makeText(
+                        context,
+                        "Tu vínculo biométrico expiró. Inicia sesión con tu contraseña.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    TokenManager.desactivarBiometria(context)
+                    biometriaDisponible = false
+                    return@mostrarPromptHuella
+                }
                 correo = creds.first.trim().lowercase()
-                password = creds.second
-                Toast.makeText(context, "Huella reconocida. Iniciando...", Toast.LENGTH_SHORT).show()
-                viewModel.ejecutarLogin(correo, password)
+                Toast.makeText(context, "Huella verificada. Renovando sesión segura...", Toast.LENGTH_SHORT).show()
+                viewModel.ejecutarLoginBiometrico(correo, creds.second)
             },
             alFallar = { msg ->
                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -410,7 +432,7 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
         val matriculaLimpia = regMatricula.trim().uppercase()
         val carreraNombre = carreraSeleccionada?.nombre?.trim().orEmpty()
         val grupoLimpio = grupoSeleccionado.trim().uppercase()
-        val passLimpia = regPassword.trim()
+        val passLimpia = regPassword
 
         if (nombreLimpio.length < 2) {
             mensajeErrorValidacion = "Ingresa tu nombre completo (mínimo 2 caracteres)."
@@ -489,9 +511,17 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
             }
         }
 
-        val minPass = configRegistro.longitudMinPassword.coerceAtLeast(6)
+        val minPass = configRegistro.longitudMinPassword.coerceAtLeast(8)
         if (passLimpia.length < minPass) {
             mensajeErrorValidacion = "La contraseña debe tener al menos $minPass caracteres."
+            return
+        }
+        if (passLimpia.toByteArray(Charsets.UTF_8).size > 72) {
+            mensajeErrorValidacion = "La contraseña no debe exceder 72 caracteres."
+            return
+        }
+        if (!aceptoAvisoPrivacidad) {
+            mensajeErrorValidacion = "Debes leer y aceptar el Aviso de Privacidad Institucional para registrarte."
             return
         }
 
@@ -1305,7 +1335,54 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                         colors = textFieldColors
                     )
 
-                    Spacer(modifier = Modifier.height(22.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Casilla de Aviso de Privacidad y Protección de Datos Personales UNACH (Auditoría 7.3.1)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, if (aceptoAvisoPrivacidad) BrightBlue.copy(alpha = 0.45f) else Color(0xFFCBD5E1)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = aceptoAvisoPrivacidad,
+                                onCheckedChange = {
+                                    aceptoAvisoPrivacidad = it
+                                    mensajeErrorValidacion = null
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = NavyBlue,
+                                    uncheckedColor = Color(0xFF64748B)
+                                )
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "He leído y acepto el Aviso de Privacidad y el tratamiento de mis datos académicos.",
+                                    fontSize = 11.sp,
+                                    color = NavyBlue,
+                                    lineHeight = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "Consultar Aviso de Privacidad y Derechos ARCO",
+                                    fontSize = 11.sp,
+                                    color = BrightBlue,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .padding(top = 2.dp)
+                                        .clickable { mostrarModalAvisoPrivacidad = true }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
 
                     Button(
                         onClick = { validarYEnviarRegistro() },
@@ -1467,8 +1544,10 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                 confirmButton = {
                     Button(
                         onClick = {
-                            TokenManager.guardarCredencialesBiometricas(context, correo.trim().lowercase(), password.trim())
-                            biometriaDisponible = true
+                            val refreshActual = TokenManager.obtenerRefreshToken(context).orEmpty()
+                            TokenManager.guardarTokenBiometrico(context, correo.trim().lowercase(), refreshActual)
+                            password = ""
+                            biometriaDisponible = TokenManager.tieneBiometriaHabilitada(context)
                             mostrarModalOfrecerHuella = false
                             onNavigateToAlumno()
                         },
@@ -1477,8 +1556,92 @@ fun LoginScreen(viewModel: LoginViewModel, onNavigateToAlumno: () -> Unit) {
                     ) { Text("Sí, activar", color = Color.White, fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { mostrarModalOfrecerHuella = false; onNavigateToAlumno() }) {
+                    TextButton(onClick = { password = ""; mostrarModalOfrecerHuella = false; onNavigateToAlumno() }) {
                         Text("Ahora no", color = Color.Gray, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            )
+        }
+
+        if (mostrarModalAvisoPrivacidad) {
+            AlertDialog(
+                onDismissRequest = { mostrarModalAvisoPrivacidad = false },
+                shape = RoundedCornerShape(24.dp),
+                containerColor = Color.White,
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PrivacyTip, contentDescription = null, tint = NavyBlue)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Aviso de Privacidad UNACH",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = NavyBlue,
+                            fontSize = 18.sp
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 340.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "1. Responsable y Finalidades:",
+                            fontWeight = FontWeight.Bold,
+                            color = NavyBlue,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            "Campus Connect UNACH (Escuela de Tecnologías Digitales Aplicadas - ETDA) recaba tu nombre, correo institucional, matrícula, carrera y grupo exclusivamente para gestionar tu inscripción a eventos académicos, asignar asientos, validar tu asistencia y emitir constancias o insignias.",
+                            color = Color(0xFF475569),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                        Text(
+                            "2. Uso de Ubicación (Geocerca):",
+                            fontWeight = FontWeight.Bold,
+                            color = NavyBlue,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            "Cuando inicias el Paso 2/2 de validación de permanencia en un evento presencial, la aplicación verifica en tiempo real que te encuentres dentro del polígono de la sede universitaria. Tus coordenadas GPS exactas NO se almacenan en la base de datos; únicamente se registra el conteo de validaciones exitosas. Puedes detener el monitoreo o revocar el permiso en cualquier momento.",
+                            color = Color(0xFF475569),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                        Text(
+                            "3. Derechos ARCO (Acceso, Rectificación, Cancelación y Oposición):",
+                            fontWeight = FontWeight.Bold,
+                            color = NavyBlue,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            "Conforme a la Ley General de Protección de Datos Personales en Posesión de Sujetos Obligados, puedes solicitar el acceso, rectificación, cancelación u oposición al tratamiento de tus datos personales ante la coordinación de ETDA UNACH o desde tu perfil académico.",
+                            color = Color(0xFF475569),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            aceptoAvisoPrivacidad = true
+                            mostrarModalAvisoPrivacidad = false
+                            mensajeErrorValidacion = null
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+                    ) {
+                        Text("Aceptar aviso", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { mostrarModalAvisoPrivacidad = false }) {
+                        Text("Cerrar", color = Color.Gray, fontWeight = FontWeight.SemiBold)
                     }
                 }
             )

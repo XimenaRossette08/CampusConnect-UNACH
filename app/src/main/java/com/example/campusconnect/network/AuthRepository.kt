@@ -20,6 +20,8 @@ class AuthRepository(private val api: CampusConnectApi) {
                     Result.success(response.body()!!)
                 } else if (response.code() == 401) {
                     Result.failure(Exception("Correo o contraseña incorrectos"))
+                } else if (response.code() == 429) {
+                    Result.failure(Exception("Demasiados intentos. Espera unos minutos antes de reintentar."))
                 } else {
                     Result.failure(Exception("Error en servidor: ${response.code()}"))
                 }
@@ -29,7 +31,6 @@ class AuthRepository(private val api: CampusConnectApi) {
         }
     }
 
-    // Aquí ya está el código que faltaba para registrar
     suspend fun registrar(request: RegistroRequest): Result<Boolean> {
         return withContext(Dispatchers.IO) {
             try {
@@ -45,7 +46,6 @@ class AuthRepository(private val api: CampusConnectApi) {
         }
     }
 
-    // Corregido a TokenResponse para que coincida con tu API
     suspend fun verificar2FA(correo: String, codigo: String): Result<TokenResponse> {
         return withContext(Dispatchers.IO) {
             try {
@@ -58,6 +58,26 @@ class AuthRepository(private val api: CampusConnectApi) {
                 }
             } catch (e: Exception) {
                 Result.failure(Exception("Error al verificar el código"))
+            }
+        }
+    }
+
+    /**
+     * Remediación Auditoría A-4: Renueva la sesión usando el refresh_token protegido
+     * por Android Keystore y BiometricPrompt, sin guardar ni enviar jamás la contraseña.
+     */
+    suspend fun renovarSesionBiometrica(refreshToken: String): Result<TokenResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = api.refrescarToken(mapOf("refresh_token" to refreshToken))
+                val body = response.body()
+                if (response.isSuccessful && body != null && body.accessToken.isNotBlank()) {
+                    Result.success(body)
+                } else {
+                    Result.failure(Exception("Tu sesión biométrica expiró. Inicia sesión con tu contraseña para renovarla."))
+                }
+            } catch (e: Exception) {
+                Result.failure(Exception("Error de conexión al validar tu sesión biométrica"))
             }
         }
     }

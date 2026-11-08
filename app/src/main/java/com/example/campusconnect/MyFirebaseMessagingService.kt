@@ -22,7 +22,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d("FCM_TOKEN", "Nuevo token generado: $token")
+        // Remediación Auditoría A-4: Nunca imprimir el token FCM en Logcat.
 
         val jwt = TokenManager.obtenerToken(applicationContext)
         if (!jwt.isNullOrBlank()) {
@@ -30,8 +30,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 try {
                     RetrofitClient.obtenerApi(applicationContext)
                         .registrarFcmToken(mapOf("fcm_token" to token))
-                } catch (e: Exception) {
-                    Log.e("FCM_TOKEN", "No se pudo subir el nuevo token al backend: ${e.message}")
+                } catch (_: Exception) {
+                    if (BuildConfig.DEBUG) {
+                        Log.w("FCM_SYNC", "No se pudo sincronizar el registro de notificaciones")
+                    }
                 }
             }
         }
@@ -160,8 +162,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 try {
                     builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                     notificationManager.notify(notifId, builder.build())
-                } catch (e2: Exception) {
-                    Log.e("FCM", "Error al mostrar notificación: ${e2.message}")
+                } catch (_: Exception) {
                 }
             }
         }
